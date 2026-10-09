@@ -445,6 +445,25 @@ DEFINE_int32(user_timestamp_size, 0,
 DEFINE_int32(num_multi_db, 0,
              "Number of DBs used in the benchmark. 0 means single DB.");
 
+static bool ValidateMultiDBPercent(const char* flagname, int32_t value) {
+  if (value < 1 || value > 100) {
+    fprintf(stderr, "Invalid value for --%s: %d\n", flagname, value);
+    return false;
+  }
+  return true;
+}
+
+DEFINE_int32(multi_db_hot_db_pct, 100,
+             "Percentage of multi-DB instances considered hot");
+static const bool FLAGS_multi_db_hot_db_pct_dummy __attribute__((__unused__)) =
+    RegisterFlagValidator(&FLAGS_multi_db_hot_db_pct, &ValidateMultiDBPercent);
+
+DEFINE_int32(multi_db_hot_write_pct, 100,
+             "Percentage of writes directed to the hot multi-DB instances");
+static const bool FLAGS_multi_db_hot_write_pct_dummy
+    __attribute__((__unused__)) = RegisterFlagValidator(
+        &FLAGS_multi_db_hot_write_pct, &ValidateMultiDBPercent);
+
 DEFINE_double(compression_ratio, 0.5,
               "Arrange to generate values that shrink to this fraction of "
               "their original size after compression");
@@ -545,6 +564,24 @@ DEFINE_bool(enable_numa, false,
 DEFINE_int64(db_write_buffer_size,
              ROCKSDB_NAMESPACE::Options().db_write_buffer_size,
              "Number of bytes to buffer in all memtables before compacting");
+
+static bool ValidateWBMFlushPolicy(const char* flagname, int32_t value) {
+  const int32_t oldest = ROCKSDB_NAMESPACE::lossless_cast<int32_t>(
+      ROCKSDB_NAMESPACE::WriteBufferFlushPolicy::kFlushOldest);
+  const int32_t largest_across_dbs = ROCKSDB_NAMESPACE::lossless_cast<int32_t>(
+      ROCKSDB_NAMESPACE::WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
+  if (value < oldest || value > largest_across_dbs) {
+    fprintf(stderr, "Invalid value for --%s: %d\n", flagname, value);
+    return false;
+  }
+  return true;
+}
+
+DEFINE_int32(wbm_flush_policy, 0,
+             "WriteBufferManager flush policy: 0 = oldest, 1 = largest in "
+             "the current DB, 2 = largest across DBs");
+static const bool FLAGS_wbm_flush_policy_dummy __attribute__((__unused__)) =
+    RegisterFlagValidator(&FLAGS_wbm_flush_policy, &ValidateWBMFlushPolicy);
 
 DEFINE_int64(max_manifest_file_size,
              ROCKSDB_NAMESPACE::Options().max_manifest_file_size,
@@ -4408,11 +4445,59 @@ class Benchmark {
     }
   }
 
+  void PrintWBMFlushDiagnostics() {
+    if (FLAGS_wbm_flush_policy !=
+            static_cast<int32_t>(
+                WriteBufferFlushPolicy::kFlushLargestAcrossDBs) ||
+        open_options_.write_buffer_manager == nullptr) {
+      return;
+    }
+    const WBMFlushDiagnostics diagnostics =
+        open_options_.write_buffer_manager->EXPERIMENT_GetFlushDiagnostics();
+    fprintf(
+        stdout,
+        "WBM_FLUSH_DIAGNOSTICS pressure_checks=%" PRIu64
+        " candidate_missing=%" PRIu64 " candidate_self=%" PRIu64
+        " candidate_empty=%" PRIu64 " candidate_not_larger=%" PRIu64
+        " remote_enqueued=%" PRIu64 " reject_db_mutex=%" PRIu64
+        " reject_db_ineligible=%" PRIu64 " reject_no_flushable_cf=%" PRIu64
+        " reject_fallback=%" PRIu64 " reject_pending=%" PRIu64
+        " pending_deferred=%" PRIu64 " local_switches=%" PRIu64
+        " local_switch_bytes=%" PRIu64 " remote_jobs_started=%" PRIu64
+        " remote_started_without_pressure=%" PRIu64 " remote_switches=%" PRIu64
+        " remote_switch_bytes=%" PRIu64 " remote_db_ineligible=%" PRIu64
+        " remote_no_mutable_mem=%" PRIu64
+        " remote_flush_pending_or_running=%" PRIu64
+        " remote_switch_failed=%" PRIu64 " remote_noop_after_pick=%" PRIu64
+        " remote_noop_selected_bytes=%" PRIu64 " remote_queue_micros=%" PRIu64
+        " remote_queue_max_micros=%" PRIu64 " peak_memory=%" PRIu64
+        " peak_mutable_memory=%" PRIu64 "\n",
+        diagnostics.pressure_checks, diagnostics.candidate_missing,
+        diagnostics.candidate_self, diagnostics.candidate_empty,
+        diagnostics.candidate_not_larger, diagnostics.remote_schedule_enqueued,
+        diagnostics.remote_schedule_db_mutex_busy,
+        diagnostics.remote_schedule_db_ineligible,
+        diagnostics.remote_schedule_no_flushable_cf,
+        diagnostics.remote_schedule_needs_local_fallback,
+        diagnostics.remote_schedule_already_scheduled,
+        diagnostics.remote_pending_deferred, diagnostics.local_switches,
+        diagnostics.local_switch_bytes, diagnostics.remote_jobs_started,
+        diagnostics.remote_jobs_started_without_pressure,
+        diagnostics.remote_switches, diagnostics.remote_switch_bytes,
+        diagnostics.remote_db_ineligible, diagnostics.remote_no_mutable_mem,
+        diagnostics.remote_flush_pending_or_running,
+        diagnostics.remote_switch_failed, diagnostics.remote_noop_after_pick,
+        diagnostics.remote_noop_selected_bytes, diagnostics.remote_queue_micros,
+        diagnostics.remote_queue_max_micros, diagnostics.peak_memory_usage,
+        diagnostics.peak_mutable_memory_usage);
+  }
+
   ~Benchmark() {
     {
       DbStateMutationGuard mutation(this);
       DeleteDBs();
     }
+    PrintWBMFlushDiagnostics();
     if (cache_.get() != nullptr) {
       // Clear cache reference first
       open_options_.write_buffer_manager.reset();
@@ -5713,6 +5798,10 @@ class Benchmark {
               options.db_write_buffer_size);
         }
       }
+      if (options.write_buffer_manager != nullptr) {
+        options.write_buffer_manager->SetFlushPolicy(
+            lossless_cast<WriteBufferFlushPolicy>(FLAGS_wbm_flush_policy));
+      }
       return;
     }
     if (!FLAGS_cost_write_buffer_to_cache &&
@@ -5725,7 +5814,9 @@ class Benchmark {
       charge_cache = cache_;
     }
     options.write_buffer_manager = std::make_shared<WriteBufferManager>(
-        options.db_write_buffer_size, std::move(charge_cache));
+        options.db_write_buffer_size, std::move(charge_cache),
+        false /* allow_stall */,
+        lossless_cast<WriteBufferFlushPolicy>(FLAGS_wbm_flush_policy));
   }
 
   void InitializeOptionsFromFlags(Options* opts) {
@@ -7133,7 +7224,19 @@ class Benchmark {
       }
 
       if (write_mode != SEQUENTIAL) {
-        id = thread->rand.Next() % num_key_gens;
+        const uint64_t selector = thread->rand.Next();
+        const size_t hot_db_count =
+            std::max<size_t>(1, num_key_gens * FLAGS_multi_db_hot_db_pct / 100);
+        if (hot_db_count < num_key_gens &&
+            selector % 100 <
+                static_cast<uint64_t>(FLAGS_multi_db_hot_write_pct)) {
+          id = thread->rand.Next() % hot_db_count;
+        } else if (hot_db_count < num_key_gens) {
+          id = hot_db_count +
+               thread->rand.Next() % (num_key_gens - hot_db_count);
+        } else {
+          id = selector % num_key_gens;
+        }
       } else {
         // When doing a sequential load with multiple databases, load them in
         // order rather than all at the same time to avoid:

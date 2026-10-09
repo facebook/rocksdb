@@ -949,6 +949,32 @@ class FlushedDBRecorder : public EventListener {
   std::map<DB*, std::set<std::string>> cf_flushes_;
   size_t manual_flushes_ = 0;
 };
+
+class FlushCounter : public EventListener {
+ public:
+  void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& /*info*/) override {
+    InstrumentedMutexLock l(&mu_);
+    ++flushes_;
+    cv_.SignalAll();
+  }
+
+  size_t Get() {
+    InstrumentedMutexLock l(&mu_);
+    return flushes_;
+  }
+
+  void WaitFor(size_t target) {
+    InstrumentedMutexLock l(&mu_);
+    while (flushes_ < target) {
+      cv_.Wait();
+    }
+  }
+
+ private:
+  InstrumentedMutex mu_;
+  InstrumentedCondVar cv_{&mu_};
+  size_t flushes_ = 0;
+};
 }  // anonymous namespace
 
 // Soft WBM pressure must flush the largest DB sharing the WBM.
@@ -1229,6 +1255,77 @@ TEST_F(DBWriteBufferManagerTest,
   ASSERT_OK(other_db->Close());
   other_db.reset();
   ASSERT_OK(DestroyDB(other_dbname, options));
+}
+
+TEST_F(DBWriteBufferManagerTest, DISABLED_SkewedMultiDBFlushCountExperiment) {
+  Close();
+
+  auto run_workload = [&](WriteBufferFlushPolicy policy,
+                          const std::string& name, size_t* flushes) {
+    auto counter = std::make_shared<FlushCounter>();
+    Options options = CurrentOptions();
+    options.arena_block_size = 4 << 10;
+    options.write_buffer_size = 64 << 20;
+    options.disable_auto_compactions = true;
+    options.listeners.push_back(counter);
+    options.write_buffer_manager = std::make_shared<WriteBufferManager>(
+        8 << 20, nullptr, false /* allow_stall */, policy);
+
+    std::vector<std::string> dbnames;
+    std::vector<std::unique_ptr<DB>> dbs(4);
+    for (size_t i = 0; i < dbs.size(); ++i) {
+      dbnames.push_back(test::PerThreadDBPath("wbm_flush_count_" + name + "_" +
+                                              std::to_string(i)));
+      ASSERT_OK(DestroyDB(dbnames.back(), options));
+      ASSERT_OK(DB::Open(options, dbnames.back(), &dbs[i]));
+    }
+    Defer cleanup([&] {
+      for (auto& db : dbs) {
+        if (db != nullptr) {
+          db->Close().PermitUncheckedError();
+          db.reset();
+        }
+      }
+      for (const auto& dbname : dbnames) {
+        DestroyDB(dbname, options).PermitUncheckedError();
+      }
+    });
+
+    WriteOptions write_options;
+    write_options.disableWAL = true;
+    const std::string cold_value(3 << 20, 'c');
+    ASSERT_OK(dbs[2]->Put(write_options, "cold-0", cold_value));
+    ASSERT_OK(dbs[3]->Put(write_options, "cold-1", cold_value));
+
+    const std::string hot_value(32 << 10, 'h');
+    constexpr size_t kHotBytes = 16 << 20;
+    const size_t hot_writes = kHotBytes / hot_value.size();
+    for (size_t i = 0; i < hot_writes; ++i) {
+      DB* hot_db = dbs[i % 2].get();
+      ASSERT_OK(
+          hot_db->Put(write_options, "hot-" + std::to_string(i), hot_value));
+      if (options.write_buffer_manager->ShouldFlush()) {
+        const size_t target = counter->Get() + 1;
+        ASSERT_OK(
+            hot_db->Put(write_options, "trigger-" + std::to_string(i), "x"));
+        counter->WaitFor(target);
+      }
+    }
+    *flushes = counter->Get();
+  };
+
+  size_t oldest_flushes = 0;
+  run_workload(WriteBufferFlushPolicy::kFlushOldest, "oldest", &oldest_flushes);
+  ASSERT_FALSE(HasFatalFailure());
+
+  size_t across_db_flushes = 0;
+  run_workload(WriteBufferFlushPolicy::kFlushLargestAcrossDBs, "across_dbs",
+               &across_db_flushes);
+  ASSERT_FALSE(HasFatalFailure());
+
+  fprintf(stderr, "WBM skewed workload flushes: oldest=%zu across_dbs=%zu\n",
+          oldest_flushes, across_db_flushes);
+  EXPECT_LT(across_db_flushes, oldest_flushes);
 }
 
 TEST_F(DBWriteBufferManagerTest,
@@ -2324,6 +2421,97 @@ TEST_P(DBWriteBufferManagerTest,
   ASSERT_OK(atomic_db->Close());
   atomic_db.reset();
   ASSERT_OK(DestroyDB(atomic_dbname, atomic_options));
+}
+
+// Verifies the DB properties that expose WriteBufferManager state. These report
+// the *shared* manager's totals, so they are the only way to observe a
+// WriteBufferManager spanning several DBs as a single entity.
+TEST_F(DBWriteBufferManagerTest, WriteBufferManagerProperties) {
+  constexpr uint64_t kBufferSize = 512 << 10;
+
+  Options options = CurrentOptions();
+  options.arena_block_size = 4 << 10;
+  options.write_buffer_size = 64 << 20;  // never self-triggers a CF flush
+  options.write_buffer_manager = std::make_shared<WriteBufferManager>(
+      kBufferSize, nullptr /* cache */, false /* allow_stall */);
+  DestroyAndReopen(options);
+
+  auto get = [&](const std::string& property) {
+    uint64_t value = 0;
+    EXPECT_TRUE(db_->GetIntProperty(property, &value));
+    return value;
+  };
+
+  EXPECT_EQ(kBufferSize, get(DB::Properties::kWriteBufferManagerBufferSize));
+  EXPECT_EQ(0u, get(DB::Properties::kWriteBufferManagerStallActive));
+
+  WriteOptions wo;
+  wo.disableWAL = true;
+  ASSERT_OK(Put(Key(1), DummyString(200 << 10), wo));
+
+  const uint64_t total = get(DB::Properties::kWriteBufferManagerMemoryUsage);
+  const uint64_t mutable_total =
+      get(DB::Properties::kWriteBufferManagerMutableMemoryUsage);
+  EXPECT_GE(total, 200u << 10);
+  // Nothing has been flushed, so all accounted memory is still mutable.
+  EXPECT_EQ(total, mutable_total);
+
+  // After sealing the memtable the bytes stay accounted (still resident) but
+  // are no longer mutable.
+  ASSERT_OK(static_cast_with_check<DBImpl>(db_.get())->TEST_SwitchMemtable());
+  EXPECT_LT(get(DB::Properties::kWriteBufferManagerMutableMemoryUsage),
+            mutable_total);
+}
+
+// A WriteBufferManager stall is not counted by STALL_MICROS (which covers only
+// WriteController stalls), so verify the dedicated counter records it.
+TEST_F(DBWriteBufferManagerTest, WriteBufferManagerStallMicros) {
+  constexpr int kBigValue = 10000;
+
+  Options options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
+  options.write_buffer_manager = std::make_shared<WriteBufferManager>(
+      1, nullptr /* cache */, true /* allow_stall */);
+  DestroyAndReopen(options);
+
+  // Pause the flush thread so the stall can only be ended by SetAllowStall()
+  // below, making the stall deterministic rather than racing a flush.
+  auto sleeping_task = std::make_unique<test::SleepingBackgroundTask>();
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 sleeping_task.get(), Env::Priority::HIGH);
+  sleeping_task->WaitUntilSleeping();
+
+  ASSERT_EQ(
+      0, options.statistics->getTickerCount(WRITE_BUFFER_MANAGER_STALL_MICROS));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"WBMStallInterface::BlockDB",
+        "DBWriteBufferManagerTest::WriteBufferManagerStallMicros:Unstall"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  port::Thread writer([&] { ASSERT_OK(Put(Key(0), DummyString(kBigValue))); });
+  port::Thread unstaller([&] {
+    TEST_SYNC_POINT(
+        "DBWriteBufferManagerTest::WriteBufferManagerStallMicros:Unstall");
+    options.write_buffer_manager->SetAllowStall(false);
+  });
+  writer.join();
+  unstaller.join();
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+  // The writer above provably blocked in WBMStallInterface::Block(), so the
+  // stall must have been measured and attributed.
+  EXPECT_GT(
+      options.statistics->getTickerCount(WRITE_BUFFER_MANAGER_STALL_MICROS), 0);
+  std::map<std::string, std::string> db_stats;
+  ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
+  EXPECT_GT(std::stoull(db_stats["db.write_buffer_manager_stall_micros"]), 0u);
+
+  sleeping_task->WakeUp();
+  sleeping_task->WaitUntilDone();
 }
 
 TEST_F(DBWriteBufferManagerTest, RuntimeChangeableAllowStall) {

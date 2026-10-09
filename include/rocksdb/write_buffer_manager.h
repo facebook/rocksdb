@@ -35,6 +35,55 @@ enum class WriteBufferFlushPolicy {
   kFlushLargestAcrossDBs,
 };
 
+enum class WBMFlushScheduleOutcome {
+  kEnqueued,
+  kDBMutexBusy,
+  kDBIneligible,
+  kNoFlushableCF,
+  kNeedsLocalFallback,
+  kAlreadyScheduled,
+};
+
+enum class WBMRemoteFlushOutcome {
+  kSwitched,
+  kDBIneligible,
+  kNoMutableMem,
+  kFlushPendingOrRunning,
+  kSwitchFailed,
+  kNoopAfterPick,
+};
+
+struct WBMFlushDiagnostics {
+  uint64_t pressure_checks = 0;
+  uint64_t candidate_missing = 0;
+  uint64_t candidate_self = 0;
+  uint64_t candidate_empty = 0;
+  uint64_t candidate_not_larger = 0;
+  uint64_t remote_schedule_enqueued = 0;
+  uint64_t remote_schedule_db_mutex_busy = 0;
+  uint64_t remote_schedule_db_ineligible = 0;
+  uint64_t remote_schedule_no_flushable_cf = 0;
+  uint64_t remote_schedule_needs_local_fallback = 0;
+  uint64_t remote_schedule_already_scheduled = 0;
+  uint64_t remote_pending_deferred = 0;
+  uint64_t local_switches = 0;
+  uint64_t local_switch_bytes = 0;
+  uint64_t remote_jobs_started = 0;
+  uint64_t remote_jobs_started_without_pressure = 0;
+  uint64_t remote_switches = 0;
+  uint64_t remote_switch_bytes = 0;
+  uint64_t remote_db_ineligible = 0;
+  uint64_t remote_no_mutable_mem = 0;
+  uint64_t remote_flush_pending_or_running = 0;
+  uint64_t remote_switch_failed = 0;
+  uint64_t remote_noop_after_pick = 0;
+  uint64_t remote_noop_selected_bytes = 0;
+  uint64_t remote_queue_micros = 0;
+  uint64_t remote_queue_max_micros = 0;
+  uint64_t peak_memory_usage = 0;
+  uint64_t peak_mutable_memory_usage = 0;
+};
+
 // Interface to block and signal DB instances, intended for RocksDB
 // internal use only. Each DB instance contains ptr to StallInterface.
 class StallInterface {
@@ -221,6 +270,18 @@ class WriteBufferManager final {
 
   void NotifyFlushInitiatorFlushCancelled(FlushInitiator* initiator);
 
+  WBMFlushDiagnostics EXPERIMENT_GetFlushDiagnostics() const;
+
+  void EXPERIMENT_RecordScheduleOutcome(WBMFlushScheduleOutcome outcome);
+
+  void EXPERIMENT_RecordLocalSwitch(size_t bytes);
+
+  void EXPERIMENT_RecordRemoteJobStart(uint64_t queue_micros,
+                                       bool pressure_active);
+
+  void EXPERIMENT_RecordRemoteJobResult(WBMRemoteFlushOutcome outcome,
+                                        size_t switched_bytes);
+
   // Rebuilds the cached candidate synchronously for deterministic tests.
   void TEST_RefreshFlushInitiatorCandidate();
 
@@ -271,6 +332,9 @@ class WriteBufferManager final {
 
   struct FlushInitiatorRegistry;
   std::unique_ptr<FlushInitiatorRegistry> flush_initiator_registry_;
+  struct ExperimentalFlushDiagnosticsCounters;
+  std::unique_ptr<ExperimentalFlushDiagnosticsCounters>
+      experimental_flush_diagnostics_;
 
   enum class FlushHandoffState : uint8_t {
     kIdle,

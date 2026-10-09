@@ -515,6 +515,67 @@ class BackgroundFlushCycleTest : public WriteBufferManagerTest {
   bool pressure_active_ = false;
 };
 
+class OnDemandFlushInitiator : public ControlledFlushInitiator {
+ public:
+  explicit OnDemandFlushInitiator(size_t mem)
+      : ControlledFlushInitiator(0, true), mem_(mem) {}
+
+  bool UsesOnDemandAccounting() const override { return true; }
+  bool TryGetFlushableMemUsage(size_t* bytes) override {
+    scan_calls_.fetch_add(1, std::memory_order_relaxed);
+    *bytes = mem_;
+    return true;
+  }
+
+  int ScanCalls() const { return scan_calls_.load(std::memory_order_relaxed); }
+
+ private:
+  const size_t mem_;
+  std::atomic<int> scan_calls_{0};
+};
+
+TEST_F(WriteBufferManagerTest, OnDemandAccountingDoesNotScanWithoutPressure) {
+  WriteBufferManager wbf(1024, nullptr, false,
+                         WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
+  OnDemandFlushInitiator initiator(400);
+  wbf.RegisterFlushInitiator(&initiator);
+  wbf.TEST_WaitForFlushInitiatorRefresh();
+  EXPECT_EQ(0, initiator.ScanCalls());
+  wbf.DeregisterFlushInitiator(&initiator);
+}
+
+TEST_F(WriteBufferManagerTest, OnDemandRankingUsesScannedBytes) {
+  WriteBufferManager wbf(1024, nullptr, false,
+                         WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
+  OnDemandFlushInitiator initiator(400);
+  AllocTracker tracker(&wbf, &initiator);
+  tracker.Allocate(100);
+  tracker.ActivateFlushInitiator();
+  EXPECT_EQ(0, initiator.GetTotalMutableMem());
+  EXPECT_FALSE(tracker.IsFlushInitiatorActive());
+  wbf.RegisterFlushInitiator(&initiator);
+  wbf.TEST_RefreshFlushInitiatorCandidate();
+  EXPECT_EQ(400, initiator.GetFlushableMemUsage());
+  EXPECT_TRUE(wbf.TEST_ScheduleFlushOnLargestDB(nullptr));
+  wbf.DeregisterFlushInitiator(&initiator);
+}
+
+TEST_F(WriteBufferManagerTest, OnDemandRankingSelectsLargestAcrossRegistry) {
+  WriteBufferManager wbf(1024, nullptr, false,
+                         WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
+  std::vector<std::unique_ptr<OnDemandFlushInitiator>> candidates;
+  for (size_t mem = 1; mem <= 100; ++mem) {
+    candidates.emplace_back(std::make_unique<OnDemandFlushInitiator>(mem));
+    wbf.RegisterFlushInitiator(candidates.back().get());
+  }
+  wbf.TEST_RefreshFlushInitiatorCandidate();
+  EXPECT_TRUE(wbf.TEST_ScheduleFlushOnLargestDB(nullptr));
+  EXPECT_EQ(1, candidates.back()->ScheduleCalls());
+  for (const auto& candidate : candidates) {
+    wbf.DeregisterFlushInitiator(candidate.get());
+  }
+}
+
 // The deterministic selection hook reports true only when a flush is accepted.
 TEST_F(WriteBufferManagerTest, ScheduleFlushOnLargestDBContract) {
   WriteBufferManager wbf(100 * 1024 * 1024, nullptr /* cache */,
