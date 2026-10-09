@@ -539,6 +539,15 @@ class CompactionService : public Customizable {
   // Returns the name of this compaction service.
   const char* Name() const override = 0;
 
+  // Decide whether a subcompaction should execute locally, before serializing
+  // or scheduling remote work. Called concurrently for different jobs and
+  // subcompactions. Local execution waits for a local compaction slot.
+  // Returning false still permits Schedule() or Wait() to return kUseLocal.
+  // Called only when use_separate_remote_compaction_pool is enabled.
+  virtual bool ShouldUseLocal(const CompactionServiceJobInfo& /*info*/) {
+    return false;
+  }
+
   // Schedule compaction to be processed remotely.
   virtual CompactionServiceScheduleResponse Schedule(
       const CompactionServiceJobInfo& /*info*/,
@@ -1777,6 +1786,21 @@ struct DBOptions {
   // backward/forward compatibility support for now. Some known issues are still
   // under development.
   std::shared_ptr<CompactionService> compaction_service = nullptr;
+
+  // When true and compaction_service is configured, remote jobs and
+  // subcompactions use a dedicated pool that grows on demand.
+  // Remote waits do not consume LOW/BOTTOM workers or the local compaction
+  // budget. Background local choices and fallbacks use those pools and count
+  // each subcompaction against the DB's background compaction limit.
+  // CompactFiles keeps synchronous local execution on the caller thread.
+  // Idle remote workers are retained until DB close.
+  // When false, coordinators use LOW/BOTTOM and the existing background
+  // compaction budget; local subcompactions use the existing execution path.
+  // Dynamically changeable through SetDBOptions(). Each coordinator keeps the
+  // setting chosen when it was scheduled, including its local subcompactions.
+  // Disabling does not cancel jobs or release idle remote workers.
+  // Default: false
+  bool use_separate_remote_compaction_pool = false;
 
   // Hardening for remote compaction (CompactionService / DB::OpenAndCompact).
   // When true (default), the primary includes in each remote compaction request

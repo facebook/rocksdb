@@ -562,11 +562,12 @@ struct IOErrorInfo {
 // Point-in-time snapshot of background job pressure for one DB: how busy
 // compaction and flush are, and how close the DB is to write-stalling.
 struct BackgroundJobPressure {
-  // Compaction scheduling (LOW + BOTTOM priority combined)
+  // Compaction jobs, including remote coordinators.
   int compaction_scheduled = 0;
   int compaction_running = 0;
 
-  // Per-priority compaction breakdown
+  // Per-priority local pool usage. With a CompactionService, these count
+  // queued/running local subcompactions and exclude remote coordinators.
   int compaction_low_scheduled = 0;
   int compaction_low_running = 0;
   int compaction_bottom_scheduled = 0;

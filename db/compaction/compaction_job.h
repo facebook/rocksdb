@@ -171,6 +171,19 @@ class CompactionJob {
 
   virtual ~CompactionJob();
 
+  using RemoteCompactionExecutor = std::function<void(std::function<void()>)>;
+  using LocalCompactionExecutor =
+      std::function<Status(std::function<void()>, Env::Priority)>;
+
+  // Set before Prepare(). Remote submissions are asynchronous; local
+  // execution blocks until the task finishes or is canceled. Both executors
+  // must outlive Run(). Service workers leave these unset.
+  void SetCompactionExecutors(RemoteCompactionExecutor remote_executor,
+                              LocalCompactionExecutor local_executor) {
+    remote_compaction_executor_ = std::move(remote_executor);
+    local_compaction_executor_ = std::move(local_executor);
+  }
+
   // no copy/move
   CompactionJob(CompactionJob&& job) = delete;
   CompactionJob(const CompactionJob& job) = delete;
@@ -222,6 +235,7 @@ class CompactionJob {
 
   // Iterate through input and compact the kv-pairs.
   void ProcessKeyValueCompaction(SubcompactionState* sub_compact);
+  void ProcessLocalKeyValueCompaction(SubcompactionState* sub_compact);
 
   CompactionState* compact_;
   InternalStats::CompactionStatsFull internal_stats_;
@@ -430,8 +444,8 @@ class CompactionJob {
                              uint64_t prev_cpu_micros,
                              const CompactionIOStatsSnapshot& io_stats);
 
-  // update the thread status for starting a compaction.
   void ReportStartedCompaction(Compaction* compaction);
+  void InitializeThreadStatus();
 
   Status FinishCompactionOutputFile(
       const Status& input_status,
@@ -506,6 +520,8 @@ class CompactionJob {
   // has no owning DBImpl to report to (compaction service workers, unit tests).
   // Updated without the DB mutex held.
   std::atomic<int>* num_running_remote_compactions_;
+  RemoteCompactionExecutor remote_compaction_executor_;
+  LocalCompactionExecutor local_compaction_executor_;
 
   // Stores the sequence number to time mapping gathered from all input files
   // it also collects the smallest_seqno -> oldest_ancestor_time from the SST.
