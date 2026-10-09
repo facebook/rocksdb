@@ -153,6 +153,16 @@ checkout_folly:
 		done
 	@# Update cache with any new downloads
 	$(cache_folly_getdeps_downloads)
+	@# The boost source archive has a modular layout (headers under
+	@# libs/*/include), so assemble the merged boost/ header tree that
+	@# USE_FOLLY_LITE builds put on the include path. This avoids ~150
+	@# -isystem flags (one per boost library) on every folly-lite compile.
+	cd third-party/folly && \
+		BOOST_SRC=`ls -d $$($(PYTHON) build/fbcode_builder/getdeps.py show-source-dir boost)/boost*/` && \
+		mkdir -p "$${BOOST_SRC}boost" && \
+		for inc in "$${BOOST_SRC}"libs/*/include "$${BOOST_SRC}"libs/numeric/*/include; do \
+			cp -R "$$inc/boost/." "$${BOOST_SRC}boost/" || exit 1; \
+		done
 
 CXX_M_FLAGS = $(filter -m%, $(CXXFLAGS))
 

@@ -650,6 +650,9 @@ if(USE_FOLLY)
     exec_program(ls ARGS -d ${FOLLY_INST_PATH}/../glog* OUTPUT_VARIABLE
     GLOG_INST_PATH)
     set(Boost_DIR ${BOOST_INST_PATH}/lib/cmake/Boost-1.83.0)
+    # Boost's per-library CMake configs find their dependencies (e.g.
+    # boost_assert) only through the package search path.
+    set(CMAKE_PREFIX_PATH ${BOOST_INST_PATH} ${CMAKE_PREFIX_PATH})
     if(EXISTS ${FMT_INST_PATH}/lib64)
       set(fmt_DIR ${FMT_INST_PATH}/lib64/cmake/fmt)
     else()
