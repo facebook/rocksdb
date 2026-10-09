@@ -13,6 +13,7 @@
 #include "cache/secondary_cache_adapter.h"
 #include "port/lang.h"
 #include "util/distributed_mutex.h"
+#include "util/hash.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace fifo_cache {
@@ -114,6 +115,9 @@ FIFOCacheShard::FIFOCacheShard(size_t capacity, bool strict_capacity_limit,
       probation_usage_(0),
       probation_unpinned_(0),
       resident_unpinned_(0),
+      ghost_ring_length_(0),
+      ghost_head_seq_(0),
+      ghost_size_(0),
       mutex_(use_adaptive_mutex),
       allocator_(allocator),
       eviction_callback_(*eviction_callback) {
@@ -203,6 +207,11 @@ size_t FIFOCacheShard::ProbationBudget() const {
          (capacity_ % 100) * kProbationPercent / 100;
 }
 
+size_t FIFOCacheShard::TEST_GetGhostSize() const {
+  DMutexLock l(mutex_);
+  return ghost_size_;
+}
+
 void FIFOCacheShard::TEST_GetFIFOList(FIFOHandle** fifo) {
   DMutexLock l(mutex_);
   *fifo = &probation_;
@@ -267,6 +276,11 @@ void FIFOCacheShard::FIFO_Append(FIFOHandle* queue, FIFOHandle* e) {
 
 size_t& FIFOCacheShard::UnpinnedCount(const FIFOHandle* e) {
   return e->InProbation() ? probation_unpinned_ : resident_unpinned_;
+}
+
+bool FIFOCacheShard::IsPlaceholder(const FIFOHandle* e) const {
+  return e->helper == &kNoopCacheItemHelper &&
+         e->GetCharge(metadata_charge_policy_) == 0;
 }
 
 FIFOHandle* FIFOCacheShard::ResidentNext(FIFOHandle* e) {
@@ -334,6 +348,9 @@ bool FIFOCacheShard::EvictFromProbation(size_t need, size_t* freed,
         promoted = true;
       } else {
         FIFO_Remove(cur);
+        if (!IsPlaceholder(cur)) {
+          GhostRecord(cur->hash);
+        }
         const size_t table_meta_before = GetTableMetaCharge();
         table_.Remove(cur->key(), cur->hash);
         const size_t table_meta_after = GetTableMetaCharge();
@@ -386,6 +403,39 @@ void FIFOCacheShard::EvictFromResident(size_t need, size_t* freed,
       ++idle_passes;
     }
   }
+}
+
+void FIFOCacheShard::GhostRecord(uint32_t hash) {
+  if (ghost_size_ == ghost_ring_length_) {
+    // Double the ring, keeping each slot at its sequence number.
+    const size_t new_length =
+        ghost_ring_length_ == 0 ? size_t{16} : ghost_ring_length_ * 2;
+    std::unique_ptr<uint32_t[]> new_ring(new uint32_t[new_length]);
+    for (uint64_t seq = ghost_head_seq_; seq < ghost_head_seq_ + ghost_size_;
+         ++seq) {
+      new_ring[seq & (new_length - 1)] =
+          ghost_ring_[seq & (ghost_ring_length_ - 1)];
+    }
+    ghost_ring_ = std::move(new_ring);
+    ghost_ring_length_ = new_length;
+  }
+  const uint64_t seq = ghost_head_seq_ + ghost_size_;
+  ghost_index_[hash] = seq;
+  ghost_ring_[seq & (ghost_ring_length_ - 1)] = hash;
+  ++ghost_size_;
+  while (ghost_size_ > table_.GetOccupancyCount()) {
+    auto it = ghost_index_.find(
+        ghost_ring_[ghost_head_seq_ & (ghost_ring_length_ - 1)]);
+    if (it != ghost_index_.end() && it->second == ghost_head_seq_) {
+      ghost_index_.erase(it);
+    }
+    --ghost_size_;
+    ++ghost_head_seq_;
+  }
+}
+
+bool FIFOCacheShard::GhostTake(uint32_t hash) {
+  return ghost_index_.erase(hash) > 0;
 }
 
 void FIFOCacheShard::NotifyEvicted(
@@ -468,7 +518,9 @@ Status FIFOCacheShard::InsertItem(FIFOHandle* e, FIFOHandle** handle) {
         // Else old stays charged until its last Release.
       }
       usage_ += e->total_charge;
-      FIFO_Append(&probation_, e);
+      FIFO_Append(
+          !IsPlaceholder(e) && GhostTake(e->hash) ? &resident_ : &probation_,
+          e);
       if (handle != nullptr) {
         // If caller already holds a ref, no need to take one here.
         if (!e->HasRefs()) {
