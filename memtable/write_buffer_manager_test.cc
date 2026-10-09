@@ -433,6 +433,7 @@ class ControlledFlushInitiator : public FlushInitiator {
   }
 
   bool TryRefreshMemoryAccounting() override {
+    TEST_SYNC_POINT("ControlledFlushInitiator::TryRefreshMemoryAccounting");
     MarkFlushableMemUsageAccurate();
     return true;
   }
@@ -643,19 +644,36 @@ TEST_F(BackgroundFlushCycleTest, SkipsFailedCandidates) {
 }
 
 TEST_F(BackgroundFlushCycleTest, FastRejectedCandidateDoesNotAddPressureDelay) {
-  auto* rejected = AddCandidate(/*mem=*/200, /*can_flush=*/false);
-  auto* healthy = AddCandidate(/*mem=*/100, /*can_flush=*/true);
+  ControlledFlushInitiator* rejected = nullptr;
+  ControlledFlushInitiator* healthy = nullptr;
 
   std::mutex completion_mu;
   std::condition_variable completion_cv;
   bool rejection_finished = false;
   std::atomic<bool> completion_timed_out{false};
   std::atomic<int> pressure_waits{0};
+  std::atomic<int> pressure_waits_at_rejected_dispatch{-1};
   std::atomic<int> pressure_waits_at_healthy_dispatch{-1};
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"FastRejectedCandidateDoesNotAddPressureDelay:RefreshStarted",
+        "FastRejectedCandidateDoesNotAddPressureDelay:RegisterHealthy"},
+       {"FastRejectedCandidateDoesNotAddPressureDelay:PressureStarted",
+        "FastRejectedCandidateDoesNotAddPressureDelay:ResumeRefresh"}});
+  SyncPoint::GetInstance()->SetCallBack(
+      "ControlledFlushInitiator::TryRefreshMemoryAccounting", [](void*) {
+        TEST_SYNC_POINT(
+            "FastRejectedCandidateDoesNotAddPressureDelay:RefreshStarted");
+        TEST_SYNC_POINT(
+            "FastRejectedCandidateDoesNotAddPressureDelay:ResumeRefresh");
+      });
   SyncPoint::GetInstance()->SetCallBack(
       "WriteBufferManager::FlushHandoffExecutor:BeforeExecute",
       [&](void* initiator) {
-        if (initiator == healthy) {
+        if (initiator == rejected) {
+          pressure_waits_at_rejected_dispatch.store(
+              pressure_waits.load(std::memory_order_relaxed),
+              std::memory_order_relaxed);
+        } else if (initiator == healthy) {
           pressure_waits_at_healthy_dispatch.store(
               pressure_waits.load(std::memory_order_relaxed),
               std::memory_order_relaxed);
@@ -682,15 +700,25 @@ TEST_F(BackgroundFlushCycleTest, FastRejectedCandidateDoesNotAddPressureDelay) {
   Defer cleanup_sync_points([] {
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
+    SyncPoint::GetInstance()->LoadDependency({});
   });
 
+  // The first snapshot becomes stale while the healthy DB is registered.
+  rejected = AddCandidate(/*mem=*/200, /*can_flush=*/false);
+  TEST_SYNC_POINT(
+      "FastRejectedCandidateDoesNotAddPressureDelay:RegisterHealthy");
+  healthy = AddCandidate(/*mem=*/100, /*can_flush=*/true);
   StartPressure();
+  TEST_SYNC_POINT(
+      "FastRejectedCandidateDoesNotAddPressureDelay:PressureStarted");
   healthy->WaitForScheduleCalls(1);
 
   EXPECT_EQ(1, rejected->ScheduleCalls());
   EXPECT_EQ(1, healthy->ScheduleCalls());
   EXPECT_FALSE(completion_timed_out.load(std::memory_order_relaxed));
-  EXPECT_EQ(0,
+  EXPECT_GE(pressure_waits_at_rejected_dispatch.load(std::memory_order_relaxed),
+            1);
+  EXPECT_EQ(pressure_waits_at_rejected_dispatch.load(std::memory_order_relaxed),
             pressure_waits_at_healthy_dispatch.load(std::memory_order_relaxed));
 
   FinishPressure();
