@@ -31,6 +31,7 @@ ifneq ($(strip $(FOLLY_PATH)),)
 	FMT_PATH = $(shell (ls -d $(FOLLY_PATH)/../fmt*))
 
 	# For some reason, some libraries are under either lib or lib64
+	BOOST_LIB_PATH = $(shell (ls -d $(BOOST_PATH)/lib*))
 	GLOG_LIB_PATH = $(shell (ls -d $(GLOG_PATH)/lib*))
 	FMT_LIB_PATH = $(shell (ls -d $(FMT_PATH)/lib*))
 	LIBEVENT_LIB_PATH = $(shell (ls -d $(LIBEVENT_PATH)/lib*))
@@ -47,7 +48,7 @@ ifneq ($(strip $(FOLLY_PATH)),)
 	# Add -ldl at the end as gcc resolves a symbol in a library by searching only in libraries specified later
 	# in the command line
 
-	PLATFORM_LDFLAGS += $(FOLLY_PATH)/lib/libfolly.a $(BOOST_PATH)/lib/libboost_context.a $(BOOST_PATH)/lib/libboost_filesystem.a $(BOOST_PATH)/lib/libboost_atomic.a $(BOOST_PATH)/lib/libboost_program_options.a $(BOOST_PATH)/lib/libboost_regex.a $(BOOST_PATH)/lib/libboost_system.a $(BOOST_PATH)/lib/libboost_thread.a $(LIBEVENT_LIB_PATH)/libevent.a $(LIBSODIUM_PATH)/lib/libsodium.a -ldl
+	PLATFORM_LDFLAGS += $(FOLLY_PATH)/lib/libfolly.a $(BOOST_LIB_PATH)/libboost_context.a $(BOOST_LIB_PATH)/libboost_filesystem.a $(BOOST_LIB_PATH)/libboost_atomic.a $(BOOST_LIB_PATH)/libboost_program_options.a $(BOOST_LIB_PATH)/libboost_thread.a $(LIBEVENT_LIB_PATH)/libevent.a $(LIBSODIUM_PATH)/lib/libsodium.a -ldl
 ifneq ($(DEBUG_LEVEL),0)
 	PLATFORM_LDFLAGS += $(FMT_LIB_PATH)/libfmtd.a $(GLOG_LIB_PATH)/libglogd.so $(GFLAGS_PATH)/lib/libgflags_debug.so.2.3
 else
@@ -98,7 +99,7 @@ endif  # FMT_SOURCE_PATH
 	PLATFORM_LDFLAGS += -lglog
 endif
 
-FOLLY_COMMIT_HASH = 2a68075b77d958854d895e78fe6c41940dd49f3c
+FOLLY_COMMIT_HASH = 7ba92f0e29d24b453cee8ab27d117b1c7cc19589
 FOLLY_GETDEPS_CACHE_DIR = /tmp/rocksdb-getdeps-cache
 
 define restore_folly_getdeps_downloads
