@@ -1215,7 +1215,7 @@ class LevelIterator final : public InternalIterator {
   void SeekForPrev(const Slice& target) override;
   void SeekToFirst() override;
   void SeekToLast() override;
-  void Next() final override;
+  void Next() final;
   bool NextAndGetResult(IterateResult* result) override;
   void Prev() override;
 

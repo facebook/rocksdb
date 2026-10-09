@@ -49,7 +49,7 @@ class BlockCacheTier : public PersistentCacheTier {
          opt_.write_buffer_size, opt_.write_buffer_count());
   }
 
-  virtual ~BlockCacheTier() {
+  ~BlockCacheTier() override {
     // Close is re-entrant so we can call close even if it is already closed
     BlockCacheTier::Close().PermitUncheckedError();
     assert(!insert_th_.joinable());

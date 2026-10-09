@@ -249,7 +249,7 @@ class TestFSWritableFile : public FSWritableFile {
                               std::unique_ptr<FSWritableFile>&& f,
                               FaultInjectionTestFS* fs,
                               bool reopened_for_write = false);
-  virtual ~TestFSWritableFile();
+  ~TestFSWritableFile() override;
   IOStatus Append(const Slice& data, const IOOptions&,
                   IODebugContext*) override;
   IOStatus Append(const Slice& data, const IOOptions& options,
@@ -305,7 +305,7 @@ class TestFSRandomRWFile : public FSRandomRWFile {
   explicit TestFSRandomRWFile(const std::string& fname,
                               std::unique_ptr<FSRandomRWFile>&& f,
                               FaultInjectionTestFS* fs);
-  virtual ~TestFSRandomRWFile();
+  ~TestFSRandomRWFile() override;
   IOStatus Write(uint64_t offset, const Slice& data, const IOOptions& options,
                  IODebugContext* dbg) override;
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
@@ -389,7 +389,7 @@ class TestFSDirectory : public FSDirectory {
   explicit TestFSDirectory(FaultInjectionTestFS* fs, std::string dirname,
                            FSDirectory* dir)
       : fs_(fs), dirname_(std::move(dirname)), dir_(dir) {}
-  ~TestFSDirectory() {}
+  ~TestFSDirectory() override {}
 
   IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override;
 
@@ -427,7 +427,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
         ingest_data_corruption_before_write_(false),
         checksum_handoff_func_type_(kCRC32c),
         injected_error_log_(injected_error_log_path) {}
-  virtual ~FaultInjectionTestFS() override { fs_error_.PermitUncheckedError(); }
+  ~FaultInjectionTestFS() override { fs_error_.PermitUncheckedError(); }
 
   static const char* kClassName() { return "FaultInjectionTestFS"; }
   const char* Name() const override { return kClassName(); }

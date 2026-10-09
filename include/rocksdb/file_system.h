@@ -408,7 +408,7 @@ class FileSystem : public Customizable {
   // No copying allowed
   FileSystem(const FileSystem&) = delete;
 
-  virtual ~FileSystem();
+  ~FileSystem() override;
 
   static const char* Type() { return "FileSystem"; }
   static const char* kDefaultName() { return "DefaultFileSystem"; }
@@ -1945,7 +1945,7 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
     return target_->GetTemperature();
   }
 
-  virtual IOStatus GetFileSize(uint64_t* result) override {
+  IOStatus GetFileSize(uint64_t* result) override {
     return target_->GetFileSize(result);
   }
   IOStatus GetFileOpenMetadata(std::string* metadata) override {

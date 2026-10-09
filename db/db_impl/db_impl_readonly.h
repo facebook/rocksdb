@@ -20,7 +20,7 @@ class DBImplReadOnly : public DBImpl {
   DBImplReadOnly(const DBImplReadOnly&) = delete;
   void operator=(const DBImplReadOnly&) = delete;
 
-  virtual ~DBImplReadOnly();
+  ~DBImplReadOnly() override;
 
   // Implementations of the DB interface
   using DBImpl::GetImpl;

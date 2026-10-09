@@ -205,7 +205,7 @@ TEST_F(PinnableSliceTest, Move) {
 class SmallEnumSetTest : public testing::Test {
  public:
   SmallEnumSetTest() = default;
-  ~SmallEnumSetTest() = default;
+  ~SmallEnumSetTest() override = default;
 };
 
 TEST_F(SmallEnumSetTest, SmallEnumSetTest1) {

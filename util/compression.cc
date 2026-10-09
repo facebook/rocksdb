@@ -460,8 +460,7 @@ class CompressorWithSimpleDictBase : public CompressorBase {
   }
 
   std::unique_ptr<Compressor> MaybeCloneSpecialized(
-      CacheEntryRole /*block_type*/,
-      DictConfigArgs&& dict_config) const final override {
+      CacheEntryRole /*block_type*/, DictConfigArgs&& dict_config) const final {
     if (auto* samples = std::get_if<DictSamples>(&dict_config)) {
       assert(samples->Verify());
       if (samples->empty()) {

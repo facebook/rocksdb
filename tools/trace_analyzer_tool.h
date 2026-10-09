@@ -170,7 +170,7 @@ class TraceAnalyzer : private TraceRecord::Handler,
  public:
   TraceAnalyzer(std::string& trace_path, std::string& output_path,
                 AnalyzerOptions _analyzer_opts);
-  ~TraceAnalyzer();
+  ~TraceAnalyzer() override;
 
   Status PrepareProcessing();
 

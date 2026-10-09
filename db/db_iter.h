@@ -239,14 +239,14 @@ class DBIter final : public Iterator {
 
   Status GetProperty(std::string prop_name, std::string* prop) override;
 
-  void Next() final override;
-  void Prev() final override;
+  void Next() final;
+  void Prev() final;
   // 'target' does not contain timestamp, even if user timestamp feature is
   // enabled.
-  void Seek(const Slice& target) final override;
-  void SeekForPrev(const Slice& target) final override;
-  void SeekToFirst() final override;
-  void SeekToLast() final override;
+  void Seek(const Slice& target) final;
+  void SeekForPrev(const Slice& target) final;
+  void SeekToFirst() final;
+  void SeekToLast() final;
   Env* env() const { return env_; }
   void set_sequence(uint64_t s) {
     sequence_ = s;

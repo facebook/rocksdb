@@ -71,7 +71,7 @@ class SstFileReaderTest : public testing::Test {
     options_.env = env_;
   }
 
-  ~SstFileReaderTest() {
+  ~SstFileReaderTest() override {
     if (env_->FileExists(sst_name_).ok()) {
       EXPECT_OK(env_->DeleteFile(sst_name_));
     }
@@ -1238,7 +1238,7 @@ class SstFileReaderTimestampTest : public testing::Test {
     sst_name_ = test::PerThreadDBPath("sst_file_ts");
   }
 
-  ~SstFileReaderTimestampTest() {
+  ~SstFileReaderTimestampTest() override {
     EXPECT_OK(options_.env->DeleteFile(sst_name_));
   }
 
@@ -1514,7 +1514,7 @@ class SstFileReaderTimestampNotPersistedTest
     sst_name_ = test::PerThreadDBPath("sst_file_ts_not_persisted");
   }
 
-  ~SstFileReaderTimestampNotPersistedTest() = default;
+  ~SstFileReaderTimestampNotPersistedTest() override = default;
 };
 
 TEST_F(SstFileReaderTimestampNotPersistedTest, Basic) {

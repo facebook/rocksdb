@@ -245,7 +245,7 @@ class CountedDirectory : public FSDirectoryWrapper {
     return rv;
   }
 
-  ~CountedDirectory() {
+  ~CountedDirectory() override {
     if (!closed_) {
       // TODO: fix DB+CF code to use explicit Close, not rely on destructor
       fs_->counters()->closes++;

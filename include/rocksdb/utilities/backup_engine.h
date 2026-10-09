@@ -677,7 +677,7 @@ class BackupEngineAppendOnlyBase {
 class BackupEngine : public BackupEngineReadOnlyBase,
                      public BackupEngineAppendOnlyBase {
  public:
-  virtual ~BackupEngine() {}
+  ~BackupEngine() override {}
 
   // BackupEngineOptions have to be the same as the ones used in previous
   // BackupEngines for the same backup directory.
@@ -705,7 +705,7 @@ class BackupEngine : public BackupEngineReadOnlyBase,
 // BackupEngine comment for details. This class is not user-extensible.
 class BackupEngineReadOnly : public BackupEngineReadOnlyBase {
  public:
-  virtual ~BackupEngineReadOnly() {}
+  ~BackupEngineReadOnly() override {}
 
   static IOStatus Open(const BackupEngineOptions& options, Env* db_env,
                        BackupEngineReadOnly** backup_engine_ptr);

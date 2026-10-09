@@ -96,7 +96,7 @@ class BlockCacheFile : public LRUElement<BlockCacheFile> {
         dir_(dir),
         cache_id_(cache_id) {}
 
-  virtual ~BlockCacheFile() {}
+  ~BlockCacheFile() override {}
 
   // append key/value to file and return LBA locator to user
   virtual bool Append(const Slice& /*key*/, const Slice& /*val*/,
@@ -148,7 +148,7 @@ class RandomAccessCacheFile : public BlockCacheFile {
                                  const std::shared_ptr<Logger>& log)
       : BlockCacheFile(env, dir, cache_id), log_(log) {}
 
-  virtual ~RandomAccessCacheFile() {}
+  ~RandomAccessCacheFile() override {}
 
   // open file for reading
   bool Open(const bool enable_direct_reads);
@@ -181,7 +181,7 @@ class WriteableCacheFile : public RandomAccessCacheFile {
         writer_(writer),
         max_size_(max_size) {}
 
-  virtual ~WriteableCacheFile();
+  ~WriteableCacheFile() override;
 
   // create file on disk
   bool Create(const bool enable_direct_writes, const bool enable_direct_reads);
@@ -270,7 +270,7 @@ class ThreadedWriter : public Writer {
 
   explicit ThreadedWriter(PersistentCacheTier* const cache, const size_t qdepth,
                           const size_t io_size);
-  virtual ~ThreadedWriter() { assert(threads_.empty()); }
+  ~ThreadedWriter() override { assert(threads_.empty()); }
 
   void Stop() override;
   void Write(WritableFile* const file, CacheWriteBuffer* buf,

@@ -223,7 +223,7 @@ class DBImpl : public DB
   DBImpl(DBImpl&&) = delete;
   void operator=(DBImpl&&) = delete;
 
-  virtual ~DBImpl();
+  ~DBImpl() override;
 
   // ---- Implementations of the DB interface ----
 

@@ -47,7 +47,7 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
 
   // bits_builder is created in filter_policy, it should be passed in here
   // directly. and be deleted here
-  ~FullFilterBlockBuilder() {}
+  ~FullFilterBlockBuilder() override {}
 
   void Add(const Slice& key_without_ts) override;
   void AddWithPrevKey(const Slice& key_without_ts,

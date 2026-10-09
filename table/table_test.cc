@@ -5573,7 +5573,7 @@ class MemTableTest : public testing::Test {
     memtable_->Ref();
   }
 
-  ~MemTableTest() {
+  ~MemTableTest() override {
     delete memtable_->Unref();
     delete wb_;
   }

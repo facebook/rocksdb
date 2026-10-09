@@ -832,7 +832,7 @@ class DBIOCorruptionTest
     Reopen(options_);
   }
 
-  ~DBIOCorruptionTest() {
+  ~DBIOCorruptionTest() override {
     Close();
     db_ = nullptr;
   }

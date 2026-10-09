@@ -48,7 +48,7 @@ class PartitionedIndexIterator : public InternalIteratorBase<IndexValue> {
   }
   void SeekToFirst() override;
   void SeekToLast() override;
-  void Next() final override;
+  void Next() final;
   bool NextAndGetResult(IterateResult*) override {
     assert(false);
     return false;

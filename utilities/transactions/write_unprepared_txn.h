@@ -68,7 +68,7 @@ class WriteUnpreparedTxnReadCallback : public ReadCallback {
     (void)backed_by_snapshot_;  // to silence unused private field warning
   }
 
-  virtual ~WriteUnpreparedTxnReadCallback() {
+  ~WriteUnpreparedTxnReadCallback() override {
     // If it is not backed by snapshot, the caller must check validity
     assert(valid_checked_ || backed_by_snapshot_ == kBackedByDBSnapshot);
   }
@@ -113,7 +113,7 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
                      const WriteOptions& write_options,
                      const TransactionOptions& txn_options);
 
-  virtual ~WriteUnpreparedTxn();
+  ~WriteUnpreparedTxn() override;
 
   using TransactionBaseImpl::Put;
   Status Put(ColumnFamilyHandle* column_family, const Slice& key,

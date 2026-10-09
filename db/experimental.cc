@@ -521,7 +521,7 @@ class SstQueryFilterConfigImpl : public SstQueryFilterConfig {
       const KeySegmentsExtractor::KeyCategorySet& categories)
       : input_(input), categories_(categories) {}
 
-  virtual ~SstQueryFilterConfigImpl() = default;
+  ~SstQueryFilterConfigImpl() override = default;
 
   virtual std::unique_ptr<SstQueryFilterBuilder> NewBuilder(
       bool sanity_checks) const = 0;
