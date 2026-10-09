@@ -867,14 +867,18 @@ TEST_F(BackgroundFlushCycleTest, PolicyChangeDoesNotWaitForBlockedHandoff) {
                                    [&] { return policy_changed; }));
   }
 
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"WriteBufferManager::Run:HandoffWorkersRetired",
+        "PolicyChangeDoesNotWaitForBlockedHandoff:WorkersRetired"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_points([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->LoadDependency({});
+  });
+
   candidate->Release();
   wbf_.NotifyFlushInitiatorFlushCompleted(candidate.get(), false);
-  const auto retirement_deadline =
-      std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
-  while (wbf_.TEST_GetFlushHandoffWorkerCount() != 0 &&
-         std::chrono::steady_clock::now() < retirement_deadline) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-  }
+  TEST_SYNC_POINT("PolicyChangeDoesNotWaitForBlockedHandoff:WorkersRetired");
   EXPECT_EQ(0, wbf_.TEST_GetFlushHandoffWorkerCount());
   wbf_.DeregisterFlushInitiator(candidate.get());
   FinishPressure(/*made_progress=*/false);
@@ -1242,31 +1246,56 @@ TEST_F(WriteBufferManagerTest, FlushPolicyRetiresAndRestartsHandoffWorkers) {
   WriteBufferManager wbf(1024, nullptr /* cache */, false /* allow_stall */,
                          WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
   FakeFlushInitiator initiator(/*mem=*/100, /*can_flush=*/true);
+  std::atomic<int> inactive_policy_idle_waits{0};
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"FlushPolicyRetiresAndRestartsHandoffWorkers:RefreshStarted",
+        "FlushPolicyRetiresAndRestartsHandoffWorkers:WaitForRefresh"},
+       {"FlushPolicyRetiresAndRestartsHandoffWorkers:PolicyChanged",
+        "FlushPolicyRetiresAndRestartsHandoffWorkers:ResumeRefresh"},
+       {"WriteBufferManager::Run:HandoffWorkersRetired",
+        "FlushPolicyRetiresAndRestartsHandoffWorkers:WorkersRetired"},
+       {"WriteBufferManager::Run:HandoffWorkersRestarted",
+        "FlushPolicyRetiresAndRestartsHandoffWorkers:WorkersRestarted"}});
+  SyncPoint::GetInstance()->SetCallBack(
+      "WriteBufferManager::Run:BeforeRefresh", [](void*) {
+        TEST_SYNC_POINT(
+            "FlushPolicyRetiresAndRestartsHandoffWorkers:RefreshStarted");
+        TEST_SYNC_POINT(
+            "FlushPolicyRetiresAndRestartsHandoffWorkers:ResumeRefresh");
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "WriteBufferManager::Run:BeforeIdleWait", [&](void*) {
+        if (wbf.flush_policy() !=
+            WriteBufferFlushPolicy::kFlushLargestAcrossDBs) {
+          inactive_policy_idle_waits.fetch_add(1, std::memory_order_relaxed);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_points([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    SyncPoint::GetInstance()->LoadDependency({});
+  });
+
   wbf.RegisterFlushInitiator(&initiator);
   EXPECT_TRUE(wbf.TEST_HasFlushInitiatorSorter());
   EXPECT_EQ(4, wbf.TEST_GetFlushHandoffWorkerCount());
 
+  TEST_SYNC_POINT("FlushPolicyRetiresAndRestartsHandoffWorkers:WaitForRefresh");
   wbf.SetFlushPolicy(WriteBufferFlushPolicy::kFlushOldest);
+  TEST_SYNC_POINT("FlushPolicyRetiresAndRestartsHandoffWorkers:PolicyChanged");
   // The lightweight coordinator stays alive to retire and later restart the
   // executor without blocking the policy setter.
   EXPECT_TRUE(wbf.TEST_HasFlushInitiatorSorter());
-  const auto retirement_deadline =
-      std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
-  while (wbf.TEST_GetFlushHandoffWorkerCount() != 0 &&
-         std::chrono::steady_clock::now() < retirement_deadline) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-  }
+  TEST_SYNC_POINT("FlushPolicyRetiresAndRestartsHandoffWorkers:WorkersRetired");
   EXPECT_EQ(0, wbf.TEST_GetFlushHandoffWorkerCount());
+  EXPECT_EQ(0, inactive_policy_idle_waits.load(std::memory_order_relaxed));
   EXPECT_FALSE(wbf.TEST_ScheduleFlushOnLargestDB(nullptr));
 
   wbf.SetFlushPolicy(WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
   EXPECT_TRUE(wbf.TEST_HasFlushInitiatorSorter());
-  const auto restart_deadline =
-      std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
-  while (wbf.TEST_GetFlushHandoffWorkerCount() != 4 &&
-         std::chrono::steady_clock::now() < restart_deadline) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-  }
+  TEST_SYNC_POINT(
+      "FlushPolicyRetiresAndRestartsHandoffWorkers:WorkersRestarted");
   EXPECT_EQ(4, wbf.TEST_GetFlushHandoffWorkerCount());
   wbf.TEST_RefreshFlushInitiatorCandidate();
   EXPECT_TRUE(wbf.TEST_ScheduleFlushOnLargestDB(nullptr));
