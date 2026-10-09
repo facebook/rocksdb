@@ -33,7 +33,7 @@ class DBErrorHandlingFSTest : public DBTestBase {
     fault_env_.reset(new CompositeEnvWrapper(env_, fault_fs_));
   }
 
-  ~DBErrorHandlingFSTest() {
+  ~DBErrorHandlingFSTest() override {
     // Before destroying fault_env_
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->LoadDependency({});
@@ -74,7 +74,7 @@ class ErrorHandlerFSListener : public EventListener {
         override_bg_error_(false),
         file_count_(0),
         fault_fs_(nullptr) {}
-  ~ErrorHandlerFSListener() {
+  ~ErrorHandlerFSListener() override {
     file_creation_error_.PermitUncheckedError();
     bg_error_.PermitUncheckedError();
     new_bg_error_.PermitUncheckedError();

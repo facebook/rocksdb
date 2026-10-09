@@ -53,7 +53,7 @@ class FlushBlockPolicyFactory : public Customizable {
       const BlockBasedTableOptions& table_options,
       const BlockBuilder& data_block_builder) const = 0;
 
-  virtual ~FlushBlockPolicyFactory() {}
+  ~FlushBlockPolicyFactory() override {}
 };
 
 class FlushBlockBySizePolicyFactory : public FlushBlockPolicyFactory {

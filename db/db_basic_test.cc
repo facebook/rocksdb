@@ -86,11 +86,9 @@ class MyFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
   explicit MyFlushBlockPolicyFactory(const int num_keys_in_block)
       : num_keys_in_block_(num_keys_in_block) {}
 
-  virtual const char* Name() const override {
-    return "MyFlushBlockPolicyFactory";
-  }
+  const char* Name() const override { return "MyFlushBlockPolicyFactory"; }
 
-  virtual FlushBlockPolicy* NewFlushBlockPolicy(
+  FlushBlockPolicy* NewFlushBlockPolicy(
       const BlockBasedTableOptions& /*table_options*/,
       const BlockBuilder& data_block_builder) const override {
     return new MyFlushBlockPolicy(num_keys_in_block_, data_block_builder);
@@ -6445,7 +6443,7 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetDirectIO) {
      public:
       FakeDirectIOSequentialFile(std::unique_ptr<SequentialFile>&& file)
           : SequentialFileWrapper(file.get()), file_(std::move(file)) {}
-      ~FakeDirectIOSequentialFile() {}
+      ~FakeDirectIOSequentialFile() override {}
 
       bool use_direct_io() const override { return true; }
       size_t GetRequiredBufferAlignment() const override { return 1; }
@@ -6458,7 +6456,7 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetDirectIO) {
      public:
       FakeDirectIORandomAccessFile(std::unique_ptr<RandomAccessFile>&& file)
           : RandomAccessFileWrapper(file.get()), file_(std::move(file)) {}
-      ~FakeDirectIORandomAccessFile() {}
+      ~FakeDirectIORandomAccessFile() override {}
 
       bool use_direct_io() const override { return true; }
       size_t GetRequiredBufferAlignment() const override { return 1; }

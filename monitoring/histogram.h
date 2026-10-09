@@ -131,7 +131,7 @@ class HistogramImpl : public Histogram {
   double StandardDeviation() const override;
   void Data(HistogramData* const data) const override;
 
-  virtual ~HistogramImpl() {}
+  ~HistogramImpl() override {}
 
   inline HistogramStat& TEST_GetStats() { return stats_; }
 

@@ -45,7 +45,7 @@ class VolatileCacheTier : public PersistentCacheTier {
       const size_t max_size = std::numeric_limits<size_t>::max())
       : is_compressed_(is_compressed), max_size_(max_size) {}
 
-  virtual ~VolatileCacheTier();
+  ~VolatileCacheTier() override;
 
   // insert to cache
   Status Insert(const Slice& page_key, const char* data,
@@ -78,7 +78,7 @@ class VolatileCacheTier : public PersistentCacheTier {
     explicit CacheData(const std::string& _key, const std::string& _value = "")
         : key(_key), value(_value) {}
 
-    virtual ~CacheData() {}
+    ~CacheData() override {}
 
     const std::string key;
     const std::string value;

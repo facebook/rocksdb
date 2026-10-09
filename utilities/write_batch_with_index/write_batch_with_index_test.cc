@@ -359,7 +359,7 @@ class WBWIBaseTest : public testing::Test {
     batch_.reset(new WriteBatchWithIndex(BytewiseComparator(), 20, overwrite));
   }
 
-  virtual ~WBWIBaseTest() {
+  ~WBWIBaseTest() override {
     AssertWBWICountEQWBCount(*batch_);
 
     if (db_ != nullptr) {

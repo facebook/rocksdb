@@ -30,7 +30,7 @@ class ImportColumnFamilyTest : public DBTestBase {
     metadata_ptr2_ = nullptr;
   }
 
-  ~ImportColumnFamilyTest() {
+  ~ImportColumnFamilyTest() override {
     if (import_cfh_) {
       EXPECT_OK(db_->DropColumnFamily(import_cfh_));
       EXPECT_OK(db_->DestroyColumnFamilyHandle(import_cfh_));

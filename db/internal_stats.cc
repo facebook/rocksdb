@@ -2228,7 +2228,7 @@ namespace {
 class SumPropertyAggregator : public IntPropertyAggregator {
  public:
   SumPropertyAggregator() : aggregated_value_(0) {}
-  virtual ~SumPropertyAggregator() override = default;
+  ~SumPropertyAggregator() override = default;
 
   void Add(ColumnFamilyData* cfd, uint64_t value) override {
     (void)cfd;
@@ -2246,7 +2246,7 @@ class SumPropertyAggregator : public IntPropertyAggregator {
 class BlockCachePropertyAggregator : public IntPropertyAggregator {
  public:
   BlockCachePropertyAggregator() = default;
-  virtual ~BlockCachePropertyAggregator() override = default;
+  ~BlockCachePropertyAggregator() override = default;
 
   void Add(ColumnFamilyData* cfd, uint64_t value) override {
     auto* table_factory = cfd->GetCurrentMutableCFOptions().table_factory.get();
