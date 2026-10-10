@@ -144,7 +144,14 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
   // handles the last block correctly. The overhead is 8 bytes per leaf.
   must_use_separator_with_seq_ = true;
   entry.handle = handle;
-  total_separator_bytes_ += entry.separator_key.size();
+  has_unsupported_handle_ |=
+      handle.offset > UINT32_MAX || handle.size > UINT32_MAX;
+  size_t shared_prefix = 0;
+  if (!buffered_entries_.empty()) {
+    shared_prefix = Slice(buffered_entries_.back().separator_key)
+                        .difference_offset(entry.separator_key);
+  }
+  estimated_trie_edges_ += entry.separator_key.size() - shared_prefix;
   buffered_entries_.push_back(std::move(entry));
 
   return separator;
@@ -161,6 +168,10 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
     return Status::InvalidArgument("TrieIndexBuilder::Finish called twice");
   }
   finished_ = true;
+  if (has_unsupported_handle_) {
+    return Status::NotSupported(
+        "Trie index block offset or size exceeds the 32-bit encoding limit");
+  }
 
   // Seqno encoding is unconditionally enabled: must_use_separator_with_seq_
   // is always set to true at the end of AddIndexEntry(), so use_seqno
@@ -245,11 +256,14 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
 // ============================================================================
 
 uint64_t TrieIndexBuilder::EstimatedSize() const {
-  // Estimate the serialized trie size from the running counters. A LOUDS trie
-  // uses ~2.5 bits per node plus the label data, rank/select tables, and block
-  // handle arrays. For a rough estimate:
-  // ~3 bytes per unique key byte + 16 bytes per entry for handles/metadata.
-  return total_separator_bytes_ * 3 + buffered_entries_.size() * 16;
+  if (finished_) {
+    return trie_builder_.GetSerializedData().size();
+  }
+  // Dense/sparse labels, bitvectors, child positions, and capped chain metadata
+  // use at most 12 bytes per distinct trie edge. Each handle and seqno record
+  // needs at most 20 bytes. Reserve 1 KiB for headers and alignment. Shared
+  // prefixes contribute only once, just as in LoudsTrieBuilder::Finish().
+  return 1024 + estimated_trie_edges_ * 12 + buffered_entries_.size() * 20;
 }
 
 TrieIndexIterator::TrieIndexIterator(const LoudsTrie* trie,
