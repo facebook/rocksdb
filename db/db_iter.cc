@@ -1250,6 +1250,14 @@ bool DBIter::FindValueForCurrentKey(bool& found_visible) {
     iter_.Prev();
     ++num_skipped;
 
+    // This could be a long-running operation due to tombstones, etc.
+    bool aborted = ROCKSDB_THREAD_YIELD_CHECK_ABORT();
+    if (aborted) {
+      valid_ = false;
+      status_ = Status::Aborted("Query abort.");
+      return false;
+    }
+
     if (visible && timestamp_lb_ != nullptr) {
       // If timestamp_lb_ is not nullptr, we do not have to look further for
       // another internal key. We can return this current internal key. Yet we
@@ -1400,6 +1408,14 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     }
 
     iter_.Next();
+
+    // This could be a long-running operation due to tombstones, etc.
+    bool aborted = ROCKSDB_THREAD_YIELD_CHECK_ABORT();
+    if (aborted) {
+      valid_ = false;
+      status_ = Status::Aborted("Query abort.");
+      return false;
+    }
   }
 
   // Keep ikey_ in sync with the entry found by the seek.
@@ -1469,6 +1485,14 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
 
   while (true) {
     iter_.Next();
+
+    // This could be a long-running operation due to tombstones, etc.
+    bool aborted = ROCKSDB_THREAD_YIELD_CHECK_ABORT();
+    if (aborted) {
+      valid_ = false;
+      status_ = Status::Aborted("Query abort.");
+      return false;
+    }
 
     if (!iter_.Valid()) {
       if (!iter_.status().ok()) {
@@ -1691,6 +1715,14 @@ bool DBIter::FindUserKeyBeforeSavedKey() {
     }
 
     iter_.Prev();
+
+    // This could be a long-running operation due to tombstones, etc.
+    bool aborted = ROCKSDB_THREAD_YIELD_CHECK_ABORT();
+    if (aborted) {
+      valid_ = false;
+      status_ = Status::Aborted("Query abort.");
+      return false;
+    }
   }
 
   if (!iter_.status().ok()) {
