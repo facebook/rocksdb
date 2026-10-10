@@ -9,34 +9,93 @@ package org.rocksdb;
  * Options for Compression
  */
 public class CompressionOptions extends RocksObject {
+  /**
+   * RocksDB's generic default compression level. Internally it'll be translated
+   * to the default compression level specific to the library being used.
+   */
+  public static final int DEFAULT_COMPRESSION_LEVEL = 32_767;
 
+  /**
+   * Constructs a new CompressionOptions.
+   */
   public CompressionOptions() {
     super(newCompressionOptions());
   }
 
+  /**
+   * Set the Window size.
+   * Zlib only.
+   *
+   * @param windowBits the size of the window.
+   *
+   * @return the reference to the current compression options.
+   */
   public CompressionOptions setWindowBits(final int windowBits) {
     setWindowBits(nativeHandle_, windowBits);
     return this;
   }
 
+  /**
+   * Get the Window size.
+   * Zlib only.
+   *
+   * @return the size of the window.
+   */
   public int windowBits() {
     return windowBits(nativeHandle_);
   }
 
+  /**
+   * Compression "level" applicable to zstd, zlib, LZ4, and LZ4HC. Except for
+   * {@link #DEFAULT_COMPRESSION_LEVEL}, the meaning of each value depends
+   * on the compression algorithm. Decreasing across non-
+   * {@link #DEFAULT_COMPRESSION_LEVEL} values will either favor speed over
+   * compression ratio or have no effect.
+   * <p>
+   * In LZ4 specifically, the absolute value of a negative `level` internally
+   * configures the `acceleration` parameter. For example, set `level=-10` for
+   * `acceleration=10`. This negation is necessary to ensure decreasing `level`
+   * values favor speed over compression ratio.
+   *
+   * @param level the compression level.
+   *
+   * @return the reference to the current compression options.
+   */
   public CompressionOptions setLevel(final int level) {
     setLevel(nativeHandle_, level);
     return this;
   }
 
+  /**
+   * Get the Compression "level".
+   * <p>
+   * See {@link #setLevel(int)}
+   *
+   * @return the compression level.
+   */
   public int level() {
     return level(nativeHandle_);
   }
 
+  /**
+   * Set the compression strategy.
+   * Zlib only.
+   *
+   * @param strategy the strategy.
+   *
+   * @return the reference to the current compression options.
+   */
   public CompressionOptions setStrategy(final int strategy) {
     setStrategy(nativeHandle_, strategy);
     return this;
   }
 
+  /**
+   * Get the compression strategy.
+   * Zlib only.
+   *
+   * @return the strategy.
+   */
   public int strategy() {
     return strategy(nativeHandle_);
   }

@@ -6,10 +6,13 @@
 package org.rocksdb;
 
 /**
- * Just a Java wrapper around EmptyValueCompactionFilter implemented in C++
+ * Just a Java wrapper around EmptyValueCompactionFilter implemented in C++.
  */
 public class RemoveEmptyValueCompactionFilter
     extends AbstractCompactionFilter<Slice> {
+  /**
+   * Constructs a RemoveEmptyValueCompactionFilter.
+   */
   public RemoveEmptyValueCompactionFilter() {
     super(createNewRemoveEmptyValueCompactionFilter0());
   }

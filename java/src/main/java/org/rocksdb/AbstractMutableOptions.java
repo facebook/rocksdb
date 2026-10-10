@@ -9,12 +9,26 @@ import java.util.*;
  * The constructor is protected, so it will always be used as a base class.
  */
 public class AbstractMutableOptions {
+  /**
+   * Separator between Key/Value pairs.
+   */
   protected static final String KEY_VALUE_PAIR_SEPARATOR = ";";
+
+  /**
+   * Separator between Key and Value.
+   */
   protected static final char KEY_VALUE_SEPARATOR = '=';
+
+  /**
+   * Separator between integers in an integer array.
+   */
   static final String INT_ARRAY_INT_SEPARATOR = ":";
 
   private static final String HAS_NOT_BEEN_SET = " has not been set";
 
+  /**
+   * the keys.
+   */
   protected final String[] keys;
   private final String[] values;
 
@@ -62,12 +76,24 @@ public class AbstractMutableOptions {
     return buffer.toString();
   }
 
+  /**
+   * Builder base class for constructing Mutable Options.
+   *
+   * @param <T> the type of the Mutable Options.
+   * @param <U> the type of the Builder.
+   * @param <K> the type of the Option Key.
+   */
   public abstract static class AbstractMutableOptionsBuilder<
       T extends AbstractMutableOptions, U extends AbstractMutableOptionsBuilder<T, U, K>, K
           extends MutableOptionKey> {
     private final Map<K, MutableOptionValue<?>> options = new LinkedHashMap<>();
     private final List<OptionString.Entry> unknown = new ArrayList<>();
 
+    /**
+     * Return the builder.
+     *
+     * @return the builder.
+     */
     protected abstract U self();
 
     /**
@@ -87,6 +113,11 @@ public class AbstractMutableOptions {
      */
     protected abstract T build(final String[] keys, final String[] values);
 
+    /**
+     * Construct a subclass instance of {@link AbstractMutableOptions}.
+     *
+     * @return an instance of the options.
+     */
     public T build() {
       final String[] keys = new String[options.size()];
       final String[] values = new String[options.size()];
@@ -101,6 +132,14 @@ public class AbstractMutableOptions {
       return build(keys, values);
     }
 
+    /**
+     * Set an option of `Double` type.
+     *
+     * @param key the key.
+     * @param value the value.
+     *
+     * @return the builder.
+     */
     protected U setDouble(
        final K key, final double value) {
       if (key.getValueType() != MutableOptionKey.ValueType.DOUBLE) {
@@ -111,6 +150,13 @@ public class AbstractMutableOptions {
       return self();
     }
 
+    /**
+     * Get an option of `Double` type.
+     *
+     * @param key the key.
+     *
+     * @return the value of the option.
+     */
     protected double getDouble(final K key)
         throws NoSuchElementException, NumberFormatException {
       final MutableOptionValue<?> value = options.get(key);
@@ -120,6 +166,14 @@ public class AbstractMutableOptions {
       return value.asDouble();
     }
 
+    /**
+     * Set an option of `Long` type.
+     *
+     * @param key the key.
+     * @param value the value.
+     *
+     * @return the builder.
+     */
     protected U setLong(
         final K key, final long value) {
       if(key.getValueType() != MutableOptionKey.ValueType.LONG) {
@@ -130,6 +184,13 @@ public class AbstractMutableOptions {
       return self();
     }
 
+    /**
+     * Get an option of `Long` type.
+     *
+     * @param key the key.
+     *
+     * @return the value of the option.
+     */
     protected long getLong(final K key)
         throws NoSuchElementException, NumberFormatException {
       final MutableOptionValue<?> value = options.get(key);
@@ -139,6 +200,14 @@ public class AbstractMutableOptions {
       return value.asLong();
     }
 
+    /**
+     * Set an option of `int` type.
+     *
+     * @param key the key.
+     * @param value the value.
+     *
+     * @return the builder.
+     */
     protected U setInt(
         final K key, final int value) {
       if(key.getValueType() != MutableOptionKey.ValueType.INT) {
@@ -149,6 +218,13 @@ public class AbstractMutableOptions {
       return self();
     }
 
+    /**
+     * Get an option of `int` type.
+     *
+     * @param key the key.
+     *
+     * @return the value of the option.
+     */
     protected int getInt(final K key)
         throws NoSuchElementException, NumberFormatException {
       final MutableOptionValue<?> value = options.get(key);
@@ -158,6 +234,14 @@ public class AbstractMutableOptions {
       return value.asInt();
     }
 
+    /**
+     * Set an option of `boolean` type.
+     *
+     * @param key the key.
+     * @param value the value.
+     *
+     * @return the builder.
+     */
     protected U setBoolean(
         final K key, final boolean value) {
       if(key.getValueType() != MutableOptionKey.ValueType.BOOLEAN) {
@@ -168,6 +252,13 @@ public class AbstractMutableOptions {
       return self();
     }
 
+    /**
+     * Get an option of `boolean` type.
+     *
+     * @param key the key.
+     *
+     * @return the value of the option.
+     */
     protected boolean getBoolean(final K key)
         throws NoSuchElementException, NumberFormatException {
       final MutableOptionValue<?> value = options.get(key);
@@ -177,6 +268,14 @@ public class AbstractMutableOptions {
       return value.asBoolean();
     }
 
+    /**
+     * Set an option of `int[]` type.
+     *
+     * @param key the key.
+     * @param value the value.
+     *
+     * @return the builder.
+     */
     protected U setIntArray(
         final K key, final int[] value) {
       if(key.getValueType() != MutableOptionKey.ValueType.INT_ARRAY) {
@@ -187,6 +286,13 @@ public class AbstractMutableOptions {
       return self();
     }
 
+    /**
+     * Get an option of `int[]` type.
+     *
+     * @param key the key.
+     *
+     * @return the value of the option.
+     */
     protected int[] getIntArray(final K key)
         throws NoSuchElementException, NumberFormatException {
       final MutableOptionValue<?> value = options.get(key);
@@ -196,6 +302,14 @@ public class AbstractMutableOptions {
       return value.asIntArray();
     }
 
+    /**
+     * Set an option of `String` type.
+     *
+     * @param key the key.
+     * @param value the value.
+     *
+     * @return the builder.
+     */
     protected U setString(final K key, final String value) {
       if (key.getValueType() != MutableOptionKey.ValueType.STRING) {
         throw new IllegalArgumentException(key + " does not accept a string value");
@@ -204,6 +318,13 @@ public class AbstractMutableOptions {
       return self();
     }
 
+    /**
+     * Get an option of `String` type.
+     *
+     * @param key the key.
+     *
+     * @return the value.
+     */
     protected String getString(final K key) {
       final MutableOptionValue<?> value = options.get(key);
       if (value == null) {
@@ -212,6 +333,16 @@ public class AbstractMutableOptions {
       return value.asString();
     }
 
+    /**
+     * Set an option of `Enum[N]` type.
+     *
+     * @param <N> the concrete type of the Enum.
+     *
+     * @param key the key.
+     * @param value the value.
+     *
+     * @return the builder.
+     */
     protected <N extends Enum<N>> U setEnum(
         final K key, final N value) {
       if(key.getValueType() != MutableOptionKey.ValueType.ENUM) {
@@ -222,6 +353,15 @@ public class AbstractMutableOptions {
       return self();
     }
 
+    /**
+     * Get an option of `Enum[N]` type.
+     *
+     * @param <N> the concrete type of the Enum.
+     *
+     * @param key the key.
+     *
+     * @return the value of the option.
+     */
     @SuppressWarnings("unchecked")
     protected <N extends Enum<N>> N getEnum(final K key)
         throws NoSuchElementException, NumberFormatException {

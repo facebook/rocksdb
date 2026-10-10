@@ -5,7 +5,15 @@
 
 package org.rocksdb;
 
+/**
+ * An SST File Reader.
+ */
 public class SstFileReader extends RocksObject {
+  /**
+   * Constructs an SstFileReader.
+   *
+   * @param options the options for the reader.
+   */
   public SstFileReader(final Options options) {
     super(newSstFileReader(options.nativeHandle_));
   }

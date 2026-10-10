@@ -6,7 +6,9 @@ package org.rocksdb;
  */
 public abstract class AbstractTableFilter
     extends RocksCallbackObject implements TableFilter {
-
+  /**
+   * Constructs a new AbstractTableFilter.
+   */
   protected AbstractTableFilter() {
     super();
   }

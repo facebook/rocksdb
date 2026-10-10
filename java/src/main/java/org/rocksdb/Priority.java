@@ -9,9 +9,24 @@ package org.rocksdb;
  * The Thread Pool priority.
  */
 public enum Priority {
+  /**
+   * Bottom most priority.
+   */
   BOTTOM((byte) 0x0),
+
+  /**
+   * Low priority.
+   */
   LOW((byte) 0x1),
+
+  /**
+   * High priority.
+   */
   HIGH((byte)0x2),
+
+  /**
+   * maximum number of priority levels.
+   */
   TOTAL((byte)0x3);
 
   private final byte value;

@@ -7,6 +7,9 @@ package org.rocksdb;
 
 import java.util.Objects;
 
+/**
+ * Information about a Mem Table.
+ */
 public class MemTableInfo {
   private final String columnFamilyName;
   private final long firstSeqno;
