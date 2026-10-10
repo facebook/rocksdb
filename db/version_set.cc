@@ -46,6 +46,7 @@
 #include "db/wide/wide_columns_helper.h"
 #include "file/file_util.h"
 #include "file/filename.h"
+#include "file/line_file_reader.h"
 #include "file/random_access_file_reader.h"
 #include "file/read_write_util.h"
 #include "file/writable_file_writer.h"
@@ -54,6 +55,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/persistent_stats_history.h"
 #include "options/options_helper.h"
+#include "options/options_parser.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/write_buffer_manager.h"
@@ -83,6 +85,19 @@
 #endif  // USE_COROUTINES
 
 namespace ROCKSDB_NAMESPACE {
+
+void OptionsFileManifestState::ApplyCommit(uint64_t number) {
+  committed_options_file_number = number;
+  has_committed_options_file_number = true;
+}
+
+void OptionsFileManifestState::ApplyColumnFamilyEdit(const VersionEdit& edit) {
+  if (edit.IsColumnFamilyAdd()) {
+    column_family_names[edit.GetColumnFamily()] = edit.GetColumnFamilyName();
+  } else if (edit.IsColumnFamilyDrop()) {
+    column_family_names.erase(edit.GetColumnFamily());
+  }
+}
 
 namespace {
 
@@ -5436,15 +5451,13 @@ struct VersionSet::ManifestWriter {
         max_file_opening_threads(_max_file_opening_threads) {}
   ~ManifestWriter() { status.PermitUncheckedError(); }
 
-  bool IsAllWalEdits() const {
-    bool all_wal_edits = true;
+  bool IsAllVersionIndependentEdits() const {
     for (const auto& e : edit_list) {
-      if (!e->IsWalManipulation()) {
-        all_wal_edits = false;
-        break;
+      if (!e->IsWalManipulation() && !e->IsOptionsFileManipulation()) {
+        return false;
       }
     }
-    return all_wal_edits;
+    return true;
   }
 };
 
@@ -5517,6 +5530,7 @@ VersionSet::VersionSet(
       manifest_file_number_(0),  // Filled by Recover()
       options_file_number_(0),
       options_file_size_(0),
+      has_committed_options_file_number_(false),
       pending_manifest_file_number_(0),
       last_sequence_(0),
       last_allocated_sequence_(0),
@@ -5701,6 +5715,16 @@ VersionSet::~VersionSet() {
   io_status_.PermitUncheckedError();
 }
 
+void VersionSet::ApplyCommittedOptionsFileNumber(uint64_t number) {
+  options_file_number_ = number;
+  has_committed_options_file_number_ = true;
+}
+
+void VersionSet::ApplyLegacyOptionsFileNumber(uint64_t number) {
+  options_file_number_ = number;
+  has_committed_options_file_number_ = false;
+}
+
 void VersionSet::Reset() {
   if (column_family_set_) {
     WriteBufferManager* wbm = column_family_set_->write_buffer_manager();
@@ -5736,6 +5760,8 @@ void VersionSet::Reset() {
   min_log_number_to_keep_.store(0);
   manifest_file_number_ = 0;
   options_file_number_ = 0;
+  options_file_size_ = 0;
+  has_committed_options_file_number_ = false;
   pending_manifest_file_number_ = 0;
   last_sequence_.store(0);
   last_allocated_sequence_.store(0);
@@ -5873,7 +5899,8 @@ void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
 Status VersionSet::ProcessManifestWrites(
     std::deque<ManifestWriter>& writers, InstrumentedMutex* mu,
     FSDirectory* dir_contains_current_file, bool new_descriptor_log,
-    const ColumnFamilyOptions* new_cf_options, const ReadOptions& read_options,
+    const ColumnFamilyOptions* new_cf_options,
+    bool new_cf_options_are_sanitized, const ReadOptions& read_options,
     const WriteOptions& write_options) {
   mu->AssertHeld();
   assert(!writers.empty());
@@ -6014,8 +6041,8 @@ Status VersionSet::ProcessManifestWrites(
           }
         }
         if (version == nullptr) {
-          // WAL manipulations do not need to be applied to versions.
-          if (!last_writer->IsAllWalEdits()) {
+          // WAL and OPTIONS protocol manipulations do not change LSM Versions.
+          if (!last_writer->IsAllVersionIndependentEdits()) {
             version = new Version(
                 last_writer->cfd, this, file_options_,
                 last_writer->cfd ? last_writer->cfd->GetLatestMutableCFOptions()
@@ -6026,8 +6053,8 @@ Status VersionSet::ProcessManifestWrites(
                 new BaseReferencedVersionBuilder(last_writer->cfd));
             builder = builder_guards.back()->version_builder();
           }
-          assert(last_writer->IsAllWalEdits() || builder);
-          assert(last_writer->IsAllWalEdits() || version);
+          assert(last_writer->IsAllVersionIndependentEdits() || builder);
+          assert(last_writer->IsAllVersionIndependentEdits() || version);
           TEST_SYNC_POINT_CALLBACK(
               "VersionSet::ProcessManifestWrites:NewVersion", version);
         }
@@ -6172,6 +6199,7 @@ Status VersionSet::ProcessManifestWrites(
   // SwitchMemtable().
   std::unordered_map<uint32_t, MutableCFState> curr_state;
   VersionEdit wal_additions;
+  OptionsFileManifestState options_manifest_state;
   if (new_descriptor_log) {
     pending_manifest_file_number_ = NewFileNumber();
     batch_edits.back()->SetNextFile(next_file_number_.load());
@@ -6192,6 +6220,7 @@ Status VersionSet::ProcessManifestWrites(
     for (const auto& wal : wals_.GetWals()) {
       wal_additions.AddWal(wal.first, wal.second);
     }
+    options_manifest_state = options_file_manifest_state();
   }
 
   uint64_t new_manifest_file_size = 0;
@@ -6252,7 +6281,8 @@ Status VersionSet::ProcessManifestWrites(
                                  opt_file_opts, manifest_preallocation_size);
         raw_desc_log_ptr = new_desc_log_ptr.get();
         s = WriteCurrentStateToManifest(write_options, curr_state,
-                                        wal_additions, raw_desc_log_ptr, io_s);
+                                        wal_additions, options_manifest_state,
+                                        raw_desc_log_ptr, io_s);
         assert(s == io_s);
       }
       if (!io_s.ok()) {
@@ -6414,7 +6444,7 @@ Status VersionSet::ProcessManifestWrites(
       assert(max_last_sequence == descriptor_last_sequence_);
       CreateColumnFamily(*new_cf_options, read_options,
                          first_writer.edit_list.front(),
-                         /*read_only*/ false);
+                         /*read_only=*/false, new_cf_options_are_sanitized);
     } else if (first_writer.edit_list.front()->IsColumnFamilyDrop()) {
       assert(batch_edits.size() == 1);
       assert(max_last_sequence == descriptor_last_sequence_);
@@ -6457,6 +6487,13 @@ Status VersionSet::ProcessManifestWrites(
       }
     }
     if (!skip_manifest_write) {
+      for (const auto* edit : batch_edits) {
+        assert(edit != nullptr);
+        if (edit->HasCommittedOptionsFileNumber()) {
+          ApplyCommittedOptionsFileNumber(
+              edit->GetCommittedOptionsFileNumber());
+        }
+      }
       assert(max_last_sequence >= descriptor_last_sequence_);
       descriptor_last_sequence_ = max_last_sequence;
       manifest_file_number_ = pending_manifest_file_number_;
@@ -6564,6 +6601,40 @@ Status VersionSet::LogAndApply(
     bool new_descriptor_log, const ColumnFamilyOptions* new_cf_options,
     const std::vector<std::function<void(const Status&)>>& manifest_wcbs,
     const std::function<Status()>& pre_cb, int max_file_opening_threads) {
+  return LogAndApplyImpl(column_family_datas, read_options, write_options,
+                         edit_lists, mu, dir_contains_current_file,
+                         new_descriptor_log, new_cf_options,
+                         /*new_cf_options_are_sanitized=*/false, manifest_wcbs,
+                         pre_cb, max_file_opening_threads);
+}
+
+Status VersionSet::LogAndApplyColumnFamilyAddWithSanitizedOptions(
+    const ReadOptions& read_options, const WriteOptions& write_options,
+    VersionEdit* edit, InstrumentedMutex* mu,
+    FSDirectory* dir_contains_current_file,
+    const ColumnFamilyOptions& sanitized_options) {
+  assert(edit != nullptr);
+  assert(edit->IsColumnFamilyAdd());
+  autovector<ColumnFamilyData*> cfds{nullptr};
+  autovector<VersionEdit*> edit_list{edit};
+  autovector<autovector<VersionEdit*>> edit_lists{edit_list};
+  return LogAndApplyImpl(cfds, read_options, write_options, edit_lists, mu,
+                         dir_contains_current_file,
+                         /*new_descriptor_log=*/false, &sanitized_options,
+                         /*new_cf_options_are_sanitized=*/true,
+                         /*manifest_wcbs=*/{}, /*pre_cb=*/{},
+                         /*max_file_opening_threads=*/1);
+}
+
+Status VersionSet::LogAndApplyImpl(
+    const autovector<ColumnFamilyData*>& column_family_datas,
+    const ReadOptions& read_options, const WriteOptions& write_options,
+    const autovector<autovector<VersionEdit*>>& edit_lists,
+    InstrumentedMutex* mu, FSDirectory* dir_contains_current_file,
+    bool new_descriptor_log, const ColumnFamilyOptions* new_cf_options,
+    bool new_cf_options_are_sanitized,
+    const std::vector<std::function<void(const Status&)>>& manifest_wcbs,
+    const std::function<Status()>& pre_cb, int max_file_opening_threads) {
   mu->AssertHeld();
   int num_edits = 0;
   for (const auto& elist : edit_lists) {
@@ -6651,7 +6722,8 @@ Status VersionSet::LogAndApply(
   } else {
     return ProcessManifestWrites(writers, mu, dir_contains_current_file,
                                  new_descriptor_log, new_cf_options,
-                                 read_options, write_options);
+                                 new_cf_options_are_sanitized, read_options,
+                                 write_options);
   }
 }
 
@@ -6695,10 +6767,10 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
     edit->SetLastSequence(*max_last_sequence);
   }
 
-  // The builder can be nullptr only if edit is WAL manipulation,
-  // because WAL edits do not need to be applied to versions,
-  // we return Status::OK() in this case.
-  assert(builder || edit->IsWalManipulation());
+  // WAL and OPTIONS protocol edits update DB-wide metadata without changing an
+  // LSM Version, so they do not need a VersionBuilder.
+  assert(builder || edit->IsWalManipulation() ||
+         edit->IsOptionsFileManipulation());
   return builder ? builder->Apply(edit) : Status::OK();
 }
 
@@ -6829,10 +6901,17 @@ Status VersionSet::ReopenManifestForAppend(const std::string& manifest_path) {
 Status VersionSet::AppendColumnFamilyDropsToManifest(
     const std::string& manifest_path, uint64_t manifest_size,
     const std::vector<uint32_t>& cf_ids, const WriteOptions& write_options,
-    uint64_t manifest_preallocation_size) {
-  if (cf_ids.empty()) {
+    uint64_t manifest_preallocation_size,
+    uint64_t committed_options_file_number) {
+  if (cf_ids.empty() && committed_options_file_number == 0) {
     return Status::OK();
   }
+  if (committed_options_file_number == std::numeric_limits<uint64_t>::max()) {
+    return Status::InvalidArgument("OPTIONS file number is too large");
+  }
+  const uint64_t next_options_file_number =
+      committed_options_file_number == 0 ? 0
+                                         : committed_options_file_number + 1;
 
   // Rewrite the checkpoint MANIFEST via a bounded-memory buffered copy into a
   // .tmp file (append drops, sync, close), then atomically rename over the
@@ -6916,14 +6995,42 @@ Status VersionSet::AppendColumnFamilyDropsToManifest(
     writer.reset();
   };
 
-  for (uint32_t cf_id : cf_ids) {
+  for (size_t i = 0; i < cf_ids.size(); ++i) {
+    assert(writer != nullptr);
     VersionEdit edit;
-    edit.SetColumnFamily(cf_id);
+    edit.SetColumnFamily(cf_ids[i]);
     edit.DropColumnFamily();
+    if (i + 1 == cf_ids.size()) {
+      if (committed_options_file_number != 0) {
+        edit.SetCommittedOptionsFileNumber(committed_options_file_number);
+        edit.SetNextFile(next_options_file_number);
+      }
+    }
     std::string record;
     if (!edit.EncodeTo(&record)) {
       s = Status::Corruption(
           "Unable to encode column family drop VersionEdit for checkpoint");
+      close_writer();
+      return s;
+    }
+    IOStatus add_s = writer->AddRecord(write_options, record);
+    if (!add_s.ok()) {
+      s = add_s;
+      close_writer();
+      return s;
+    }
+  }
+
+  if (cf_ids.empty()) {
+    assert(writer != nullptr);
+    VersionEdit edit;
+    if (committed_options_file_number != 0) {
+      edit.SetCommittedOptionsFileNumber(committed_options_file_number);
+      edit.SetNextFile(next_options_file_number);
+    }
+    std::string record;
+    if (!edit.EncodeTo(&record)) {
+      s = Status::Corruption("Unable to encode committed OPTIONS VersionEdit");
       close_writer();
       return s;
     }
@@ -6951,6 +7058,20 @@ Status VersionSet::AppendColumnFamilyDropsToManifest(
       fs_->RenameFile(tmp_path, manifest_path, IOOptions(), /*dbg=*/nullptr);
   if (!rename_s.ok()) {
     return rename_s;
+  }
+  const size_t slash = manifest_path.find_last_of("/\\");
+  const std::string manifest_dir =
+      slash == std::string::npos ? "." : manifest_path.substr(0, slash);
+  std::unique_ptr<FSDirectory> dir;
+  IOStatus dir_s = fs_->NewDirectory(manifest_dir, IOOptions(), &dir, nullptr);
+  if (!dir_s.ok()) {
+    return dir_s;
+  }
+  assert(dir != nullptr);
+  dir_s = dir->FsyncWithDirOptions(IOOptions(), nullptr,
+                                   DirFsyncOptions(manifest_path));
+  if (!dir_s.ok()) {
+    return dir_s;
   }
   return Status::OK();
 }
@@ -7264,6 +7385,255 @@ Status VersionSet::ListColumnFamiliesFromManifest(
   return handler.status();
 }
 
+Status VersionSet::GetOptionsFileManifestState(
+    const std::string& dbname, FileSystem* fs,
+    OptionsFileManifestState* manifest_state) {
+  return GetOptionsFileManifestState(
+      dbname, fs, manifest_state, /*next_file_number=*/nullptr,
+      /*last_valid_manifest_record_end=*/nullptr);
+}
+
+Status VersionSet::GetOptionsFileManifestState(
+    const std::string& dbname, FileSystem* fs,
+    OptionsFileManifestState* manifest_state, uint64_t* next_file_number,
+    uint64_t* last_valid_manifest_record_end) {
+  assert(fs != nullptr);
+  assert(manifest_state != nullptr);
+  *manifest_state = OptionsFileManifestState();
+  if (next_file_number != nullptr) {
+    *next_file_number = 0;
+  }
+  if (last_valid_manifest_record_end != nullptr) {
+    *last_valid_manifest_record_end = 0;
+  }
+
+  constexpr int kMaxAttempts = 2;
+  for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
+    std::string manifest_path;
+    uint64_t manifest_file_number = 0;
+    Status s = GetCurrentManifestPath(dbname, fs, /*is_retry=*/attempt > 0,
+                                      &manifest_path, &manifest_file_number);
+    if (s.IsNotFound()) {
+      if (attempt + 1 == kMaxAttempts) {
+        return Status::OK();
+      }
+      continue;
+    }
+    if (!s.ok()) {
+      return s;
+    }
+
+    std::unique_ptr<FSSequentialFile> file;
+    s = fs->NewSequentialFile(manifest_path, FileOptions(), &file, nullptr);
+    if (s.IsNotFound() || s.IsPathNotFound()) {
+      if (attempt + 1 == kMaxAttempts) {
+        return s;
+      }
+      continue;
+    }
+    if (!s.ok()) {
+      return s;
+    }
+    auto file_reader = std::make_unique<SequentialFileReader>(
+        std::move(file), manifest_path, /*io_tracer=*/nullptr);
+    LogReporter reporter;
+    reporter.status = &s;
+    log::Reader reader(nullptr, std::move(file_reader), &reporter,
+                       /*checksum=*/true, /*log_number=*/0);
+
+    OptionsFileManifestState found_manifest_state;
+    // The default column family is implicit in MANIFEST snapshots and is not
+    // written as a kColumnFamilyAdd record.
+    found_manifest_state.column_family_names.emplace(0,
+                                                     kDefaultColumnFamilyName);
+    uint64_t found_next_file_number = 0;
+    uint64_t found_last_valid_record_end = 0;
+    auto apply_edit = [&](const VersionEdit& edit) {
+      found_manifest_state.ApplyColumnFamilyEdit(edit);
+      if (edit.HasCommittedOptionsFileNumber()) {
+        found_manifest_state.ApplyCommit(edit.GetCommittedOptionsFileNumber());
+      }
+      if (edit.HasNextFile()) {
+        found_next_file_number = edit.GetNextFile();
+      }
+    };
+
+    AtomicGroupReadBuffer atomic_group;
+    Slice record;
+    std::string scratch;
+    while (s.ok() && reader.ReadRecord(&record, &scratch)) {
+      VersionEdit edit;
+      s = edit.DecodeFrom(record);
+      if (!s.ok()) {
+        break;
+      }
+      s = atomic_group.AddEdit(&edit);
+      if (!s.ok()) {
+        break;
+      }
+      if (edit.IsInAtomicGroup()) {
+        if (!atomic_group.IsFull()) {
+          continue;
+        }
+        found_last_valid_record_end = reader.LastRecordEnd();
+        for (const auto& grouped_edit : atomic_group.replay_buffer()) {
+          apply_edit(grouped_edit);
+        }
+        atomic_group.Clear();
+      } else {
+        found_last_valid_record_end = reader.LastRecordEnd();
+        apply_edit(edit);
+      }
+    }
+    if (!s.ok()) {
+      return s;
+    }
+
+    *manifest_state = found_manifest_state;
+    if (next_file_number != nullptr) {
+      *next_file_number = found_next_file_number;
+    }
+    if (last_valid_manifest_record_end != nullptr) {
+      *last_valid_manifest_record_end = found_last_valid_record_end;
+    }
+    return Status::OK();
+  }
+
+  return Status::OK();
+}
+
+Status VersionSet::ResolveOptionsFileNumber(
+    const std::string& dbname, FileSystem* fs,
+    const OptionsFileManifestState& manifest_state,
+    const std::vector<std::string>& filenames,
+    bool inspect_options_file_tracking, OptionsFileSelection* selection) {
+  assert(fs != nullptr);
+  assert(selection != nullptr);
+  *selection = OptionsFileSelection();
+
+  std::map<uint64_t, std::string, std::greater<uint64_t>> options_files;
+  for (const std::string& filename : filenames) {
+    uint64_t number = 0;
+    FileType type;
+    if (ParseFileName(filename, &number, &type) && type == kOptionsFile) {
+      options_files.emplace(number, filename);
+    }
+  }
+  if (options_files.empty()) {
+    return Status::OK();
+  }
+
+  const auto highest = options_files.begin();
+  if (!manifest_state.has_committed_options_file_number &&
+      !inspect_options_file_tracking) {
+    selection->file_number = highest->first;
+    return Status::OK();
+  }
+
+  auto is_tracked = [&](const std::string& filename, bool* tracked) -> Status {
+    assert(tracked != nullptr);
+    *tracked = false;
+    const std::string path = dbname + "/" + filename;
+    TEST_SYNC_POINT(
+        "VersionSet::ResolveOptionsFileNumber:InspectTrackingMarker");
+    std::unique_ptr<FSSequentialFile> file;
+    Status s = fs->NewSequentialFile(path, FileOptions(), &file, nullptr);
+    if (!s.ok()) {
+      return s;
+    }
+    LineFileReader reader(std::move(file), path, /*io_tracer=*/nullptr,
+                          std::vector<std::shared_ptr<EventListener>>{},
+                          /*rate_limiter=*/nullptr);
+    bool in_db_options = false;
+    std::string line;
+    while (reader.ReadLine(&line, Env::IO_TOTAL)) {
+      line = RocksDBOptionsParser::TrimAndRemoveComment(line);
+      if (line.empty()) {
+        continue;
+      }
+      if (line.front() == '[' && line.back() == ']') {
+        if (in_db_options) {
+          return Status::OK();
+        }
+        in_db_options = line == "[DBOptions]";
+        continue;
+      }
+      if (!in_db_options) {
+        continue;
+      }
+      const size_t separator = line.find('=');
+      if (separator == std::string::npos) {
+        continue;
+      }
+      const std::string name = RocksDBOptionsParser::TrimAndRemoveComment(
+          line.substr(0, separator), /*trim_only=*/true);
+      if (name != "track_options_file_number_in_manifest") {
+        continue;
+      }
+      const std::string value = RocksDBOptionsParser::TrimAndRemoveComment(
+          line.substr(separator + 1), /*trim_only=*/true);
+      if (value == "true" || value == "1") {
+        *tracked = true;
+        return Status::OK();
+      }
+      if (value == "false" || value == "0") {
+        return Status::OK();
+      }
+      return Status::InvalidArgument(
+          "Invalid track_options_file_number_in_manifest value in " + path);
+    }
+    return reader.GetStatus();
+  };
+
+  if (!manifest_state.has_committed_options_file_number) {
+    selection->file_number = highest->first;
+    bool highest_is_tracked = false;
+    Status marker_status = is_tracked(highest->second, &highest_is_tracked);
+    // Marker inspection only selects between legacy and MANIFEST semantics.
+    // The caller that consumes the file will report any actual read error.
+    selection->used_fallback = !marker_status.ok() || highest_is_tracked;
+    return Status::OK();
+  }
+
+  std::vector<uint64_t> rejected_tracked_file_numbers;
+  for (auto it = options_files.begin(); it != options_files.end(); ++it) {
+    if (it->first == manifest_state.committed_options_file_number) {
+      selection->file_number = it->first;
+      selection->selected_by_manifest = true;
+      selection->rejected_tracked_file_numbers =
+          std::move(rejected_tracked_file_numbers);
+      return Status::OK();
+    }
+    if (it->first < manifest_state.committed_options_file_number) {
+      break;
+    }
+    if (it == highest) {
+      rejected_tracked_file_numbers.push_back(it->first);
+      continue;
+    }
+    bool tracked = false;
+    Status marker_status = is_tracked(it->second, &tracked);
+    if (!marker_status.ok()) {
+      // An unreadable higher-numbered file cannot safely override a committed
+      // snapshot, but it also must not make DB::Open fail. Loading the selected
+      // file remains responsible for reporting content errors to utility APIs.
+      // Keep the unreadable candidate because it might be a legacy snapshot.
+      continue;
+    }
+    if (!tracked) {
+      selection->file_number = it->first;
+      selection->rejected_tracked_file_numbers =
+          std::move(rejected_tracked_file_numbers);
+      return Status::OK();
+    }
+    rejected_tracked_file_numbers.push_back(it->first);
+  }
+
+  selection->file_number = highest->first;
+  selection->used_fallback = true;
+  return Status::OK();
+}
+
 Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
                                         const Options* options,
                                         const FileOptions& file_options,
@@ -7510,7 +7880,9 @@ void VersionSet::MarkMinLogNumberToKeep(uint64_t number) {
 Status VersionSet::WriteCurrentStateToManifest(
     const WriteOptions& write_options,
     const std::unordered_map<uint32_t, MutableCFState>& curr_state,
-    const VersionEdit& wal_additions, log::Writer* log, IOStatus& io_s) {
+    const VersionEdit& wal_additions,
+    const OptionsFileManifestState& options_file_manifest_state,
+    log::Writer* log, IOStatus& io_s) {
   // TODO: Break up into multiple records to reduce memory usage on recovery?
 
   // WARNING: This method doesn't hold a mutex!!
@@ -7682,6 +8054,22 @@ Status VersionSet::WriteCurrentStateToManifest(
       if (!io_s.ok()) {
         return io_s;
       }
+    }
+  }
+
+  if (options_file_manifest_state.has_committed_options_file_number) {
+    assert(log != nullptr);
+    VersionEdit edit;
+    edit.SetCommittedOptionsFileNumber(
+        options_file_manifest_state.committed_options_file_number);
+    std::string record;
+    if (!edit.EncodeTo(&record)) {
+      return Status::Corruption("Unable to Encode VersionEdit:" +
+                                edit.DebugString(true));
+    }
+    io_s = log->AddRecord(write_options, record);
+    if (!io_s.ok()) {
+      return io_s;
     }
   }
 
@@ -8243,7 +8631,7 @@ uint64_t VersionSet::GetObsoleteSstFilesSize() const {
 
 ColumnFamilyData* VersionSet::CreateColumnFamily(
     const ColumnFamilyOptions& cf_options, const ReadOptions& read_options,
-    const VersionEdit* edit, bool read_only) {
+    const VersionEdit* edit, bool read_only, bool options_are_sanitized) {
   assert(edit->IsColumnFamilyAdd());
   // Unchanging LSM tree implies no writes to the CF
   assert(!unchanging_ || read_only);
@@ -8256,7 +8644,7 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
   dummy_versions->Ref();
   auto new_cfd = column_family_set_->CreateColumnFamily(
       edit->GetColumnFamilyName(), edit->GetColumnFamily(), dummy_versions,
-      cf_options, read_only);
+      cf_options, read_only, options_are_sanitized);
 
   Version* v = new Version(new_cfd, this, file_options_,
                            new_cfd->GetLatestMutableCFOptions(), io_tracer_,

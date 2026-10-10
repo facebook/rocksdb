@@ -177,6 +177,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.avoid_unnecessary_blocking_io =
       immutable_db_options.avoid_unnecessary_blocking_io;
   options.write_dbid_to_manifest = immutable_db_options.write_dbid_to_manifest;
+  options.track_options_file_number_in_manifest =
+      immutable_db_options.track_options_file_number_in_manifest;
   options.write_identity_file = immutable_db_options.write_identity_file;
   options.reuse_manifest_on_open = immutable_db_options.reuse_manifest_on_open;
   options.prefix_seek_opt_in_only =

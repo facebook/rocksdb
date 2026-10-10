@@ -85,6 +85,23 @@ class ManifestTailer;
 class FilePickerMultiGet;
 class MultiScanArgs;
 
+// The OPTIONS publication state recovered from a MANIFEST.
+struct OptionsFileManifestState {
+  uint64_t committed_options_file_number = 0;
+  bool has_committed_options_file_number = false;
+  std::map<uint32_t, std::string> column_family_names;
+
+  void ApplyCommit(uint64_t number);
+  void ApplyColumnFamilyEdit(const VersionEdit& edit);
+};
+
+struct OptionsFileSelection {
+  uint64_t file_number = 0;
+  bool selected_by_manifest = false;
+  bool used_fallback = false;
+  std::vector<uint64_t> rejected_tracked_file_numbers;
+};
+
 // VersionEdit is always supposed to be valid and it is used to point at
 // entries in Manifest. Ideally it should not be used as a container to
 // carry around few of its fields as function params because it can cause
@@ -1364,6 +1381,16 @@ class VersionSet {
                        dir_contains_current_file, new_descriptor_log,
                        column_family_options, {manifest_wcb}, pre_cb);
   }
+
+  // The live DB creation path has already sanitized these options for its
+  // OPTIONS snapshot. Reuse that exact value when installing the new column
+  // family so persistence and the in-memory configuration cannot drift.
+  Status LogAndApplyColumnFamilyAddWithSanitizedOptions(
+      const ReadOptions& read_options, const WriteOptions& write_options,
+      VersionEdit* edit, InstrumentedMutex* mu,
+      FSDirectory* dir_contains_current_file,
+      const ColumnFamilyOptions& sanitized_options);
+
   // The batch version. If edit_list.size() > 1, caller must ensure that
   // no edit in the list column family add or drop
   Status LogAndApply(
@@ -1443,6 +1470,25 @@ class VersionSet {
       const std::string& manifest_path, FileSystem* fs,
       std::vector<std::string>* column_families);
 
+  // Replays CURRENT's MANIFEST and returns its committed OPTIONS file number.
+  static Status GetOptionsFileManifestState(
+      const std::string& dbname, FileSystem* fs,
+      OptionsFileManifestState* manifest_state);
+  static Status GetOptionsFileManifestState(
+      const std::string& dbname, FileSystem* fs,
+      OptionsFileManifestState* manifest_state, uint64_t* next_file_number,
+      uint64_t* last_valid_manifest_record_end);
+
+  // Resolves OPTIONS files against recovered MANIFEST state. A legacy file
+  // (tracking absent or false) supersedes an older committed file. Tracked
+  // files without a matching commit are skipped. If no committed or legacy
+  // file exists, falls back to the highest tracked file for RepairDB output.
+  static Status ResolveOptionsFileNumber(
+      const std::string& dbname, FileSystem* fs,
+      const OptionsFileManifestState& manifest_state,
+      const std::vector<std::string>& filenames,
+      bool inspect_options_file_tracking, OptionsFileSelection* selection);
+
   // Try to reduce the number of levels. This call is valid when
   // only one level from the new max level to the old
   // max level containing files.
@@ -1471,6 +1517,22 @@ class VersionSet {
   uint64_t manifest_file_number() const { return manifest_file_number_; }
 
   uint64_t options_file_number() const { return options_file_number_; }
+
+  // True when options_file_number() was committed by the current MANIFEST.
+  bool has_committed_options_file_number() const {
+    return has_committed_options_file_number_;
+  }
+
+  OptionsFileManifestState options_file_manifest_state() const {
+    OptionsFileManifestState state;
+    state.committed_options_file_number = options_file_number_;
+    state.has_committed_options_file_number =
+        has_committed_options_file_number_;
+    return state;
+  }
+
+  virtual void ApplyCommittedOptionsFileNumber(uint64_t number);
+  void ApplyLegacyOptionsFileNumber(uint64_t number);
 
   uint64_t pending_manifest_file_number() const {
     return pending_manifest_file_number_;
@@ -1787,19 +1849,24 @@ class VersionSet {
   unsigned TEST_GetMaxManifestSpaceAmpPct() {
     return max_manifest_space_amp_pct_;
   }
+  void TEST_ClearCommittedOptionsFileNumber() {
+    has_committed_options_file_number_ = false;
+  }
   size_t TEST_GetManifestPreallocationSize() {
     return manifest_preallocation_size_;
   }
 
   // Appends a kColumnFamilyDrop record for each id in cf_ids to the MANIFEST
   // file at manifest_path, whose valid content length is manifest_size bytes.
-  // Intended for post-processing a checkpoint's copied MANIFEST so that column
-  // families whose SST/blob files were not copied are recorded as dropped and
-  // thus not opened during recovery.
+  // Column-family drops ensure CFs whose files were not copied are not opened
+  // during recovery. When committed_options_file_number is nonzero, it is
+  // committed in the last appended record so the copied MANIFEST also matches
+  // the subset-specific OPTIONS snapshot.
   Status AppendColumnFamilyDropsToManifest(
       const std::string& manifest_path, uint64_t manifest_size,
       const std::vector<uint32_t>& cf_ids, const WriteOptions& write_options,
-      uint64_t manifest_preallocation_size);
+      uint64_t manifest_preallocation_size,
+      uint64_t committed_options_file_number);
 
  protected:
   struct ManifestWriter;
@@ -1848,7 +1915,9 @@ class VersionSet {
   Status WriteCurrentStateToManifest(
       const WriteOptions& write_options,
       const std::unordered_map<uint32_t, MutableCFState>& curr_state,
-      const VersionEdit& wal_additions, log::Writer* log, IOStatus& io_s);
+      const VersionEdit& wal_additions,
+      const OptionsFileManifestState& options_file_manifest_state,
+      log::Writer* log, IOStatus& io_s);
 
   // Reopen the existing MANIFEST file for append at the end of Recover()
   // when reuse_manifest_on_open is set, so the next LogAndApply appends
@@ -1881,7 +1950,8 @@ class VersionSet {
 
   ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                        const ReadOptions& read_options,
-                                       const VersionEdit* edit, bool read_only);
+                                       const VersionEdit* edit, bool read_only,
+                                       bool options_are_sanitized);
 
   Status VerifyFileMetadata(const ReadOptions& read_options,
                             ColumnFamilyData* cfd, const std::string& fpath,
@@ -1913,6 +1983,7 @@ class VersionSet {
   uint64_t manifest_file_number_;
   uint64_t options_file_number_;
   uint64_t options_file_size_;
+  bool has_committed_options_file_number_;
   uint64_t pending_manifest_file_number_;
   // The last seq visible to reads. It normally indicates the last sequence in
   // the memtable but when using two write queues it could also indicate the
@@ -2025,8 +2096,19 @@ class VersionSet {
                                FSDirectory* dir_contains_current_file,
                                bool new_descriptor_log,
                                const ColumnFamilyOptions* new_cf_options,
+                               bool new_cf_options_are_sanitized,
                                const ReadOptions& read_options,
                                const WriteOptions& write_options);
+
+  Status LogAndApplyImpl(
+      const autovector<ColumnFamilyData*>& column_family_datas,
+      const ReadOptions& read_options, const WriteOptions& write_options,
+      const autovector<autovector<VersionEdit*>>& edit_lists,
+      InstrumentedMutex* mu, FSDirectory* dir_contains_current_file,
+      bool new_descriptor_log, const ColumnFamilyOptions* new_cf_options,
+      bool new_cf_options_are_sanitized,
+      const std::vector<std::function<void(const Status&)>>& manifest_wcbs,
+      const std::function<Status()>& pre_cb, int max_file_opening_threads);
 
   void LogAndApplyCFHelper(VersionEdit* edit,
                            SequenceNumber* max_last_sequence);
@@ -2059,6 +2141,10 @@ class ReactiveVersionSet : public VersionSet {
   Status Close(FSDirectory* /*db_dir*/, InstrumentedMutex* /*mu*/) override {
     return Status::OK();
   }
+
+  // Secondary and follower live-file snapshots keep their legacy behavior.
+  // They do not publish an OPTIONS file selected from primary MANIFEST state.
+  void ApplyCommittedOptionsFileNumber(uint64_t /*number*/) override {}
 
   Status ReadAndApply(
       InstrumentedMutex* mu,

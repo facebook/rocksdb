@@ -1,0 +1,1 @@
+Added `ldb update_manifest --rebind_options_file --options_file=OPTIONS-<number>` for offline repair of a committed MANIFEST OPTIONS file number. Operators must select a trusted snapshot that has MANIFEST tracking enabled and provide any external DB/CF allocation roots that are not serialized in OPTIONS.

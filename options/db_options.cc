@@ -464,6 +464,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, write_dbid_to_manifest),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"track_options_file_number_in_manifest",
+         {offsetof(struct ImmutableDBOptions,
+                   track_options_file_number_in_manifest),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"reuse_manifest_on_open",
          {offsetof(struct ImmutableDBOptions, reuse_manifest_on_open),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -847,6 +852,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       prefix_seek_opt_in_only(options.prefix_seek_opt_in_only),
       persist_stats_to_disk(options.persist_stats_to_disk),
       write_dbid_to_manifest(options.write_dbid_to_manifest),
+      track_options_file_number_in_manifest(
+          options.track_options_file_number_in_manifest),
       reuse_manifest_on_open(options.reuse_manifest_on_open),
       write_identity_file(options.write_identity_file),
       log_readahead_size(options.log_readahead_size),
@@ -1035,6 +1042,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    persist_stats_to_disk);
   ROCKS_LOG_HEADER(log, "                Options.write_dbid_to_manifest: %d",
                    write_dbid_to_manifest);
+  ROCKS_LOG_HEADER(log, " Options.track_options_file_number_in_manifest: %d",
+                   track_options_file_number_in_manifest);
   ROCKS_LOG_HEADER(log, "                Options.reuse_manifest_on_open: %d",
                    reuse_manifest_on_open);
   ROCKS_LOG_HEADER(log, "                Options.write_identity_file: %d",
