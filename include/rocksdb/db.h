@@ -247,7 +247,7 @@ Status DeserializePreparedFileInfo(
 // any external synchronization.
 // DB is an abstract base class with one primary implementation (DBImpl)
 // and a number of wrapper implementations.
-class DB {
+class ROCKSDB_LIBRARY_API DB {
  public:
   // Open the database with the specified "name" for reads and writes.
   // On success, stores the database in *dbptr and returns OK.
@@ -272,10 +272,10 @@ class DB {
   // will use to operate on column family column_family[i].
   // Before destroying the DB, you have to close all column families by calling
   // DestroyColumnFamilyHandle() with all the handles.
-  static Status Open(const DBOptions& db_options, const std::string& name,
-                     const std::vector<ColumnFamilyDescriptor>& column_families,
-                     std::vector<ColumnFamilyHandle*>* handles,
-                     std::unique_ptr<DB>* dbptr);
+  ROCKSDB_LIBRARY_API static Status Open(
+      const DBOptions& db_options, const std::string& name,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr);
 
   // OpenForReadOnly() creates a Read-only instance that supports reads alone.
   //

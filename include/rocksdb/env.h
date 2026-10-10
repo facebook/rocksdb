@@ -213,7 +213,7 @@ class Env : public Customizable {
   // implementation instead of relying on this default environment.
   //
   // The result of Default() belongs to rocksdb and must never be deleted.
-  static Env* Default();
+  ROCKSDB_LIBRARY_API static Env* Default();
 
   // See FileSystem::RegisterDbPaths.
   virtual Status RegisterDbPaths(const std::vector<std::string>& /*paths*/) {

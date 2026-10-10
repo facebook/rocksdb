@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "monitoring/perf_context_imp.h"
+#include "rocksdb/c.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -183,7 +184,7 @@ struct PerfContextInt {
 // Put here just to make get_perf_context() simple without ifdef.
 PerfContext perf_context;
 #else
-thread_local PerfContext perf_context;
+ROCKSDB_LIBRARY_API thread_local PerfContext perf_context;
 #endif
 
 PerfContext* get_perf_context() {
