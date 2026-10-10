@@ -1343,6 +1343,160 @@ class Deque:
         return "Deque({!r})".format(list(self))
 
 
+class S3FIFOCache(Cache):
+    """
+    An implementation of S3-FIFO with a small probationary queue, a main
+    queue, and a ghost queue of recently evicted probation entries.
+
+    This follows the C++ FIFOCache (cache/fifo_cache.cc):
+    - new entries enter the small queue unless their key is remembered in the
+      ghost queue, in which case they go directly to the main queue;
+    - hits increment a per-entry frequency counter, saturating at max_freq
+      (3), but do not reorder entries;
+    - small-queue evictions promote entries whose frequency reached the
+      promotion threshold, otherwise they are evicted and remembered in ghost;
+    - main-queue eviction is CLOCK-like: entries with non-zero frequency are
+      demoted by one and rotated, otherwise they are evicted;
+    - the small queue's budget is 12% of the cache by size, and the queue
+      that pays for an insert is chosen from the small queue's size plus the
+      incoming size, which is 0 for a key that the ghost readmits to main;
+    - the ghost keeps victim sizes and drops its oldest keys while their
+      total exceeds the cache size or they outnumber the cached entries.
+    """
+
+    def __init__(
+        self,
+        cache_size,
+        enable_cache_row_key,
+        small_size_ratio=0.12,
+        ghost_size_ratio=1.0,
+        move_to_main_threshold=2,
+        max_freq=3,
+    ):
+        super().__init__(cache_size, enable_cache_row_key)
+        self.table = {}
+        self.small = Deque()
+        self.main = Deque()
+        self.ghost = Deque()
+        self.small_size_ratio = small_size_ratio
+        self.ghost_size_ratio = ghost_size_ratio
+        self.move_to_main_threshold = move_to_main_threshold
+        self.max_freq = max_freq
+        self.small_used_size = 0
+        # Ghost key -> victim size, and the total of those sizes.
+        self.ghost_sizes = {}
+        self.ghost_used_size = 0
+
+    def cache_name(self):
+        if self.enable_cache_row_key:
+            return "Hybrid S3-FIFO (s3fifo_hybrid)"
+        return "S3-FIFO (s3fifo)"
+
+    def _in_small(self, key):
+        return key in self.small
+
+    def _in_main(self, key):
+        return key in self.main
+
+    def _small_budget(self):
+        return self.cache_size * self.small_size_ratio
+
+    def _forget_ghost(self, key):
+        self.ghost.remove(key)
+        self.ghost_used_size -= self.ghost_sizes.pop(key)
+
+    def _remember_ghost(self, key, value_size):
+        # Called while the victim is still in the table, as GhostRecord is in
+        # C++, so a full cache of N entries keeps N ghosts.
+        if key in self.ghost:
+            self._forget_ghost(key)
+        self.ghost.appendleft(key)
+        self.ghost_sizes[key] = value_size
+        self.ghost_used_size += value_size
+        while len(self.ghost) > 0 and (
+            self.ghost_used_size > self.cache_size * self.ghost_size_ratio
+            or len(self.ghost) > len(self.table)
+        ):
+            oldest = self.ghost.pop()
+            self.ghost_used_size -= self.ghost_sizes.pop(oldest)
+
+    def _lookup(self, trace_record, key, hash):
+        if key not in self.table:
+            return False
+        entry = self.table[key]
+        entry.num_hits = min(entry.num_hits + 1, self.max_freq)
+        return True
+
+    def _evict_from_small(self, value_size):
+        while self.used_size + value_size > self.cache_size and len(self.small) > 0:
+            victim = self.small.pop()
+            entry = self.table[victim]
+            if entry.num_hits >= self.move_to_main_threshold:
+                entry.num_hits = 0
+                self.main.appendleft(victim)
+                self.small_used_size -= entry.value_size
+                continue
+            self._remember_ghost(victim, entry.value_size)
+            self.small_used_size -= entry.value_size
+            self.used_size -= entry.value_size
+            del self.table[victim]
+
+    def _evict_from_main(self, value_size):
+        while self.used_size + value_size > self.cache_size and len(self.main) > 0:
+            victim = self.main.pop()
+            entry = self.table[victim]
+            if entry.num_hits > 0:
+                entry.num_hits -= 1
+                self.main.appendleft(victim)
+                continue
+            self.used_size -= entry.value_size
+            del self.table[victim]
+
+    def _evict(self, trace_record, key, hash, value_size):
+        # A key the ghost readmits lands in main, so it does not count
+        # against the small queue's budget.
+        incoming_small = 0 if key in self.ghost else value_size
+        while self.used_size + value_size > self.cache_size:
+            small_first = (
+                self.small_used_size + incoming_small > self._small_budget()
+                or len(self.main) == 0
+            )
+            before = self.used_size
+            if small_first:
+                self._evict_from_small(value_size)
+                if self.used_size + value_size > self.cache_size:
+                    self._evict_from_main(value_size)
+            else:
+                self._evict_from_main(value_size)
+                if self.used_size + value_size > self.cache_size:
+                    self._evict_from_small(value_size)
+                    if self.used_size == before and self.used_size + value_size > self.cache_size:
+                        self._evict_from_main(value_size)
+            if self.used_size == before:
+                break
+
+    def _insert(self, trace_record, key, hash, value_size):
+        entry = CacheEntry(
+            value_size,
+            trace_record.cf_id,
+            trace_record.level,
+            trace_record.block_type,
+            trace_record.table_id,
+            0,
+            trace_record.access_time,
+        )
+        self.table[key] = entry
+        if key in self.ghost:
+            self._forget_ghost(key)
+            self.main.appendleft(key)
+        else:
+            self.small.appendleft(key)
+            self.small_used_size += value_size
+
+    def _should_admit(self, trace_record, key, hash, value_size):
+        return True
+
+
 class ARCCache(Cache):
     """
     An implementation of ARC. ARC assumes that all blocks are having the
@@ -1626,6 +1780,8 @@ def create_cache(cache_type, cache_size, downsample_size):
         return LRUCache(cache_size, enable_cache_row_key)
     elif cache_type == "arc":
         return ARCCache(cache_size, enable_cache_row_key)
+    elif cache_type == "s3fifo":
+        return S3FIFOCache(cache_size, enable_cache_row_key)
     elif cache_type == "gdsize":
         return GDSizeCache(cache_size, enable_cache_row_key)
     else:
