@@ -578,10 +578,12 @@ std::string RocksDBOptionsParser::TrimAndRemoveComment(const std::string& line,
   return "";
 }
 
-Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
+namespace {
+Status VerifyRocksDBOptionsFromFileImpl(
     const ConfigOptions& config_options_in, const DBOptions& db_opt,
     const std::vector<std::string>& cf_names,
     const std::vector<ColumnFamilyOptions>& cf_opts,
+    const std::unordered_set<std::string>* live_cf_names,
     const std::string& file_name, FileSystem* fs) {
   RocksDBOptionsParser parser;
   ConfigOptions config_options = config_options_in;
@@ -599,20 +601,29 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
   }
 
   // Verify DBOptions
-  s = VerifyDBOptions(config_options, db_opt, *parser.db_opt(),
-                      parser.db_opt_map());
+  s = RocksDBOptionsParser::VerifyDBOptions(
+      config_options, db_opt, *parser.db_opt(), parser.db_opt_map());
   if (!s.ok()) {
     return s;
   }
 
+  std::vector<size_t> persisted_cf_indices;
+  persisted_cf_indices.reserve(parser.cf_names()->size());
+  for (size_t i = 0; i < parser.cf_names()->size(); ++i) {
+    if (live_cf_names == nullptr ||
+        live_cf_names->count(parser.cf_names()->at(i)) != 0) {
+      persisted_cf_indices.push_back(i);
+    }
+  }
+
   // Verify ColumnFamily Name
-  if (cf_names.size() != parser.cf_names()->size()) {
+  if (cf_names.size() != persisted_cf_indices.size()) {
     if (config_options.sanity_level >=
         ConfigOptions::kSanityLevelLooselyCompatible) {
       return Status::InvalidArgument(
           "[RocksDBOptionParser Error] The persisted options does not have "
           "the same number of column family names as the db instance.");
-    } else if (cf_opts.size() > parser.cf_opts()->size()) {
+    } else if (cf_opts.size() > persisted_cf_indices.size()) {
       return Status::InvalidArgument(
           "[RocksDBOptionsParser Error]",
           "The persisted options file has less number of column family "
@@ -620,7 +631,7 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
     }
   }
   for (size_t i = 0; i < cf_names.size(); ++i) {
-    if (cf_names[i] != parser.cf_names()->at(i)) {
+    if (cf_names[i] != parser.cf_names()->at(persisted_cf_indices[i])) {
       return Status::InvalidArgument(
           "[RocksDBOptionParser Error] The persisted options and the db"
           "instance does not have the same name for column family ",
@@ -629,14 +640,14 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
   }
 
   // Verify Column Family Options
-  if (cf_opts.size() != parser.cf_opts()->size()) {
+  if (cf_opts.size() != persisted_cf_indices.size()) {
     if (config_options.sanity_level >=
         ConfigOptions::kSanityLevelLooselyCompatible) {
       return Status::InvalidArgument(
           "[RocksDBOptionsParser Error]",
           "The persisted options does not have the same number of "
           "column families as the db instance.");
-    } else if (cf_opts.size() > parser.cf_opts()->size()) {
+    } else if (cf_opts.size() > persisted_cf_indices.size()) {
       return Status::InvalidArgument(
           "[RocksDBOptionsParser Error]",
           "The persisted options file has less number of column families "
@@ -644,19 +655,42 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
     }
   }
   for (size_t i = 0; i < cf_opts.size(); ++i) {
-    s = VerifyCFOptions(config_options, cf_opts[i], parser.cf_opts()->at(i),
-                        &(parser.cf_opt_maps()->at(i)));
+    const size_t persisted_index = persisted_cf_indices[i];
+    s = RocksDBOptionsParser::VerifyCFOptions(
+        config_options, cf_opts[i], parser.cf_opts()->at(persisted_index),
+        &(parser.cf_opt_maps()->at(persisted_index)));
     if (!s.ok()) {
       return s;
     }
-    s = VerifyTableFactory(config_options, cf_opts[i].table_factory.get(),
-                           parser.cf_opts()->at(i).table_factory.get());
+    s = RocksDBOptionsParser::VerifyTableFactory(
+        config_options, cf_opts[i].table_factory.get(),
+        parser.cf_opts()->at(persisted_index).table_factory.get());
     if (!s.ok()) {
       return s;
     }
   }
 
   return Status::OK();
+}
+}  // namespace
+
+Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
+    const ConfigOptions& config_options, const DBOptions& db_opt,
+    const std::vector<std::string>& cf_names,
+    const std::vector<ColumnFamilyOptions>& cf_opts,
+    const std::string& file_name, FileSystem* fs) {
+  return VerifyRocksDBOptionsFromFileImpl(config_options, db_opt, cf_names,
+                                          cf_opts, nullptr, file_name, fs);
+}
+
+Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
+    const ConfigOptions& config_options, const DBOptions& db_opt,
+    const std::vector<std::string>& cf_names,
+    const std::vector<ColumnFamilyOptions>& cf_opts,
+    const std::unordered_set<std::string>& live_cf_names,
+    const std::string& file_name, FileSystem* fs) {
+  return VerifyRocksDBOptionsFromFileImpl(
+      config_options, db_opt, cf_names, cf_opts, &live_cf_names, file_name, fs);
 }
 
 Status RocksDBOptionsParser::VerifyDBOptions(
