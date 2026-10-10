@@ -25,7 +25,9 @@
 #include "rocksdb/experimental.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/iostats_context.h"
+#include "rocksdb/lazy_wide_columns.h"
 #include "rocksdb/sst_file_writer.h"
+#include "rocksdb/stream_aggregation.h"
 #include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
@@ -13198,6 +13200,1089 @@ TEST_F(DBCompactionTest, CompactionFilterLargeValueRejected) {
   Status s = db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   ASSERT_TRUE(s.IsCorruption()) << s.ToString();
   ASSERT_TRUE(s.ToString().find("4GB") != std::string::npos) << s.ToString();
+}
+
+namespace {
+
+class TestStreamAggregation : public StreamAggregation {
+ public:
+  Status Aggregate(const std::vector<Input>& inputs, size_t* num_consumed,
+                   std::vector<OutputSegment>* outputs) override {
+    assert(num_consumed != nullptr);
+    assert(outputs != nullptr);
+    assert(!inputs.empty());
+
+    *num_consumed = inputs.size();
+    outputs->clear();
+
+    for (size_t i = 0; i < inputs.size();) {
+      if (inputs[i].user_key == "a" && i + 1 < inputs.size() &&
+          inputs[i + 1].user_key == "b") {
+        assert(inputs[i].value != nullptr);
+        assert(inputs[i + 1].value != nullptr);
+        OutputSegment packed;
+        packed.input_begin = i;
+        packed.input_end = i + 2;
+        packed.anchor_input_index = i;
+        packed.action = OutputAction::kEmit;
+        packed.value_type = ValueType::kValue;
+        packed.value = inputs[i].value->ToString();
+        packed.value.append(inputs[i + 1].value->data(),
+                            inputs[i + 1].value->size());
+        outputs->push_back(std::move(packed));
+        i += 2;
+      } else {
+        OutputSegment output;
+        output.input_begin = i;
+        output.input_end = i + 1;
+        output.action = inputs[i].user_key == "c" ? OutputAction::kDrop
+                                                  : OutputAction::kKeep;
+        outputs->push_back(std::move(output));
+        ++i;
+      }
+    }
+
+    return Status::OK();
+  }
+};
+
+class TestStreamAggregationFactory : public StreamAggregationFactory {
+ public:
+  explicit TestStreamAggregationFactory(int* create_count)
+      : create_count_(create_count) {}
+
+  const char* Name() const override { return "TestStreamAggregationFactory"; }
+
+  std::unique_ptr<StreamAggregation> Create(
+      const Context& context) const override {
+    assert(context.is_full_compaction);
+    ++*create_count_;
+    return std::make_unique<TestStreamAggregation>();
+  }
+
+ private:
+  int* create_count_;
+};
+
+class StreamAggregationTestFilter : public CompactionFilter {
+ public:
+  Decision FilterV2(int /*level*/, const Slice& key, ValueType /*value_type*/,
+                    const Slice& /*existing_value*/, std::string* new_value,
+                    std::string* /*skip_until*/) const override {
+    if (key == "a") {
+      *new_value = "filtered-a";
+      return Decision::kChangeValue;
+    }
+    if (key == "c") {
+      return Decision::kRemove;
+    }
+    return Decision::kKeep;
+  }
+
+  const char* Name() const override { return "StreamAggregationTestFilter"; }
+};
+
+class GroupedHistoryStreamAggregation : public StreamAggregation {
+ public:
+  Status Aggregate(const std::vector<Input>& inputs, size_t* num_consumed,
+                   std::vector<OutputSegment>* outputs) override {
+    *num_consumed = inputs.size();
+    outputs->clear();
+
+    for (size_t group_begin = 0; group_begin < inputs.size();) {
+      const std::string group = Group(inputs[group_begin].user_key);
+      size_t group_end = group_begin + 1;
+      while (group_end < inputs.size() &&
+             Group(inputs[group_end].user_key) == group) {
+        ++group_end;
+      }
+
+      OutputSegment output;
+      output.input_begin = group_begin;
+      output.input_end = group_end;
+      if (group_end - group_begin == 1) {
+        output.action = OutputAction::kKeep;
+      } else {
+        output.anchor_input_index = group_begin;
+        output.action = OutputAction::kEmit;
+        output.value_type = ValueType::kValue;
+        for (size_t i = group_begin; i < group_end; ++i) {
+          assert(inputs[i].value != nullptr);
+          if (!output.value.empty()) {
+            output.value.append(",");
+          }
+          output.value.append(inputs[i].value->data(), inputs[i].value->size());
+        }
+      }
+      outputs->push_back(std::move(output));
+      group_begin = group_end;
+    }
+
+    return Status::OK();
+  }
+
+ private:
+  static std::string Group(const Slice& key) {
+    const std::string key_string = key.ToString();
+    const size_t timestamp_separator = key_string.rfind('|');
+    assert(timestamp_separator != std::string::npos);
+    return key_string.substr(0, timestamp_separator);
+  }
+};
+
+class GroupedHistoryStreamAggregationFactory : public StreamAggregationFactory {
+ public:
+  const char* Name() const override {
+    return "GroupedHistoryStreamAggregationFactory";
+  }
+
+  std::unique_ptr<StreamAggregation> Create(
+      const Context& /*context*/) const override {
+    return std::make_unique<GroupedHistoryStreamAggregation>();
+  }
+};
+
+class InvalidStreamAggregation : public StreamAggregation {
+ public:
+  Status Aggregate(const std::vector<Input>& inputs, size_t* num_consumed,
+                   std::vector<OutputSegment>* outputs) override {
+    *num_consumed = inputs.size();
+    outputs->clear();
+    OutputSegment invalid;
+    invalid.input_begin = 1;
+    invalid.input_end = inputs.size();
+    invalid.action = OutputAction::kKeep;
+    outputs->push_back(std::move(invalid));
+    return Status::OK();
+  }
+};
+
+class InvalidStreamAggregationFactory : public StreamAggregationFactory {
+ public:
+  const char* Name() const override {
+    return "InvalidStreamAggregationFactory";
+  }
+
+  std::unique_ptr<StreamAggregation> Create(
+      const Context& /*context*/) const override {
+    return std::make_unique<InvalidStreamAggregation>();
+  }
+};
+
+class InvalidAnchorStreamAggregation : public StreamAggregation {
+ public:
+  Status Aggregate(const std::vector<Input>& inputs, size_t* num_consumed,
+                   std::vector<OutputSegment>* outputs) override {
+    *num_consumed = inputs.size();
+    outputs->clear();
+
+    OutputSegment invalid;
+    invalid.input_end = inputs.size();
+    invalid.anchor_input_index = inputs.size();
+    invalid.action = OutputAction::kEmit;
+    invalid.value = "invalid";
+    outputs->push_back(std::move(invalid));
+    return Status::OK();
+  }
+};
+
+class InvalidAnchorStreamAggregationFactory : public StreamAggregationFactory {
+ public:
+  const char* Name() const override {
+    return "InvalidAnchorStreamAggregationFactory";
+  }
+
+  std::unique_ptr<StreamAggregation> Create(
+      const Context& /*context*/) const override {
+    return std::make_unique<InvalidAnchorStreamAggregation>();
+  }
+};
+
+class DropAllStreamAggregation : public StreamAggregation {
+ public:
+  Status Aggregate(const std::vector<Input>& inputs, size_t* num_consumed,
+                   std::vector<OutputSegment>* outputs) override {
+    *num_consumed = inputs.size();
+    outputs->clear();
+
+    OutputSegment dropped;
+    dropped.input_end = inputs.size();
+    dropped.action = OutputAction::kDrop;
+    outputs->push_back(std::move(dropped));
+    return Status::OK();
+  }
+};
+
+class DropAllStreamAggregationFactory : public StreamAggregationFactory {
+ public:
+  const char* Name() const override {
+    return "DropAllStreamAggregationFactory";
+  }
+
+  std::unique_ptr<StreamAggregation> Create(
+      const Context& /*context*/) const override {
+    return std::make_unique<DropAllStreamAggregation>();
+  }
+};
+
+class AlwaysNeedsMoreStreamAggregation : public StreamAggregation {
+ public:
+  Status Aggregate(const std::vector<Input>& /*inputs*/, size_t* num_consumed,
+                   std::vector<OutputSegment>* outputs) override {
+    *num_consumed = 0;
+    outputs->clear();
+    return Status::OK();
+  }
+};
+
+class AlwaysNeedsMoreStreamAggregationFactory
+    : public StreamAggregationFactory {
+ public:
+  const char* Name() const override {
+    return "AlwaysNeedsMoreStreamAggregationFactory";
+  }
+
+  std::unique_ptr<StreamAggregation> Create(
+      const Context& /*context*/) const override {
+    return std::make_unique<AlwaysNeedsMoreStreamAggregation>();
+  }
+};
+
+class RefillStreamAggregation : public StreamAggregation {
+ public:
+  RefillStreamAggregation(std::vector<size_t>* aggregate_batch_sizes,
+                          size_t* finish_batch_size)
+      : aggregate_batch_sizes_(aggregate_batch_sizes),
+        finish_batch_size_(finish_batch_size) {}
+
+  Status Aggregate(const std::vector<Input>& inputs, size_t* num_consumed,
+                   std::vector<OutputSegment>* outputs) override {
+    aggregate_batch_sizes_->push_back(inputs.size());
+    *num_consumed = std::min<size_t>(128, inputs.size());
+    outputs->clear();
+
+    OutputSegment kept;
+    kept.input_end = *num_consumed;
+    kept.action = OutputAction::kKeep;
+    outputs->push_back(std::move(kept));
+    return Status::OK();
+  }
+
+  Status Finish(const std::vector<Input>& inputs,
+                std::vector<OutputSegment>* outputs) override {
+    *finish_batch_size_ = inputs.size();
+    outputs->clear();
+
+    OutputSegment kept;
+    kept.input_end = inputs.size();
+    kept.action = OutputAction::kKeep;
+    outputs->push_back(std::move(kept));
+    return Status::OK();
+  }
+
+ private:
+  std::vector<size_t>* aggregate_batch_sizes_;
+  size_t* finish_batch_size_;
+};
+
+class RefillStreamAggregationFactory : public StreamAggregationFactory {
+ public:
+  RefillStreamAggregationFactory(std::vector<size_t>* aggregate_batch_sizes,
+                                 size_t* finish_batch_size)
+      : aggregate_batch_sizes_(aggregate_batch_sizes),
+        finish_batch_size_(finish_batch_size) {}
+
+  const char* Name() const override { return "RefillStreamAggregationFactory"; }
+
+  std::unique_ptr<StreamAggregation> Create(
+      const Context& /*context*/) const override {
+    return std::make_unique<RefillStreamAggregation>(aggregate_batch_sizes_,
+                                                     finish_batch_size_);
+  }
+
+ private:
+  std::vector<size_t>* aggregate_batch_sizes_;
+  size_t* finish_batch_size_;
+};
+
+class LookaheadStreamAggregation : public StreamAggregation {
+ public:
+  LookaheadStreamAggregation(size_t* aggregate_calls,
+                             bool* requested_more_input)
+      : aggregate_calls_(aggregate_calls),
+        requested_more_input_(requested_more_input) {}
+
+  Status Aggregate(const std::vector<Input>& inputs, size_t* num_consumed,
+                   std::vector<OutputSegment>* outputs) override {
+    ++*aggregate_calls_;
+    outputs->clear();
+
+    size_t boundary = 0;
+    while (boundary < inputs.size() && inputs[boundary].user_key != "z") {
+      ++boundary;
+    }
+    if (boundary == inputs.size()) {
+      *requested_more_input_ = true;
+      *num_consumed = 0;
+      return Status::OK();
+    }
+    if (boundary == 0) {
+      *num_consumed = 1;
+      OutputSegment kept;
+      kept.input_end = 1;
+      kept.action = OutputAction::kKeep;
+      outputs->push_back(std::move(kept));
+      return Status::OK();
+    }
+
+    *num_consumed = boundary;
+    AddPackedPrefix(boundary, outputs);
+    return Status::OK();
+  }
+
+  Status Finish(const std::vector<Input>& inputs,
+                std::vector<OutputSegment>* outputs) override {
+    outputs->clear();
+
+    size_t boundary = 0;
+    while (boundary < inputs.size() && inputs[boundary].user_key != "z") {
+      ++boundary;
+    }
+    if (boundary > 0) {
+      AddPackedPrefix(boundary, outputs);
+    }
+    if (boundary < inputs.size()) {
+      OutputSegment kept;
+      kept.input_begin = boundary;
+      kept.input_end = inputs.size();
+      kept.action = OutputAction::kKeep;
+      outputs->push_back(std::move(kept));
+    }
+    return Status::OK();
+  }
+
+ private:
+  static void AddPackedPrefix(size_t input_end,
+                              std::vector<OutputSegment>* outputs) {
+    OutputSegment packed;
+    packed.input_end = input_end;
+    packed.anchor_input_index = input_end / 2;
+    packed.action = OutputAction::kEmit;
+    packed.value_type = ValueType::kValue;
+    packed.value = std::to_string(input_end);
+    outputs->push_back(std::move(packed));
+  }
+
+  size_t* aggregate_calls_;
+  bool* requested_more_input_;
+};
+
+class LookaheadStreamAggregationFactory : public StreamAggregationFactory {
+ public:
+  LookaheadStreamAggregationFactory(size_t* aggregate_calls,
+                                    bool* requested_more_input)
+      : aggregate_calls_(aggregate_calls),
+        requested_more_input_(requested_more_input) {}
+
+  const char* Name() const override {
+    return "LookaheadStreamAggregationFactory";
+  }
+
+  std::unique_ptr<StreamAggregation> Create(
+      const Context& /*context*/) const override {
+    return std::make_unique<LookaheadStreamAggregation>(aggregate_calls_,
+                                                        requested_more_input_);
+  }
+
+ private:
+  size_t* aggregate_calls_;
+  bool* requested_more_input_;
+};
+
+class RejectingValidationStreamAggregationFactory
+    : public StreamAggregationFactory {
+ public:
+  RejectingValidationStreamAggregationFactory(bool* validate_called,
+                                              size_t* create_calls)
+      : validate_called_(validate_called), create_calls_(create_calls) {}
+
+  const char* Name() const override {
+    return "RejectingValidationStreamAggregationFactory";
+  }
+
+  Status Validate(const ValidationContext& context) const override {
+    *validate_called_ = true;
+    if (context.user_timestamp_size != 0) {
+      return Status::NotSupported("unexpected timestamp configuration");
+    }
+    return Status::InvalidArgument("aggregation contract evaluation failed");
+  }
+
+  std::unique_ptr<StreamAggregation> Create(
+      const Context& /*context*/) const override {
+    ++*create_calls_;
+    return std::make_unique<AlwaysNeedsMoreStreamAggregation>();
+  }
+
+ private:
+  bool* validate_called_;
+  size_t* create_calls_;
+};
+
+class WideEntityStreamAggregation : public StreamAggregation {
+ public:
+  explicit WideEntityStreamAggregation(std::vector<bool>* resolved_blob_columns)
+      : resolved_blob_columns_(resolved_blob_columns) {}
+
+  Status Aggregate(const std::vector<Input>& inputs, size_t* num_consumed,
+                   std::vector<OutputSegment>* outputs) override {
+    assert(!inputs.empty());
+    *num_consumed = inputs.size();
+    outputs->clear();
+
+    for (size_t i = 0; i < inputs.size();) {
+      if (i + 2 < inputs.size() && inputs[i].user_key == "a" &&
+          inputs[i + 1].user_key == "b" && inputs[i + 2].user_key == "c") {
+        std::string payload;
+        for (size_t j : {i, i + 2}) {
+          assert(inputs[j].value_type == ValueType::kWideColumnEntity);
+          assert(inputs[j].columns != nullptr);
+
+          size_t payload_index = inputs[j].columns->size();
+          for (size_t column_index = 0;
+               column_index < inputs[j].columns->size(); ++column_index) {
+            if ((*inputs[j].columns)[column_index].name() == "payload") {
+              payload_index = column_index;
+              break;
+            }
+          }
+          assert(payload_index < inputs[j].columns->size());
+
+          Slice payload_slice;
+          if (inputs[j].blob_resolver != nullptr &&
+              inputs[j].blob_resolver->IsBlobColumn(payload_index)) {
+            Status s = inputs[j].blob_resolver->ResolveColumn(payload_index,
+                                                              &payload_slice);
+            if (!s.ok()) {
+              return s;
+            }
+            (*resolved_blob_columns_)[j - i] = true;
+          } else {
+            payload_slice = (*inputs[j].columns)[payload_index].value();
+          }
+          payload.append(payload_slice.data(), payload_slice.size());
+        }
+
+        OutputSegment packed;
+        packed.input_begin = i;
+        packed.input_end = i + 3;
+        packed.anchor_input_index = i + 1;
+        packed.action = OutputAction::kEmit;
+        packed.value_type = ValueType::kWideColumnEntity;
+        packed.columns.emplace_back(kDefaultWideColumnName.ToString(), "2");
+        packed.columns.emplace_back("payload", std::move(payload));
+        outputs->push_back(std::move(packed));
+        i += 3;
+      } else {
+        OutputSegment kept;
+        kept.input_begin = i;
+        kept.input_end = i + 1;
+        kept.action = OutputAction::kKeep;
+        outputs->push_back(std::move(kept));
+        ++i;
+      }
+    }
+
+    return Status::OK();
+  }
+
+ private:
+  std::vector<bool>* resolved_blob_columns_;
+};
+
+class WideEntityStreamAggregationFactory : public StreamAggregationFactory {
+ public:
+  explicit WideEntityStreamAggregationFactory(
+      std::vector<bool>* resolved_blob_columns)
+      : resolved_blob_columns_(resolved_blob_columns) {}
+
+  const char* Name() const override {
+    return "WideEntityStreamAggregationFactory";
+  }
+
+  std::unique_ptr<StreamAggregation> Create(
+      const Context& /*context*/) const override {
+    return std::make_unique<WideEntityStreamAggregation>(
+        resolved_blob_columns_);
+  }
+
+ private:
+  std::vector<bool>* resolved_blob_columns_;
+};
+
+}  // namespace
+
+TEST_F(DBCompactionTest, StreamAggregationPackDropAndKeep) {
+  int create_count = 0;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = 3;
+  options.stream_aggregation_factory =
+      std::make_shared<TestStreamAggregationFactory>(&create_count);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Put("c", "vc"));
+  ASSERT_OK(Put("d", "vd"));
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+
+  ASSERT_GE(create_count, 1);
+  ASSERT_EQ(Get("a"), "vavb");
+  ASSERT_EQ(Get("b"), "NOT_FOUND");
+  ASSERT_EQ(Get("c"), "NOT_FOUND");
+  ASSERT_EQ(Get("d"), "vd");
+}
+
+TEST_F(DBCompactionTest, StreamAggregationUniversalSingleLevel) {
+  int create_count = 0;
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.compaction_options_universal.allow_trivial_move = true;
+  options.disable_auto_compactions = true;
+  options.num_levels = 1;
+  options.stream_aggregation_factory =
+      std::make_shared<TestStreamAggregationFactory>(&create_count);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("c", "vc"));
+  ASSERT_OK(Put("d", "vd"));
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+
+  ASSERT_GE(create_count, 1);
+  ASSERT_EQ(Get("a"), "vavb");
+  ASSERT_EQ(Get("b"), "NOT_FOUND");
+  ASSERT_EQ(Get("c"), "NOT_FOUND");
+  ASSERT_EQ(Get("d"), "vd");
+}
+
+TEST_F(DBCompactionTest, StreamAggregationRunsInAutomaticFullCompaction) {
+  int create_count = 0;
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.compaction_options_universal.allow_trivial_move = true;
+  options.level0_file_num_compaction_trigger = 2;
+  options.num_levels = 1;
+  options.stream_aggregation_factory =
+      std::make_shared<TestStreamAggregationFactory>(&create_count);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  ASSERT_GE(create_count, 1);
+  ASSERT_EQ(Get("a"), "vavb");
+  ASSERT_EQ(Get("b"), "NOT_FOUND");
+}
+
+TEST_F(DBCompactionTest, StreamAggregationUniversalMultiLevel) {
+  int create_count = 0;
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.compaction_options_universal.allow_trivial_move = true;
+  options.disable_auto_compactions = true;
+  options.num_levels = 4;
+  options.stream_aggregation_factory =
+      std::make_shared<TestStreamAggregationFactory>(&create_count);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("c", "vc"));
+  ASSERT_OK(Put("d", "vd"));
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+
+  ASSERT_GE(create_count, 1);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  ASSERT_GT(NumTableFilesAtLevel(options.num_levels - 1), 0);
+  ASSERT_EQ(Get("a"), "vavb");
+  ASSERT_EQ(Get("b"), "NOT_FOUND");
+  ASSERT_EQ(Get("c"), "NOT_FOUND");
+  ASSERT_EQ(Get("d"), "vd");
+}
+
+TEST_F(DBCompactionTest, StreamAggregationRunsAfterCompactionFilter) {
+  StreamAggregationTestFilter filter;
+  int create_count = 0;
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.compaction_filter = &filter;
+  options.disable_auto_compactions = true;
+  options.num_levels = 4;
+  options.stream_aggregation_factory =
+      std::make_shared<TestStreamAggregationFactory>(&create_count);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Put("c", "vc"));
+  ASSERT_OK(Put("d", "vd"));
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+
+  ASSERT_GE(create_count, 1);
+  ASSERT_EQ(Get("a"), "filtered-avb");
+  ASSERT_EQ(Get("b"), "NOT_FOUND");
+  ASSERT_EQ(Get("c"), "NOT_FOUND");
+  ASSERT_EQ(Get("d"), "vd");
+}
+
+TEST_F(DBCompactionTest, StreamAggregationSkipsRangeTombstoneSentinels) {
+  int create_count = 0;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.stream_aggregation_factory =
+      std::make_shared<TestStreamAggregationFactory>(&create_count);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Put("d", "vd"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "b"));
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+
+  ASSERT_GE(create_count, 1);
+  ASSERT_EQ(Get("a"), "NOT_FOUND");
+  ASSERT_EQ(Get("b"), "vb");
+  ASSERT_EQ(Get("d"), "vd");
+}
+
+TEST_F(DBCompactionTest, StreamAggregationSkipsNonFullCompactions) {
+  int create_count = 0;
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.disable_auto_compactions = true;
+  options.num_levels = 4;
+  options.stream_aggregation_factory =
+      std::make_shared<TestStreamAggregationFactory>(&create_count);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("c", "vc"));
+  ASSERT_OK(Put("d", "vd"));
+  ASSERT_OK(Flush());
+
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(metadata.levels[0].files.size(), 2U);
+  ASSERT_OK(db_->CompactFiles(CompactionOptions(),
+                              {metadata.levels[0].files.front().name}, 0));
+  ASSERT_EQ(create_count, 0);
+  ASSERT_EQ(Get("a"), "va");
+  ASSERT_EQ(Get("b"), "vb");
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+  ASSERT_GE(create_count, 1);
+  ASSERT_EQ(Get("a"), "vavb");
+  ASSERT_EQ(Get("b"), "NOT_FOUND");
+}
+
+TEST_F(DBCompactionTest, StreamAggregationUsesFirstKeyAsGroupAnchor) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = 3;
+  options.stream_aggregation_factory =
+      std::make_shared<GroupedHistoryStreamAggregationFactory>();
+  DestroyAndReopen(options);
+
+  // The ordered suffix makes the first key the group's output anchor.
+  ASSERT_OK(Put("entity-a|0001", "event-300"));
+  ASSERT_OK(Put("entity-a|0002", "event-200"));
+  ASSERT_OK(Put("entity-a|0003", "event-100"));
+  ASSERT_OK(Put("entity-b|0001", "event-400"));
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+
+  ASSERT_EQ(Get("entity-a|0001"), "event-300,event-200,event-100");
+  ASSERT_EQ(Get("entity-a|0002"), "NOT_FOUND");
+  ASSERT_EQ(Get("entity-a|0003"), "NOT_FOUND");
+  ASSERT_EQ(Get("entity-b|0001"), "event-400");
+}
+
+TEST_F(DBCompactionTest, StreamAggregationRejectsInvalidSegments) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = 3;
+  options.stream_aggregation_factory =
+      std::make_shared<InvalidStreamAggregationFactory>();
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  Status s = db_->CompactRange(compact_options, nullptr, nullptr);
+  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+
+  ASSERT_EQ(Get("a"), "va");
+  ASSERT_EQ(Get("b"), "vb");
+}
+
+TEST_F(DBCompactionTest, StreamAggregationRejectsInvalidAnchor) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.stream_aggregation_factory =
+      std::make_shared<InvalidAnchorStreamAggregationFactory>();
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  Status status = db_->CompactRange(compact_options, nullptr, nullptr);
+  ASSERT_TRUE(status.IsInvalidArgument()) << status.ToString();
+  ASSERT_EQ(Get("a"), "va");
+  ASSERT_EQ(Get("b"), "vb");
+}
+
+TEST_F(DBCompactionTest, StreamAggregationDropsAllWithoutTombstones) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = 3;
+  options.statistics = CreateDBStatistics();
+  options.stream_aggregation_factory =
+      std::make_shared<DropAllStreamAggregationFactory>();
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Flush());
+  ASSERT_GT(TotalTableFiles(), 0);
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+
+  ASSERT_EQ(Get("a"), "NOT_FOUND");
+  ASSERT_EQ(Get("b"), "NOT_FOUND");
+  ASSERT_EQ(TotalTableFiles(), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(COMPACTION_KEY_DROP_USER), 2U);
+}
+
+TEST_F(DBCompactionTest, StreamAggregationValidationFailsAtOpen) {
+  bool validate_called = false;
+  size_t create_calls = 0;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.stream_aggregation_factory =
+      std::make_shared<RejectingValidationStreamAggregationFactory>(
+          &validate_called, &create_calls);
+  Status status = TryReopen(options);
+  ASSERT_TRUE(status.IsInvalidArgument()) << status.ToString();
+  ASSERT_TRUE(validate_called);
+  ASSERT_EQ(create_calls, 0U);
+}
+
+TEST_F(DBCompactionTest, StreamAggregationRefillsAfterConsumption) {
+  std::vector<size_t> aggregate_batch_sizes;
+  size_t finish_batch_size = 0;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = 3;
+  options.stream_aggregation_factory =
+      std::make_shared<RefillStreamAggregationFactory>(&aggregate_batch_sizes,
+                                                       &finish_batch_size);
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < 500; ++i) {
+    ASSERT_OK(Put(Key(i), "v"));
+  }
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+
+  ASSERT_GE(aggregate_batch_sizes.size(), 2U);
+  ASSERT_EQ(aggregate_batch_sizes[0], 256U);
+  ASSERT_EQ(aggregate_batch_sizes[1], 256U);
+  ASSERT_GT(finish_batch_size, 0U);
+  ASSERT_EQ(Get(Key(0)), "v");
+  ASSERT_EQ(Get(Key(499)), "v");
+}
+
+TEST_F(DBCompactionTest, StreamAggregationRequestsMoreLookahead) {
+  size_t aggregate_calls = 0;
+  bool requested_more_input = false;
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.compaction_options_universal.allow_trivial_move = true;
+  options.disable_auto_compactions = true;
+  options.num_levels = 1;
+  options.stream_aggregation_factory =
+      std::make_shared<LookaheadStreamAggregationFactory>(
+          &aggregate_calls, &requested_more_input);
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < 300; ++i) {
+    ASSERT_OK(Put(Key(i), "v"));
+  }
+  ASSERT_OK(Put("z", "tail"));
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+
+  ASSERT_EQ(aggregate_calls, 1U);
+  ASSERT_TRUE(requested_more_input);
+  ASSERT_EQ(Get(Key(150)), "300");
+  ASSERT_EQ(Get(Key(0)), "NOT_FOUND");
+  ASSERT_EQ(Get(Key(299)), "NOT_FOUND");
+  ASSERT_EQ(Get("z"), "tail");
+
+  Arena arena;
+  ReadOptions read_options;
+  ScopedArenaPtr<InternalIterator> iter(
+      dbfull()->NewInternalIterator(read_options, &arena, kMaxSequenceNumber));
+  iter->SeekToFirst();
+  bool found_anchor = false;
+  while (iter->Valid()) {
+    if (iter->user_key() == Key(150)) {
+      ParsedInternalKey parsed_key(Slice(), 0, kTypeValue);
+      ASSERT_OK(ParseInternalKey(iter->key(), &parsed_key,
+                                 /*log_err_key=*/true));
+      ASSERT_EQ(parsed_key.sequence, 0U);
+      found_anchor = true;
+      break;
+    }
+    iter->Next();
+  }
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(found_anchor);
+}
+
+TEST_F(DBCompactionTest, StreamAggregationRejectsDeferredEOF) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.stream_aggregation_factory =
+      std::make_shared<AlwaysNeedsMoreStreamAggregationFactory>();
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  Status status = db_->CompactRange(compact_options, nullptr, nullptr);
+  ASSERT_TRUE(status.IsInvalidArgument()) << status.ToString();
+  ASSERT_EQ(Get("a"), "va");
+  ASSERT_EQ(Get("b"), "vb");
+}
+
+TEST_F(DBCompactionTest, StreamAggregationRejectsBufferLimit) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.stream_aggregation_factory =
+      std::make_shared<AlwaysNeedsMoreStreamAggregationFactory>();
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < 5; ++i) {
+    ASSERT_OK(Put(Key(i), "v"));
+  }
+  ASSERT_OK(Flush());
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::ProcessKeyValueWithStreamAggregation:"
+      "InputBufferLimits",
+      [](void* arg) {
+        auto* limits = static_cast<std::pair<size_t, uint64_t>*>(arg);
+        limits->first = 4;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  Status status = db_->CompactRange(compact_options, nullptr, nullptr);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_TRUE(status.IsMemoryLimit()) << status.ToString();
+  ASSERT_EQ(Get(Key(0)), "v");
+  ASSERT_EQ(Get(Key(4)), "v");
+}
+
+TEST_F(DBCompactionTest, StreamAggregationLazyWideColumnBlobInput) {
+  std::vector<bool> resolved_blob_columns(3, false);
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = 3;
+  options.enable_blob_files = true;
+  options.blob_file_starting_level = 0;
+  options.min_blob_size = 32;
+  options.max_open_files = -1;
+  options.stream_aggregation_factory =
+      std::make_shared<WideEntityStreamAggregationFactory>(
+          &resolved_blob_columns);
+  DestroyAndReopen(options);
+
+  const std::string payload_a(100, 'a');
+  const std::string payload_b(100, 'b');
+  const std::string payload_c(100, 'c');
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), "a",
+                     {{kDefaultWideColumnName, "1"}, {"payload", payload_a}}));
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), "b",
+                     {{kDefaultWideColumnName, "1"}, {"payload", payload_b}}));
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), "c",
+                     {{kDefaultWideColumnName, "1"}, {"payload", payload_c}}));
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+  ASSERT_TRUE(resolved_blob_columns[0]);
+  ASSERT_FALSE(resolved_blob_columns[1]);
+  ASSERT_TRUE(resolved_blob_columns[2]);
+
+  LazyWideColumns lazy;
+  ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), "b",
+                               &lazy));
+  ASSERT_EQ(lazy.size(), 2U);
+  ASSERT_EQ(lazy[0].name(), kDefaultWideColumnName);
+  ASSERT_FALSE(lazy[0].is_reference());
+  ASSERT_EQ(*lazy[0].inline_value(), "2");
+  ASSERT_EQ(lazy[1].name(), "payload");
+  ASSERT_TRUE(lazy[1].is_reference());
+
+  PinnableSlice payload;
+  ASSERT_OK(lazy.ResolveColumn(lazy[1], &payload));
+  ASSERT_EQ(payload, payload_a + payload_c);
+  ASSERT_EQ(Get("a"), "NOT_FOUND");
+  ASSERT_EQ(Get("c"), "NOT_FOUND");
+}
+
+TEST_F(DBCompactionTest, StreamAggregationSkipsForcedIntegratedBlobGC) {
+  int create_count = 0;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.blob_file_starting_level = 0;
+  options.min_blob_size = 32;
+  options.max_open_files = -1;
+  options.stream_aggregation_factory =
+      std::make_shared<TestStreamAggregationFactory>(&create_count);
+  DestroyAndReopen(options);
+
+  const std::string value_a(100, 'a');
+  const std::string value_b(100, 'b');
+  ASSERT_OK(Put("a", value_a));
+  ASSERT_OK(Put("b", value_b));
+  ASSERT_OK(Flush());
+  const std::string updated_value_a(100, 'c');
+  ASSERT_OK(Put("a", updated_value_a));
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  compact_options.blob_garbage_collection_policy =
+      BlobGarbageCollectionPolicy::kForce;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+
+  ASSERT_EQ(create_count, 0);
+  ASSERT_EQ(Get("a"), updated_value_a);
+  ASSERT_EQ(Get("b"), value_b);
+}
+
+TEST_F(DBCompactionTest, StreamAggregationSkipsActiveSnapshot) {
+  int create_count = 0;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.stream_aggregation_factory =
+      std::make_shared<TestStreamAggregationFactory>(&create_count);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Flush());
+
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_NE(snapshot, nullptr);
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  Status s = db_->CompactRange(compact_options, nullptr, nullptr);
+  ASSERT_OK(s);
+  ASSERT_EQ(create_count, 0);
+
+  db_->ReleaseSnapshot(snapshot);
+  ASSERT_EQ(Get("a"), "va");
+  ASSERT_EQ(Get("b"), "vb");
+
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+  ASSERT_GE(create_count, 1);
+  ASSERT_EQ(Get("a"), "vavb");
+  ASSERT_EQ(Get("b"), "NOT_FOUND");
 }
 
 }  // namespace ROCKSDB_NAMESPACE
