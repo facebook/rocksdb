@@ -7388,9 +7388,24 @@ Status VersionSet::ListColumnFamiliesFromManifest(
 Status VersionSet::GetOptionsFileManifestState(
     const std::string& dbname, FileSystem* fs,
     OptionsFileManifestState* manifest_state) {
+  return GetOptionsFileManifestState(
+      dbname, fs, manifest_state, /*next_file_number=*/nullptr,
+      /*last_valid_manifest_record_end=*/nullptr);
+}
+
+Status VersionSet::GetOptionsFileManifestState(
+    const std::string& dbname, FileSystem* fs,
+    OptionsFileManifestState* manifest_state, uint64_t* next_file_number,
+    uint64_t* last_valid_manifest_record_end) {
   assert(fs != nullptr);
   assert(manifest_state != nullptr);
   *manifest_state = OptionsFileManifestState();
+  if (next_file_number != nullptr) {
+    *next_file_number = 0;
+  }
+  if (last_valid_manifest_record_end != nullptr) {
+    *last_valid_manifest_record_end = 0;
+  }
 
   constexpr int kMaxAttempts = 2;
   for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
@@ -7431,10 +7446,15 @@ Status VersionSet::GetOptionsFileManifestState(
     // written as a kColumnFamilyAdd record.
     found_manifest_state.column_family_names.emplace(0,
                                                      kDefaultColumnFamilyName);
+    uint64_t found_next_file_number = 0;
+    uint64_t found_last_valid_record_end = 0;
     auto apply_edit = [&](const VersionEdit& edit) {
       found_manifest_state.ApplyColumnFamilyEdit(edit);
       if (edit.HasCommittedOptionsFileNumber()) {
         found_manifest_state.ApplyCommit(edit.GetCommittedOptionsFileNumber());
+      }
+      if (edit.HasNextFile()) {
+        found_next_file_number = edit.GetNextFile();
       }
     };
 
@@ -7455,11 +7475,13 @@ Status VersionSet::GetOptionsFileManifestState(
         if (!atomic_group.IsFull()) {
           continue;
         }
+        found_last_valid_record_end = reader.LastRecordEnd();
         for (const auto& grouped_edit : atomic_group.replay_buffer()) {
           apply_edit(grouped_edit);
         }
         atomic_group.Clear();
       } else {
+        found_last_valid_record_end = reader.LastRecordEnd();
         apply_edit(edit);
       }
     }
@@ -7468,6 +7490,12 @@ Status VersionSet::GetOptionsFileManifestState(
     }
 
     *manifest_state = found_manifest_state;
+    if (next_file_number != nullptr) {
+      *next_file_number = found_next_file_number;
+    }
+    if (last_valid_manifest_record_end != nullptr) {
+      *last_valid_manifest_record_end = found_last_valid_record_end;
+    }
     return Status::OK();
   }
 
