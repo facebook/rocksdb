@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <atomic>
+#include <memory>
 #include <tuple>
 #include <utility>
 
@@ -80,6 +82,43 @@ class CompactionStatsCollector : public EventListener {
 
  private:
   std::vector<std::atomic<int>> compaction_completed_;
+};
+
+class AdjustablePeriodicCompactionPolicy : public PeriodicCompactionPolicy {
+ public:
+  const char* Name() const override {
+    return "AdjustablePeriodicCompactionPolicy";
+  }
+
+  Decision GetDecision(const Context& context) const override {
+    calls_.fetch_add(1, std::memory_order_relaxed);
+    last_current_time_.store(context.current_time_seconds,
+                             std::memory_order_relaxed);
+    last_period_.store(context.periodic_compaction_seconds,
+                       std::memory_order_relaxed);
+    Decision decision;
+    decision.deadline_lookahead_seconds =
+        lookahead_seconds_.load(std::memory_order_relaxed);
+    return decision;
+  }
+
+  void SetLookaheadSeconds(uint64_t lookahead_seconds) {
+    lookahead_seconds_.store(lookahead_seconds, std::memory_order_relaxed);
+  }
+
+  uint64_t calls() const { return calls_.load(std::memory_order_relaxed); }
+  uint64_t last_current_time() const {
+    return last_current_time_.load(std::memory_order_relaxed);
+  }
+  uint64_t last_period() const {
+    return last_period_.load(std::memory_order_relaxed);
+  }
+
+ private:
+  std::atomic<uint64_t> lookahead_seconds_{0};
+  mutable std::atomic<uint64_t> calls_{0};
+  mutable std::atomic<uint64_t> last_current_time_{0};
+  mutable std::atomic<uint64_t> last_period_{0};
 };
 
 class DeletionTriggeredCompactionWithMinFileSizeTestListener
@@ -5580,6 +5619,70 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
     }
   }
+}
+
+TEST_F(DBCompactionTest, PeriodicCompactionPolicyPromotesNearDueFiles) {
+  constexpr uint64_t kSecondsPerDay = 24 * 60 * 60;
+  constexpr uint64_t kPeriodSeconds = 5 * kSecondsPerDay;
+  constexpr int kNumKeysPerFile = 32;
+
+  ASSERT_NE(env_, nullptr);
+  auto policy = std::make_shared<AdjustablePeriodicCompactionPolicy>();
+  auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+  auto mock_env = std::make_unique<CompositeEnvWrapper>(env_, mock_clock);
+  mock_clock->SetCurrentTime(100 * kSecondsPerDay);
+
+  Options options = CurrentOptions();
+  options.env = mock_env.get();
+  options.ttl = 0;
+  options.periodic_compaction_seconds = kPeriodSeconds;
+  options.periodic_compaction_phase_recovery_percent = 0;
+  options.periodic_compaction_policy = policy;
+  DestroyAndReopen(options);
+  ASSERT_EQ(policy, dbfull()->GetOptions().periodic_compaction_policy);
+
+  int periodic_compactions = 0;
+  auto* sync_point = ROCKSDB_NAMESPACE::SyncPoint::GetInstance();
+  ASSERT_NE(sync_point, nullptr);
+  sync_point->SetCallBack("LevelCompactionPicker::PickCompaction:Return",
+                          [&](void* arg) {
+                            auto* compaction = static_cast<Compaction*>(arg);
+                            if (compaction->compaction_reason() ==
+                                CompactionReason::kPeriodicCompaction) {
+                              ++periodic_compactions;
+                            }
+                          });
+  sync_point->EnableProcessing();
+
+  Random rnd(301);
+  for (int file = 0; file < 2; ++file) {
+    for (int key = 0; key < kNumKeysPerFile; ++key) {
+      ASSERT_OK(Put(Key(file * kNumKeysPerFile + key), rnd.RandomString(100)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("2", FilesPerLevel());
+  MoveFilesToLevel(1);
+  ASSERT_EQ("0,2", FilesPerLevel());
+
+  mock_clock->MockSleepForSeconds(4 * kSecondsPerDay);
+  ASSERT_OK(Put("not-yet-promoted", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(0, periodic_compactions);
+
+  policy->SetLookaheadSeconds(kSecondsPerDay + 1);
+  ASSERT_OK(Put("promote-near-due", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(2, periodic_compactions);
+  ASSERT_GT(policy->calls(), 0u);
+  ASSERT_EQ(104 * kSecondsPerDay, policy->last_current_time());
+  ASSERT_EQ(kPeriodSeconds, policy->last_period());
+
+  Close();
+  sync_point->DisableProcessing();
 }
 
 TEST_F(DBCompactionTest, PeriodicCompactionPhaseTriggerTime) {

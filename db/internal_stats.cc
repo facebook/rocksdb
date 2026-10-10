@@ -335,6 +335,9 @@ static const std::string live_blob_file_garbage_size =
 static const std::string blob_cache_capacity = "blob-cache-capacity";
 static const std::string blob_cache_usage = "blob-cache-usage";
 static const std::string blob_cache_pinned_usage = "blob-cache-pinned-usage";
+// Keep property names as std::string for consistency with the existing table.
+// NOLINTNEXTLINE(cert-err58-cpp)
+static const std::string dynamic_offpeak = "dynamic-offpeak";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
     rocksdb_prefix + num_files_at_level_prefix;
@@ -352,6 +355,10 @@ const std::string DB::Properties::kCFWriteStallStats =
 const std::string DB::Properties::kDBWriteStallStats =
     rocksdb_prefix + db_write_stall_stats;
 const std::string DB::Properties::kDBStats = rocksdb_prefix + dbstats;
+// Public property names use std::string for API compatibility.
+// NOLINTNEXTLINE(cert-err58-cpp)
+const std::string DB::Properties::kDynamicOffpeak =
+    rocksdb_prefix + dynamic_offpeak;
 const std::string DB::Properties::kLevelStats = rocksdb_prefix + levelstats;
 const std::string DB::Properties::kBlockCacheEntryStats =
     rocksdb_prefix + block_cache_entry_stats;

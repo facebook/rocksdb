@@ -148,6 +148,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableDBOptions, daily_offpeak_time_utc),
           OptionType::kString, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"dynamic_offpeak_window_percent",
+         {offsetof(struct MutableDBOptions, dynamic_offpeak_window_percent),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"max_compaction_trigger_wakeup_seconds",
          {offsetof(struct MutableDBOptions,
                    max_compaction_trigger_wakeup_seconds),
@@ -1133,6 +1137,7 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       remote_compaction_manifest_floor(
           options.remote_compaction_manifest_floor),
       daily_offpeak_time_utc(options.daily_offpeak_time_utc),
+      dynamic_offpeak_window_percent(options.dynamic_offpeak_window_percent),
       max_compaction_trigger_wakeup_seconds(
           options.max_compaction_trigger_wakeup_seconds),
       periodic_compaction_phase_recovery_percent(
@@ -1195,6 +1200,8 @@ void MutableDBOptions::Dump(Logger* log) const {
                    optimize_manifest_for_recovery);
   ROCKS_LOG_HEADER(log, "Options.daily_offpeak_time_utc: %s",
                    daily_offpeak_time_utc.c_str());
+  ROCKS_LOG_HEADER(log, "Options.dynamic_offpeak_window_percent: %" PRIu32,
+                   dynamic_offpeak_window_percent);
   ROCKS_LOG_HEADER(log,
                    "Options.max_compaction_trigger_wakeup_seconds: %" PRIu64,
                    max_compaction_trigger_wakeup_seconds);

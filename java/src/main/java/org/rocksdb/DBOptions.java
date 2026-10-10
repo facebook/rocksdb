@@ -800,6 +800,19 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  public DBOptions setDynamicOffpeakWindowPercent(final int dynamicOffpeakWindowPercent) {
+    assert (isOwningHandle());
+    setDynamicOffpeakWindowPercent(nativeHandle_, dynamicOffpeakWindowPercent);
+    return this;
+  }
+
+  @Override
+  public int dynamicOffpeakWindowPercent() {
+    assert (isOwningHandle());
+    return dynamicOffpeakWindowPercent(nativeHandle_);
+  }
+
+  @Override
   public DBOptions setWritableFileMaxBufferSize(final long writableFileMaxBufferSize) {
     assert(isOwningHandle());
     setWritableFileMaxBufferSize(nativeHandle_, writableFileMaxBufferSize);
@@ -1370,6 +1383,9 @@ public class DBOptions extends RocksObject
   private static native void setDailyOffpeakTimeUTC(
       final long handle, final String dailyOffpeakTimeUTC);
   private static native String dailyOffpeakTimeUTC(final long handle);
+  private static native void setDynamicOffpeakWindowPercent(
+      final long handle, final int dynamicOffpeakWindowPercent);
+  private static native int dynamicOffpeakWindowPercent(final long handle);
   private static native void setWritableFileMaxBufferSize(
       final long handle, final long writableFileMaxBufferSize);
   private static native long writableFileMaxBufferSize(final long handle);
