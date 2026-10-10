@@ -1,0 +1,1 @@
+Added `ReadOptions::read_index` (`kDefault` / `kBuiltin` / `kPreferCustom`) to choose between the standard index and a custom `IndexFactory` index per read. It replaces setting `ReadOptions::table_index_factory`, which is still accepted and now only enforces that the SST's custom index name matches the one requested.
