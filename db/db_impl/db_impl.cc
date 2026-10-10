@@ -5297,6 +5297,9 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
     delete s;
     return nullptr;
   }
+  while (num_running_lsm_edits_ > 0) {
+    bg_cv_.Wait();
+  }
   auto snapshot_seq = GetLastPublishedSequence();
   SnapshotImpl* snapshot =
       snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary);
@@ -5329,6 +5332,9 @@ DBImpl::CreateTimestampedSnapshotImpl(SequenceNumber snapshot_seq, uint64_t ts,
     delete s;
     return std::make_pair(
         Status::NotSupported("Memtable does not support snapshot"), nullptr);
+  }
+  while (num_running_lsm_edits_ > 0) {
+    bg_cv_.Wait();
   }
 
   // Caller is not write thread, thus didn't provide a valid snapshot_seq.
@@ -7134,6 +7140,14 @@ Status FileIngestionHandleImpl::Abort() {
 Status DBImpl::PrepareFileIngestion(
     const std::vector<IngestExternalFileArg>& args,
     std::unique_ptr<FileIngestionHandle>* handle) {
+  return PrepareFileIngestionImpl(args, {}, handle);
+}
+
+Status DBImpl::PrepareFileIngestionImpl(
+    const std::vector<IngestExternalFileArg>& args,
+    const std::vector<std::optional<LsmEditJobSpec>>& lsm_edit_specs,
+    std::unique_ptr<FileIngestionHandle>* handle) {
+  assert(lsm_edit_specs.empty() || lsm_edit_specs.size() == args.size());
   if (handle == nullptr) {
     return Status::InvalidArgument("file ingestion handle output is null");
   }
@@ -7163,7 +7177,12 @@ Status DBImpl::PrepareFileIngestion(
   // Ingest multiple external SST files atomically.
   const size_t num_cfs = args.size();
   for (size_t i = 0; i != num_cfs; ++i) {
-    if (args[i].external_files.empty()) {
+    const bool explicit_deletion_only =
+        !lsm_edit_specs.empty() && lsm_edit_specs[i].has_value() &&
+        lsm_edit_specs[i]->deletion_mode ==
+            LsmEditDeletionMode::kExplicitFiles &&
+        !lsm_edit_specs[i]->delete_files.empty();
+    if (args[i].external_files.empty() && !explicit_deletion_only) {
       std::string err_msg =
           "external_files[" + std::to_string(i) + "] is empty";
       return Status::InvalidArgument(err_msg);
@@ -7228,12 +7247,14 @@ Status DBImpl::PrepareFileIngestion(
 
   std::vector<ExternalSstFileIngestionJob> ingestion_jobs;
   ingestion_jobs.reserve(num_cfs);
-  for (const auto& arg : args) {
-    auto* cfd = static_cast<ColumnFamilyHandleImpl*>(arg.column_family)->cfd();
-    ingestion_jobs.emplace_back(versions_.get(), cfd, immutable_db_options_,
-                                mutable_db_options_, file_options_, &snapshots_,
-                                arg.options, &directories_, &event_logger_,
-                                io_tracer_);
+  for (size_t i = 0; i != num_cfs; ++i) {
+    auto* cfd =
+        static_cast<ColumnFamilyHandleImpl*>(args[i].column_family)->cfd();
+    ingestion_jobs.emplace_back(
+        versions_.get(), cfd, immutable_db_options_, mutable_db_options_,
+        file_options_, &snapshots_, args[i].options,
+        lsm_edit_specs.empty() ? std::nullopt : lsm_edit_specs[i],
+        &directories_, &event_logger_, io_tracer_);
   }
 
   // TODO (yanqin) maybe handle the case in which column_families have
@@ -7365,6 +7386,12 @@ Status DBImpl::CommitFileIngestionHandles(
     }
   }
   const size_t num_jobs = ingestion_jobs.size();
+  int num_lsm_edit_jobs = 0;
+  for (auto* job : ingestion_jobs) {
+    if (job->BlocksSnapshots()) {
+      ++num_lsm_edit_jobs;
+    }
+  }
 
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const WriteOptions write_options;
@@ -7417,6 +7444,7 @@ Status DBImpl::CommitFileIngestionHandles(
     WaitForPendingWrites();
 
     num_running_ingest_file_ += static_cast<int>(num_jobs);
+    num_running_lsm_edits_ += num_lsm_edit_jobs;
     TEST_SYNC_POINT("DBImpl::IngestExternalFile:AfterIncIngestFileCounter");
     TEST_SYNC_POINT("DBImpl::IngestExternalFile:AfterIncIngestFileCounter:2");
 
@@ -7599,7 +7627,8 @@ Status DBImpl::CommitFileIngestionHandles(
       }
     }
     num_running_ingest_file_ -= static_cast<int>(num_jobs);
-    if (0 == num_running_ingest_file_) {
+    num_running_lsm_edits_ -= num_lsm_edit_jobs;
+    if (0 == num_running_ingest_file_ || 0 == num_running_lsm_edits_) {
       bg_cv_.SignalAll();
     }
     TEST_SYNC_POINT("DBImpl::AddFile:MutexUnlock");
@@ -7640,6 +7669,118 @@ Status DBImpl::IngestExternalFiles(
   PERF_TIMER_GUARD(file_ingestion_nanos);
   std::unique_ptr<FileIngestionHandle> handle;
   Status status = PrepareFileIngestion(args, &handle);
+  if (!status.ok()) {
+    return status;
+  }
+  return CommitFileIngestionHandle(std::move(handle));
+}
+
+Status DBImpl::ApplyLsmEdit(const LsmEditOptions& options,
+                            const std::vector<LsmEdit>& edits) {
+  PERF_TIMER_GUARD(file_ingestion_nanos);
+  if (edits.empty()) {
+    return Status::InvalidArgument("LSM edit list is empty");
+  }
+  if (options.move_files && options.link_files) {
+    return Status::InvalidArgument(
+        "`move_files` and `link_files` can not both be true.");
+  }
+
+  // An LSM edit installs the files with the sequence numbers they already
+  // carry and takes their placement from the caller, so the ingestion options
+  // that would let RocksDB restamp or relocate them are all pinned off here
+  // rather than exposed through LsmEditOptions.
+  std::vector<IngestExternalFileArg> args;
+  std::vector<std::optional<LsmEditJobSpec>> specs;
+  args.reserve(edits.size());
+  specs.reserve(edits.size());
+  for (const LsmEdit& edit : edits) {
+    if (edit.range.start.has_value() != edit.range.limit.has_value()) {
+      return Status::NotSupported(
+          "LSM edit range must have both endpoints set or neither");
+    }
+    if (edit.deletion_mode == LsmEditDeletionMode::kFilesInRange &&
+        !edit.delete_files.empty()) {
+      return Status::InvalidArgument(
+          "LSM edit delete_files must be empty in kFilesInRange mode");
+    }
+    if (edit.deletion_mode != LsmEditDeletionMode::kFilesInRange &&
+        edit.deletion_mode != LsmEditDeletionMode::kExplicitFiles) {
+      return Status::InvalidArgument("LSM edit has invalid deletion mode");
+    }
+    if (edit.add_files.empty() && edit.delete_files.empty()) {
+      return Status::InvalidArgument("LSM edit has no file operations");
+    }
+    std::set<std::pair<int, uint64_t>> unique_deletions;
+    for (const LsmEditFileDeletion& deletion : edit.delete_files) {
+      if (deletion.file_number == 0) {
+        return Status::InvalidArgument(
+            "LSM edit file deletion has file number zero");
+      }
+      if (!unique_deletions.emplace(deletion.level, deletion.file_number)
+               .second) {
+        return Status::InvalidArgument(
+            "LSM edit contains a duplicate file deletion");
+      }
+    }
+
+    IngestExternalFileArg arg;
+    arg.column_family = edit.column_family;
+    arg.atomic_replace_range = edit.range;
+    arg.file_temperature = options.file_temperature;
+    arg.options.move_files = options.move_files;
+    arg.options.link_files = options.link_files;
+    arg.options.verify_file_checksum = options.verify_file_checksum;
+    arg.options.allow_blocking_flush = options.allow_blocking_flush;
+    arg.options.fill_cache = options.fill_cache;
+    arg.options.file_opening_threads = options.file_opening_threads;
+    arg.options.allow_db_generated_files = true;
+    arg.options.allow_global_seqno = false;
+    arg.options.write_global_seqno = false;
+    arg.options.snapshot_consistency = false;
+    arg.options.ingest_behind = false;
+    arg.options.fail_if_not_bottommost_level = false;
+
+    LsmEditJobSpec spec;
+    spec.probe_straddling_files = options.probe_straddling_files;
+    spec.deletion_mode = edit.deletion_mode;
+    spec.delete_files = edit.delete_files;
+    spec.levels.reserve(edit.add_files.size());
+    arg.external_files.reserve(edit.add_files.size());
+    const bool checksums_supplied =
+        !edit.add_files.empty() &&
+        (!edit.add_files.front().checksum.empty() ||
+         !edit.add_files.front().checksum_func_name.empty());
+    if (checksums_supplied) {
+      arg.files_checksums.reserve(edit.add_files.size());
+      arg.files_checksum_func_names.reserve(edit.add_files.size());
+    }
+    for (const LsmEditFile& file : edit.add_files) {
+      const bool has_checksum = !file.checksum.empty();
+      const bool has_checksum_func_name = !file.checksum_func_name.empty();
+      if (has_checksum != has_checksum_func_name) {
+        return Status::InvalidArgument(
+            "LSM edit file checksum and checksum function name must both be "
+            "set or both be empty");
+      }
+      if (has_checksum != checksums_supplied) {
+        return Status::InvalidArgument(
+            "LSM edit must supply checksums for all files or none");
+      }
+      arg.external_files.push_back(file.path);
+      spec.levels.push_back(file.level);
+      if (checksums_supplied) {
+        arg.files_checksums.push_back(file.checksum);
+        arg.files_checksum_func_names.push_back(file.checksum_func_name);
+      }
+    }
+
+    args.push_back(std::move(arg));
+    specs.emplace_back(std::move(spec));
+  }
+
+  std::unique_ptr<FileIngestionHandle> handle;
+  Status status = PrepareFileIngestionImpl(args, specs, &handle);
   if (!status.ok()) {
     return status;
   }
