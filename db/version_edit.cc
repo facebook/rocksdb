@@ -134,7 +134,7 @@ bool VersionEdit::ShouldEmitPerColumnFamilyRecoveryEdit(
          HasLastSequence() || !GetCompactCursors().empty() || HasDbId() ||
          IsColumnFamilyManipulation() || IsInAtomicGroup() ||
          HasFullHistoryTsLow() || HasPersistUserDefinedTimestamps() ||
-         HasSubcompactionProgress();
+         HasSubcompactionProgress() || HasCommittedOptionsFileNumber();
 }
 
 bool VersionEdit::EncodeTo(std::string* dst,
@@ -262,6 +262,13 @@ bool VersionEdit::EncodeTo(std::string* dst,
     std::string varint_size;
     PutVarint64(&varint_size, last_compacted_manifest_file_size_);
     PutLengthPrefixedSlice(dst, Slice(varint_size));
+  }
+
+  if (has_committed_options_file_number_) {
+    PutVarint32(dst, kCommittedOptionsFileNumber);
+    std::string encoded;
+    PutVarint64(&encoded, committed_options_file_number_);
+    PutLengthPrefixedSlice(dst, encoded);
   }
 
   return true;
@@ -925,6 +932,18 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
       }
 
+      case kCommittedOptionsFileNumber: {
+        Slice encoded;
+        if (GetLengthPrefixedSlice(&input, &encoded) &&
+            GetVarint64(&encoded, &committed_options_file_number_) &&
+            encoded.empty()) {
+          has_committed_options_file_number_ = true;
+        } else {
+          msg = "committed options file number";
+        }
+        break;
+      }
+
       default:
         if (tag & kTagSafeIgnoreMask) {
           // Tag from future which can be safely ignored.
@@ -1104,6 +1123,10 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append("\n  LastCompactedManifestFileSize: ");
     AppendNumberTo(&r, last_compacted_manifest_file_size_);
   }
+  if (has_committed_options_file_number_) {
+    r.append("\n  CommittedOptionsFileNumber: ");
+    AppendNumberTo(&r, committed_options_file_number_);
+  }
   r.append("\n}\n");
   return r;
 }
@@ -1263,6 +1286,10 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
 
   if (has_last_compacted_manifest_file_size_) {
     jw << "LastCompactedManifestFileSize" << last_compacted_manifest_file_size_;
+  }
+
+  if (has_committed_options_file_number_) {
+    jw << "CommittedOptionsFileNumber" << committed_options_file_number_;
   }
 
   jw.EndObject();

@@ -613,7 +613,8 @@ ColumnFamilyData::ColumnFamilyData(
     const FileOptions* file_options, ColumnFamilySet* column_family_set,
     BlockCacheTracer* const block_cache_tracer,
     const std::shared_ptr<IOTracer>& io_tracer, const std::string& db_id,
-    const std::string& db_session_id, bool read_only, bool fast_sst_open)
+    const std::string& db_session_id, bool read_only,
+    bool options_are_sanitized, bool fast_sst_open)
     : id_(id),
       name_(name),
       dummy_versions_(_dummy_versions),
@@ -623,7 +624,10 @@ ColumnFamilyData::ColumnFamilyData(
       dropped_(false),
       flush_skip_reschedule_(false),
       internal_comparator_(cf_options.comparator),
-      initial_cf_options_(SanitizeCfOptions(db_options, read_only, cf_options)),
+      initial_cf_options_(
+          options_are_sanitized
+              ? cf_options
+              : SanitizeCfOptions(db_options, read_only, cf_options)),
       ioptions_(db_options, initial_cf_options_),
       mutable_cf_options_(initial_cf_options_),
       is_delete_range_supported_(
@@ -1838,7 +1842,7 @@ ColumnFamilySet::ColumnFamilySet(
           ColumnFamilyData::kDummyColumnFamilyDataId, "", nullptr, nullptr,
           nullptr, ColumnFamilyOptions(), *db_options, &file_options_, nullptr,
           block_cache_tracer, io_tracer, db_id, db_session_id,
-          /*read_only*/ true)),
+          /*read_only=*/true, /*options_are_sanitized=*/false)),
       default_cfd_cache_(nullptr),
       db_name_(dbname),
       db_options_(db_options),
@@ -2007,12 +2011,13 @@ void ColumnFamilySet::EndBulkFlushableMemAccountingUpdate() {
 // under a DB mutex AND write thread
 ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
     const std::string& name, uint32_t id, Version* dummy_versions,
-    const ColumnFamilyOptions& options, bool read_only) {
+    const ColumnFamilyOptions& options, bool read_only,
+    bool options_are_sanitized) {
   assert(column_families_.find(name) == column_families_.end());
   ColumnFamilyData* new_cfd = new ColumnFamilyData(
       id, name, dummy_versions, table_cache_, write_buffer_manager_, options,
       *db_options_, &file_options_, this, block_cache_tracer_, io_tracer_,
-      db_id_, db_session_id_, read_only, fast_sst_open_);
+      db_id_, db_session_id_, read_only, options_are_sanitized, fast_sst_open_);
   column_families_.insert({name, id});
   column_family_data_.insert({id, new_cfd});
   auto ucmp = new_cfd->user_comparator();

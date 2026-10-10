@@ -373,6 +373,7 @@ void VersionEditHandler::CheckColumnFamilyId(const VersionEdit& edit,
 void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
                                               Status* s) {
   assert(s != nullptr);
+  assert(version_set_ != nullptr);
   if (!s->ok()) {
     // Do nothing here.
   } else if (!version_edit_params_.HasLogNumber() ||
@@ -499,7 +500,8 @@ ColumnFamilyData* VersionEditHandler::CreateCfAndInit(
     const ColumnFamilyOptions& cf_options, const VersionEdit& edit) {
   uint32_t cf_id = edit.GetColumnFamily();
   ColumnFamilyData* cfd = version_set_->CreateColumnFamily(
-      cf_options, read_options_, &edit, read_only_);
+      cf_options, read_options_, &edit, read_only_,
+      /*options_are_sanitized=*/false);
   assert(cfd != nullptr);
   cfd->set_initialized();
   assert(builders_.find(cf_id) == builders_.end());
@@ -651,6 +653,11 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
       version_set_->last_compacted_manifest_file_size_ =
           edit.GetLastCompactedManifestFileSize();
       version_set_->TuneMaxManifestFileSize();
+    }
+    if (edit.HasCommittedOptionsFileNumber()) {
+      assert(version_set_ != nullptr);
+      version_set_->ApplyCommittedOptionsFileNumber(
+          edit.GetCommittedOptionsFileNumber());
     }
     if (!version_edit_params_.HasPrevLogNumber()) {
       version_edit_params_.SetPrevLogNumber(0);
