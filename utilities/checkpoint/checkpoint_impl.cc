@@ -461,6 +461,7 @@ Status CheckpointImpl::CreateCheckpointImpl(
   // Populated by CreateCustomCheckpoint when include_cf_ids restricts the
   // checkpoint to a subset of column families.
   std::vector<uint32_t> excluded_cf_ids;
+  SubsetCheckpointOptionsSnapshot options_snapshot;
   std::string manifest_relative_filename;
   uint64_t manifest_size = 0;
   if (s.ok()) {
@@ -489,7 +490,7 @@ Status CheckpointImpl::CreateCheckpointImpl(
             return CreateFile(fs, full_private_path + "/" + fname, contents,
                               db_options.use_fsync);
           } /* create_file_cb */,
-          &sequence_number, log_size_for_flush,
+          &sequence_number, log_size_for_flush, &options_snapshot,
           /*get_live_table_checksum=*/false, /*atomic_flush=*/false,
           include_cf_ids, &excluded_cf_ids, &manifest_relative_filename,
           &manifest_size);
@@ -512,9 +513,16 @@ Status CheckpointImpl::CreateCheckpointImpl(
               "Subset checkpoint did not record a MANIFEST descriptor entry");
         } else {
           DBImpl* db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
-          s = db_impl->AppendColumnFamilyDropsToManifest(
-              full_private_path + "/" + manifest_relative_filename,
-              manifest_size, excluded_cf_ids);
+          s = db_impl->CreateOptionsFileForSubsetCheckpoint(full_private_path,
+                                                            options_snapshot);
+          if (s.ok()) {
+            s = db_impl->AppendColumnFamilyDropsToManifest(
+                full_private_path + "/" + manifest_relative_filename,
+                manifest_size, excluded_cf_ids,
+                options_snapshot.commit_options_file_number
+                    ? options_snapshot.options_file_number
+                    : 0);
+          }
         }
       }
 
@@ -591,6 +599,32 @@ Status CheckpointImpl::CreateCustomCheckpoint(
     const std::vector<uint32_t>& include_cf_ids,
     std::vector<uint32_t>* excluded_cf_ids,
     std::string* manifest_relative_filename, uint64_t* manifest_size) {
+  return CreateCustomCheckpoint(link_file_cb, copy_file_cb, create_file_cb,
+                                sequence_number, log_size_for_flush,
+                                /*options_snapshot=*/nullptr,
+                                get_live_table_checksum, atomic_flush,
+                                include_cf_ids, excluded_cf_ids,
+                                manifest_relative_filename, manifest_size);
+}
+
+Status CheckpointImpl::CreateCustomCheckpoint(
+    const std::function<Status(const std::string& src_dirname,
+                               const std::string& src_fname, FileType type,
+                               const Temperature temperature)>& link_file_cb,
+    const std::function<Status(
+        const std::string& src_dirname, const std::string& src_fname,
+        uint64_t size_limit_bytes, FileType type,
+        const std::string& checksum_func_name, const std::string& checksum_val,
+        const Temperature temperature)>& copy_file_cb,
+    const std::function<Status(const std::string& fname,
+                               const std::string& contents, FileType type)>&
+        create_file_cb,
+    uint64_t* sequence_number, uint64_t log_size_for_flush,
+    SubsetCheckpointOptionsSnapshot* options_snapshot,
+    bool get_live_table_checksum, bool atomic_flush,
+    const std::vector<uint32_t>& include_cf_ids,
+    std::vector<uint32_t>* excluded_cf_ids,
+    std::string* manifest_relative_filename, uint64_t* manifest_size) {
   *sequence_number = db_->GetLatestSequenceNumber();
 
   LiveFilesStorageInfoOptions opts;
@@ -605,9 +639,10 @@ Status CheckpointImpl::CreateCustomCheckpoint(
       s = db_->GetLiveFilesStorageInfo(opts, &infos);
     } else {
       assert(excluded_cf_ids != nullptr);
+      assert(options_snapshot != nullptr);
       DBImpl* db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
       s = db_impl->GetLiveFilesStorageInfoForSubsetCheckpoint(
-          opts, include_cf_ids, &infos, excluded_cf_ids);
+          opts, include_cf_ids, &infos, excluded_cf_ids, options_snapshot);
     }
     if (!s.ok()) {
       return s;

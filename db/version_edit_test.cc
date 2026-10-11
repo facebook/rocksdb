@@ -38,6 +38,32 @@ static void TestEncodeDecode(const VersionEdit& edit) {
   ASSERT_EQ(encoded, encoded2);
 }
 
+static void TestOptionsFileNumberField(const char* field_name,
+                                       uint64_t file_number,
+                                       void (VersionEdit::*set)(uint64_t),
+                                       bool (VersionEdit::*has)() const,
+                                       uint64_t (VersionEdit::*get)() const) {
+  SCOPED_TRACE(field_name);
+  VersionEdit edit;
+  ASSERT_FALSE((edit.*has)());
+  (edit.*set)(file_number);
+
+  std::string encoded;
+  ASSERT_TRUE(edit.EncodeTo(&encoded));
+
+  VersionEdit decoded;
+  ASSERT_OK(decoded.DecodeFrom(encoded));
+  ASSERT_TRUE((decoded.*has)());
+  ASSERT_EQ(file_number, (decoded.*get)());
+  ASSERT_TRUE(decoded.ShouldEmitPerColumnFamilyRecoveryEdit(0));
+  const std::string expected =
+      std::string(field_name) + ": " + std::to_string(file_number);
+  ASSERT_NE(std::string::npos, decoded.DebugString().find(expected));
+  const std::string expected_json =
+      "\"" + std::string(field_name) + "\": " + std::to_string(file_number);
+  ASSERT_NE(std::string::npos, decoded.DebugJSON(1).find(expected_json));
+}
+
 class VersionEditTest : public testing::Test {};
 
 TEST_F(VersionEditTest, EncodeDecode) {
@@ -616,6 +642,13 @@ TEST_F(VersionEditTest, FullHistoryTsLow) {
   TestEncodeDecode(edit);
 }
 
+TEST_F(VersionEditTest, OptionsFileNumbers) {
+  TestOptionsFileNumberField("CommittedOptionsFileNumber", 12345,
+                             &VersionEdit::SetCommittedOptionsFileNumber,
+                             &VersionEdit::HasCommittedOptionsFileNumber,
+                             &VersionEdit::GetCommittedOptionsFileNumber);
+}
+
 // Tests that if RocksDB is downgraded, the new types of VersionEdits
 // that have a tag larger than kTagSafeIgnoreMask can be safely ignored.
 TEST_F(VersionEditTest, IgnorableTags) {
@@ -637,6 +670,7 @@ TEST_F(VersionEditTest, IgnorableTags) {
     edit.AddWal(i + 1, WalMetadata(i + 2));
   }
   edit.SetDBId("db_id");
+  edit.SetCommittedOptionsFileNumber(12345);
   // Add unignorable entries.
   edit.SetPrevLogNumber(kPrevLogNumber);
   edit.SetLogNumber(kLogNumber);
@@ -658,6 +692,7 @@ TEST_F(VersionEditTest, IgnorableTags) {
   // Check that all ignorable entries are ignored.
   ASSERT_FALSE(decoded.HasDbId());
   ASSERT_FALSE(decoded.HasFullHistoryTsLow());
+  ASSERT_FALSE(decoded.HasCommittedOptionsFileNumber());
   ASSERT_FALSE(decoded.IsWalAddition());
   ASSERT_FALSE(decoded.IsWalDeletion());
   ASSERT_TRUE(decoded.GetWalAdditions().empty());

@@ -654,17 +654,15 @@ class ColumnFamilyData {
 
  private:
   friend class ColumnFamilySet;
-  ColumnFamilyData(uint32_t id, const std::string& name,
-                   Version* dummy_versions, Cache* table_cache,
-                   WriteBufferManager* write_buffer_manager,
-                   const ColumnFamilyOptions& options,
-                   const ImmutableDBOptions& db_options,
-                   const FileOptions* file_options,
-                   ColumnFamilySet* column_family_set,
-                   BlockCacheTracer* const block_cache_tracer,
-                   const std::shared_ptr<IOTracer>& io_tracer,
-                   const std::string& db_id, const std::string& db_session_id,
-                   bool read_only, bool fast_sst_open = false);
+  ColumnFamilyData(
+      uint32_t id, const std::string& name, Version* dummy_versions,
+      Cache* table_cache, WriteBufferManager* write_buffer_manager,
+      const ColumnFamilyOptions& options, const ImmutableDBOptions& db_options,
+      const FileOptions* file_options, ColumnFamilySet* column_family_set,
+      BlockCacheTracer* const block_cache_tracer,
+      const std::shared_ptr<IOTracer>& io_tracer, const std::string& db_id,
+      const std::string& db_session_id, bool read_only,
+      bool options_are_sanitized, bool fast_sst_open = false);
 
   std::vector<std::string> GetDbPaths() const;
 
@@ -850,7 +848,8 @@ class ColumnFamilySet {
   ColumnFamilyData* CreateColumnFamily(const std::string& name, uint32_t id,
                                        Version* dummy_version,
                                        const ColumnFamilyOptions& options,
-                                       bool read_only);
+                                       bool read_only,
+                                       bool options_are_sanitized);
 
   const UnorderedMap<uint32_t, size_t>& GetRunningColumnFamiliesTimestampSize()
       const {

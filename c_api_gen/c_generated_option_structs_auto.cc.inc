@@ -741,6 +741,16 @@ unsigned char rocksdb_options_get_write_dbid_to_manifest(
   return opt->rep.write_dbid_to_manifest;
 }
 
+void rocksdb_options_set_track_options_file_number_in_manifest(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.track_options_file_number_in_manifest = v;
+}
+
+unsigned char rocksdb_options_get_track_options_file_number_in_manifest(
+    rocksdb_options_t* opt) {
+  return opt->rep.track_options_file_number_in_manifest;
+}
+
 void rocksdb_options_set_write_identity_file(rocksdb_options_t* opt,
                                              unsigned char v) {
   opt->rep.write_identity_file = v;

@@ -4498,8 +4498,14 @@ Status DBImpl::WrapUpCreateColumnFamilies(
       break;
     }
   }
-  // Attempt both follow-up actions even if one fails
-  Status s = WriteOptionsFile(write_options, false /*db_mutex_already_held*/);
+  // Tracked creates already published their OPTIONS snapshot in the same
+  // MANIFEST edit. Legacy creates retain the historical post-create write.
+  Status s;
+  if (immutable_db_options_.track_options_file_number_in_manifest) {
+    MaybeDeleteObsoleteOptionsFiles();
+  } else {
+    s = WriteOptionsFile(write_options, false /*db_mutex_already_held*/);
+  }
   if (register_worker) {
     s.UpdateIfOk(RegisterRecordSeqnoTimeWorker());
   }
@@ -4528,21 +4534,14 @@ Status DBImpl::CreateColumnFamilies(
     std::vector<ColumnFamilyHandle*>* handles) {
   assert(handles != nullptr);
   InstrumentedMutexLock ol(&options_mutex_);
-  handles->clear();
-  size_t num_cf = column_family_names.size();
-  Status s;
-  bool success_once = false;
-  for (size_t i = 0; i < num_cf; i++) {
-    ColumnFamilyHandle* handle;
-    s = CreateColumnFamilyImpl(read_options, write_options, cf_options,
-                               column_family_names[i], &handle);
-    if (!s.ok()) {
-      break;
-    }
-    handles->push_back(handle);
-    success_once = true;
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.reserve(column_family_names.size());
+  for (const auto& name : column_family_names) {
+    column_families.emplace_back(name, cf_options);
   }
-  if (success_once) {
+  Status s = CreateColumnFamiliesImpl(read_options, write_options,
+                                      column_families, handles);
+  if (!handles->empty()) {
     s.UpdateIfOk(WrapUpCreateColumnFamilies(write_options, {&cf_options}));
   }
   return s;
@@ -4554,25 +4553,14 @@ Status DBImpl::CreateColumnFamilies(
     std::vector<ColumnFamilyHandle*>* handles) {
   assert(handles != nullptr);
   InstrumentedMutexLock ol(&options_mutex_);
-  handles->clear();
-  size_t num_cf = column_families.size();
-  Status s;
-  bool success_once = false;
+  Status s = CreateColumnFamiliesImpl(read_options, write_options,
+                                      column_families, handles);
   std::vector<const ColumnFamilyOptions*> cf_opts;
-  cf_opts.reserve(num_cf);
-  for (size_t i = 0; i < num_cf; i++) {
-    ColumnFamilyHandle* handle;
-    s = CreateColumnFamilyImpl(read_options, write_options,
-                               column_families[i].options,
-                               column_families[i].name, &handle);
-    if (!s.ok()) {
-      break;
-    }
-    handles->push_back(handle);
-    success_once = true;
+  cf_opts.reserve(handles->size());
+  for (size_t i = 0; i < handles->size(); ++i) {
     cf_opts.push_back(&column_families[i].options);
   }
-  if (success_once) {
+  if (!handles->empty()) {
     s.UpdateIfOk(WrapUpCreateColumnFamilies(write_options, cf_opts));
   }
   return s;
@@ -4583,37 +4571,126 @@ Status DBImpl::CreateColumnFamilyImpl(const ReadOptions& read_options,
                                       const ColumnFamilyOptions& cf_options,
                                       const std::string& column_family_name,
                                       ColumnFamilyHandle** handle) {
+  std::vector<ColumnFamilyHandle*> handles;
+  Status s = CreateColumnFamiliesImpl(
+      read_options, write_options,
+      {ColumnFamilyDescriptor(column_family_name, cf_options)}, &handles);
+  *handle = handles.empty() ? nullptr : handles.front();
+  return s;
+}
+
+Status DBImpl::CreateColumnFamiliesImpl(
+    const ReadOptions& read_options, const WriteOptions& write_options,
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    std::vector<ColumnFamilyHandle*>* handles) {
   options_mutex_.AssertHeld();
-  *handle = nullptr;
+  assert(handles != nullptr);
+  handles->clear();
 
-  // The empty string is reserved as a "no/unknown column family name" sentinel
-  // in various APIs and serialization formats (e.g.
-  // TablePropertiesCollectorFactory::Context::kUnknownColumnFamily, table
-  // properties), so reject it to avoid ambiguity. Note: prior to this check,
-  // CreateColumnFamily("") would silently "succeed" but the CF was not
-  // persisted in the manifest, causing data loss across DB reopens.
-  if (column_family_name.empty()) {
-    return Status::InvalidArgument(
-        "Column family name cannot be the empty string");
-  }
-
-  Status s;
-
-  DBOptions db_options =
-      BuildDBOptions(immutable_db_options_, mutable_db_options_);
-  s = ColumnFamilyData::ValidateOptions(db_options, cf_options);
-  if (s.ok()) {
-    for (auto& cf_path : cf_options.cf_paths) {
-      s = env_->CreateDirIfMissing(cf_path.path);
-      if (!s.ok()) {
-        break;
+  std::unordered_set<std::string> unavailable_names;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    ColumnFamilySet* column_family_set = versions_->GetColumnFamilySet();
+    assert(column_family_set != nullptr);
+    for (auto* cfd : *column_family_set) {
+      if (!cfd->IsDropped()) {
+        unavailable_names.insert(cfd->GetName());
       }
     }
   }
+
+  const DBOptions db_options =
+      BuildDBOptions(immutable_db_options_, mutable_db_options_);
+  std::vector<ColumnFamilyDescriptor> prepared_column_families;
+  prepared_column_families.reserve(column_families.size());
+  Status preparation_status;
+  for (const auto& column_family : column_families) {
+    const std::string& column_family_name = column_family.name;
+
+    // The empty string is reserved as a "no/unknown column family name"
+    // sentinel in APIs and serialization formats.
+    if (column_family_name.empty()) {
+      preparation_status = Status::InvalidArgument(
+          "Column family name cannot be the empty string");
+      break;
+    }
+    preparation_status =
+        ColumnFamilyData::ValidateOptions(db_options, column_family.options);
+    if (preparation_status.ok()) {
+      for (const auto& cf_path : column_family.options.cf_paths) {
+        preparation_status = env_->CreateDirIfMissing(cf_path.path);
+        if (!preparation_status.ok()) {
+          break;
+        }
+      }
+    }
+    if (!preparation_status.ok()) {
+      break;
+    }
+    if (unavailable_names.count(column_family_name) != 0) {
+      preparation_status =
+          Status::InvalidArgument("Column family already exists");
+      break;
+    }
+    unavailable_names.insert(column_family_name);
+    prepared_column_families.emplace_back(
+        column_family_name,
+        SanitizeCfOptions(immutable_db_options_, /*read_only=*/false,
+                          column_family.options));
+  }
+
+  if (prepared_column_families.empty()) {
+    return preparation_status;
+  }
+
+  uint64_t options_file_number = 0;
+  uint64_t options_file_size = 0;
+  Status s = PersistOptionsFileForColumnFamilyManipulation(
+      write_options, prepared_column_families, {}, &options_file_number,
+      &options_file_size);
   if (!s.ok()) {
     return s;
   }
+  // TEST_SYNC_POINT handles the disabled singleton case internally.
+  // @lint-ignore NULLSAFECLANG nullable-dereference
+  TEST_SYNC_POINT("DBImpl::CreateColumnFamilyImpl:AfterPersistOptions");
 
+  for (size_t i = 0; i < prepared_column_families.size(); ++i) {
+    const auto& column_family = prepared_column_families[i];
+    ColumnFamilyHandle* handle = nullptr;
+    s = CreateColumnFamilyWithPreparedOptions(
+        read_options, write_options, column_family.options, column_family.name,
+        i == 0 ? options_file_number : 0, i == 0 ? options_file_size : 0,
+        &handle);
+    if (!s.ok()) {
+      break;
+    }
+    handles->push_back(handle);
+  }
+  if (s.ok() && !preparation_status.ok()) {
+    s = preparation_status;
+  }
+  return s;
+}
+
+Status DBImpl::CreateColumnFamilyWithPreparedOptions(
+    const ReadOptions& read_options, const WriteOptions& write_options,
+    const ColumnFamilyOptions& sanitized_cf_options,
+    const std::string& column_family_name, uint64_t options_file_number,
+    uint64_t options_file_size, ColumnFamilyHandle** handle) {
+  options_mutex_.AssertHeld();
+  *handle = nullptr;
+
+  {
+    InstrumentedMutexLock l(&mutex_);
+    ColumnFamilySet* column_family_set = versions_->GetColumnFamilySet();
+    assert(column_family_set != nullptr);
+    if (column_family_set->GetColumnFamily(column_family_name) != nullptr) {
+      return Status::InvalidArgument("Column family already exists");
+    }
+  }
+
+  Status s;
   SuperVersionContext sv_context(/* create_superversion */ true);
   {
     InstrumentedMutexLock l(&mutex_);
@@ -4627,21 +4704,25 @@ Status DBImpl::CreateColumnFamilyImpl(const ReadOptions& read_options,
     uint32_t new_id = versions_->GetColumnFamilySet()->GetNextColumnFamilyID();
     edit.SetColumnFamily(new_id);
     edit.SetLogNumber(cur_wal_number_);
-    edit.SetComparatorName(cf_options.comparator->Name());
+    edit.SetComparatorName(sanitized_cf_options.comparator->Name());
     edit.SetPersistUserDefinedTimestamps(
-        cf_options.persist_user_defined_timestamps);
+        sanitized_cf_options.persist_user_defined_timestamps);
+    if (options_file_number != 0) {
+      edit.SetCommittedOptionsFileNumber(options_file_number);
+    }
 
     // LogAndApply will both write the creation in MANIFEST and create
     // ColumnFamilyData object
     {  // write thread
       WriteThread::Writer w;
       write_thread_.EnterUnbatched(&w, &mutex_);
-      // LogAndApply will both write the creation in MANIFEST and create
-      // ColumnFamilyData object
-      s = versions_->LogAndApply(nullptr, read_options, write_options, &edit,
-                                 &mutex_, directories_.GetDbDir(), false,
-                                 &cf_options);
+      s = versions_->LogAndApplyColumnFamilyAddWithSanitizedOptions(
+          read_options, write_options, &edit, &mutex_, directories_.GetDbDir(),
+          sanitized_cf_options);
       write_thread_.ExitUnbatched(&w);
+    }
+    if (s.ok() && options_file_number != 0) {
+      versions_->options_file_size_ = options_file_size;
     }
     if (s.ok()) {
       auto* cfd =
@@ -4654,7 +4735,8 @@ Status DBImpl::CreateColumnFamilyImpl(const ReadOptions& read_options,
       auto* cfd =
           versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
       assert(cfd != nullptr);
-      MaybeInitBlobDirectWriteColumnFamily(cfd, cf_options, column_family_name);
+      MaybeInitBlobDirectWriteColumnFamily(cfd, sanitized_cf_options,
+                                           column_family_name);
       InstallSuperVersionForConfigChange(cfd, &sv_context);
 
       if (!cfd->mem()->IsSnapshotSupported()) {
@@ -4675,7 +4757,6 @@ Status DBImpl::CreateColumnFamilyImpl(const ReadOptions& read_options,
   }  // InstrumentedMutexLock l(&mutex_)
 
   sv_context.Clean();
-  // this is outside the mutex
   if (s.ok()) {
     NewThreadStatusCfInfo(
         static_cast_with_check<ColumnFamilyHandleImpl>(*handle)->cfd());
@@ -4688,8 +4769,12 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
   InstrumentedMutexLock ol(&options_mutex_);
   Status s = DropColumnFamilyImpl(column_family);
   if (s.ok()) {
-    // TODO: plumb Env::IOActivity, Env::IOPriority
-    s = WriteOptionsFile(WriteOptions(), false /*db_mutex_already_held*/);
+    if (immutable_db_options_.track_options_file_number_in_manifest) {
+      MaybeDeleteObsoleteOptionsFiles();
+    } else {
+      // TODO: plumb Env::IOActivity, Env::IOPriority
+      s = WriteOptionsFile(WriteOptions(), false /*db_mutex_already_held*/);
+    }
   }
   return s;
 }
@@ -4699,6 +4784,40 @@ Status DBImpl::DropColumnFamilies(
   InstrumentedMutexLock ol(&options_mutex_);
   Status s;
   bool success_once = false;
+  std::vector<ColumnFamilyHandle*> validated_column_families;
+  std::vector<uint32_t> excluded_cf_ids;
+  std::unordered_set<uint32_t> seen_cf_ids;
+  for (auto* handle : column_families) {
+    auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(handle)->cfd();
+    assert(cfd != nullptr);
+    if (cfd->GetID() == 0) {
+      s = Status::InvalidArgument("Can't drop default column family");
+      break;
+    }
+    {
+      InstrumentedMutexLock l(&mutex_);
+      if (cfd->IsDropped() || !seen_cf_ids.insert(cfd->GetID()).second) {
+        s = Status::InvalidArgument("Column family already dropped!\n");
+        break;
+      }
+    }
+    validated_column_families.push_back(handle);
+    excluded_cf_ids.push_back(cfd->GetID());
+  }
+
+  uint64_t options_file_number = 0;
+  uint64_t options_file_size = 0;
+  if (s.ok() && !validated_column_families.empty()) {
+    s = PersistOptionsFileForColumnFamilyManipulation(
+        WriteOptions(), {}, excluded_cf_ids, &options_file_number,
+        &options_file_size);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  const Status validation_status = s;
+  s = Status::OK();
+
   ColumnFamilySet* const column_family_set = versions_->GetColumnFamilySet();
   const bool batch_flushable_mem_accounting =
       write_buffer_manager_ != nullptr &&
@@ -4715,20 +4834,31 @@ Status DBImpl::DropColumnFamilies(
             column_family_set->EndBulkFlushableMemAccountingUpdate();
           }
         });
-    for (auto* handle : column_families) {
-      s = DropColumnFamilyImpl(handle);
+    for (size_t i = 0; i < validated_column_families.size(); ++i) {
+      s = DropColumnFamilyWithOptionsFile(
+          validated_column_families[i],
+          validation_status.ok() && i + 1 == validated_column_families.size()
+              ? options_file_number
+              : 0,
+          validation_status.ok() && i + 1 == validated_column_families.size()
+              ? options_file_size
+              : 0);
       if (!s.ok()) {
         break;
       }
       success_once = true;
     }
   }
+  if (s.ok() && !validation_status.ok()) {
+    s = validation_status;
+  }
   if (success_once) {
-    // TODO: plumb Env::IOActivity, Env::IOPriority
-    Status persist_options_status =
-        WriteOptionsFile(WriteOptions(), false /*db_mutex_already_held*/);
-    if (s.ok() && !persist_options_status.ok()) {
-      s = persist_options_status;
+    if (immutable_db_options_.track_options_file_number_in_manifest) {
+      MaybeDeleteObsoleteOptionsFiles();
+    } else {
+      // TODO: plumb Env::IOActivity, Env::IOPriority
+      s.UpdateIfOk(
+          WriteOptionsFile(WriteOptions(), false /*db_mutex_already_held*/));
     }
   }
   return s;
@@ -4737,23 +4867,57 @@ Status DBImpl::DropColumnFamilies(
 Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
   options_mutex_.AssertHeld();
 
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  auto cfd = cfh->cfd();
+  assert(cfd != nullptr);
+  if (cfd->GetID() == 0) {
+    return Status::InvalidArgument("Can't drop default column family");
+  }
+
+  {
+    InstrumentedMutexLock l(&mutex_);
+    if (cfd->IsDropped()) {
+      return Status::InvalidArgument("Column family already dropped!\n");
+    }
+  }
+
+  uint64_t options_file_number = 0;
+  uint64_t options_file_size = 0;
+  Status s = PersistOptionsFileForColumnFamilyManipulation(
+      WriteOptions(), {}, {cfd->GetID()}, &options_file_number,
+      &options_file_size);
+  if (!s.ok()) {
+    return s;
+  }
+  return DropColumnFamilyWithOptionsFile(column_family, options_file_number,
+                                         options_file_size);
+}
+
+Status DBImpl::DropColumnFamilyWithOptionsFile(
+    ColumnFamilyHandle* column_family, uint64_t options_file_number,
+    uint64_t options_file_size) {
+  options_mutex_.AssertHeld();
+
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   const WriteOptions write_options;
 
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
+  assert(cfd != nullptr);
   if (cfd->GetID() == 0) {
     return Status::InvalidArgument("Can't drop default column family");
   }
 
   bool cf_support_snapshot = cfd->mem()->IsSnapshotSupported();
-
+  Status s;
   VersionEdit edit;
   edit.DropColumnFamily();
   edit.SetColumnFamily(cfd->GetID());
+  if (options_file_number != 0) {
+    edit.SetCommittedOptionsFileNumber(options_file_number);
+  }
 
-  Status s;
   // Save re-aquiring lock for RegisterRecordSeqnoTimeWorker when not
   // applicable
   MinAndMaxPreserveSeconds preserve_info;
@@ -4770,6 +4934,9 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
       s = versions_->LogAndApply(cfd, read_options, write_options, &edit,
                                  &mutex_, directories_.GetDbDir());
       write_thread_.ExitUnbatched(&w);
+      if (s.ok() && options_file_number != 0) {
+        versions_->options_file_size_ = options_file_size;
+      }
       if (s.ok() && cfd->blob_partition_manager() != nullptr) {
         UnregisterBlobDirectWriteColumnFamily();
       }
@@ -6663,37 +6830,46 @@ Status DBImpl::WriteOptionsFile(const WriteOptions& write_options,
 
   DBOptions db_options =
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
+  const bool track_options_file_number =
+      immutable_db_options_.track_options_file_number_in_manifest;
 
   // Unlock during expensive operations.
   mutex_.Unlock();
 
-  TEST_SYNC_POINT("DBImpl::WriteOptionsFile:1");
-  TEST_SYNC_POINT("DBImpl::WriteOptionsFile:2");
-  TEST_SYNC_POINT_CALLBACK("DBImpl::WriteOptionsFile:PersistOptions",
-                           &db_options);
-
-  std::string file_name =
-      TempOptionsFileName(GetName(), versions_->NewFileNumber());
-  Status s = PersistRocksDBOptions(write_options, db_options, cf_names, cf_opts,
-                                   file_name, fs_.get());
+  uint64_t options_file_number = 0;
+  uint64_t options_file_size = 0;
+  Status s = PersistOptionsFile(write_options, db_options, cf_names, cf_opts,
+                                &options_file_number, &options_file_size);
+  if (s.ok()) {
+    // TEST_SYNC_POINT handles the disabled singleton case internally.
+    // @lint-ignore NULLSAFECLANG nullable-dereference
+    TEST_SYNC_POINT("DBImpl::WriteOptionsFile:AfterPersistOptions");
+  }
 
   if (s.ok()) {
-    s = RenameTempFileToOptionsFile(file_name,
-                                    db_options.compaction_service != nullptr);
-  }
-
-  if (!s.ok() && GetEnv()->FileExists(file_name).ok()) {
-    if (!GetEnv()->DeleteFile(file_name).ok()) {
-      ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                     "Unable to delete temp options file %s",
-                     file_name.c_str());
+    mutex_.Lock();
+    if (track_options_file_number) {
+      VersionEdit edit;
+      edit.SetCommittedOptionsFileNumber(options_file_number);
+      edit.MarkOptionsFileManipulation();
+      s = versions_->LogAndApplyToDefaultColumnFamily(
+          ReadOptions(), write_options, &edit, &mutex_,
+          directories_.GetDbDir());
+      if (!s.ok() && versions_->io_status().IsIOError()) {
+        error_handler_.SetBGError(versions_->io_status(),
+                                  BackgroundErrorReason::kManifestWrite);
+      }
+    } else {
+      versions_->ApplyLegacyOptionsFileNumber(options_file_number);
     }
+    if (s.ok()) {
+      versions_->options_file_size_ = options_file_size;
+    }
+    mutex_.Unlock();
   }
 
-  if (!s.ok()) {
-    ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                   "Unnable to persist options -- %s", s.ToString().c_str());
-    s = Status::IOError("Unable to persist options.", s.ToString().c_str());
+  if (s.ok()) {
+    MaybeDeleteObsoleteOptionsFiles();
   }
 
   // Restore lock if appropriate
@@ -6703,9 +6879,113 @@ Status DBImpl::WriteOptionsFile(const WriteOptions& write_options,
   return s;
 }
 
+Status DBImpl::PersistOptionsFile(
+    const WriteOptions& write_options, const DBOptions& db_options,
+    const std::vector<std::string>& cf_names,
+    const std::vector<ColumnFamilyOptions>& cf_opts,
+    uint64_t* options_file_number, uint64_t* options_file_size) {
+  assert(options_file_number != nullptr);
+  assert(options_file_size != nullptr);
+  *options_file_number = 0;
+  *options_file_size = 0;
+
+  TEST_SYNC_POINT("DBImpl::WriteOptionsFile:1");
+  TEST_SYNC_POINT("DBImpl::WriteOptionsFile:2");
+  TEST_SYNC_POINT_CALLBACK("DBImpl::WriteOptionsFile:PersistOptions",
+                           const_cast<DBOptions*>(&db_options));
+
+  const std::string file_name =
+      TempOptionsFileName(GetName(), versions_->NewFileNumber());
+  *options_file_number = versions_->NewFileNumber();
+
+  Status s = PersistRocksDBOptions(write_options, db_options, cf_names, cf_opts,
+                                   file_name, fs_.get());
+  if (s.ok()) {
+    s = RenameTempFileToOptionsFile(file_name, *options_file_number,
+                                    options_file_size);
+  }
+
+  if (!s.ok() && GetEnv()->FileExists(file_name).ok()) {
+    if (!GetEnv()->DeleteFile(file_name).ok()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Unable to delete temp options file %s",
+                     file_name.c_str());
+    }
+  }
+  if (!s.ok()) {
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "Unable to persist options -- %s", s.ToString().c_str());
+    s = Status::IOError("Unable to persist options.", s.ToString().c_str());
+  }
+  return s;
+}
+
+Status DBImpl::PersistOptionsFileForColumnFamilyManipulation(
+    const WriteOptions& write_options,
+    const std::vector<ColumnFamilyDescriptor>& added_column_families,
+    const std::vector<uint32_t>& excluded_cf_ids, uint64_t* options_file_number,
+    uint64_t* options_file_size) {
+  options_mutex_.AssertHeld();
+  assert(options_file_number != nullptr);
+  assert(options_file_size != nullptr);
+  *options_file_number = 0;
+  *options_file_size = 0;
+
+  bool bootstrap_tracking = false;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    bootstrap_tracking =
+        immutable_db_options_.track_options_file_number_in_manifest &&
+        !versions_->has_committed_options_file_number();
+  }
+  if (bootstrap_tracking) {
+    // A DB without a committed number still uses highest-numbered OPTIONS
+    // semantics. Commit the current topology before writing a proposed
+    // topology snapshot, so a failed CF MANIFEST edit cannot make its orphan
+    // candidate authoritative.
+    Status bootstrap_s =
+        WriteOptionsFile(write_options, /*db_mutex_already_held=*/false);
+    if (!bootstrap_s.ok()) {
+      return bootstrap_s;
+    }
+  }
+
+  std::vector<std::string> cf_names;
+  std::vector<ColumnFamilyOptions> cf_opts;
+  DBOptions db_options;
+  const std::unordered_set<uint32_t> excluded_cf_id_set(excluded_cf_ids.begin(),
+                                                        excluded_cf_ids.end());
+  {
+    InstrumentedMutexLock l(&mutex_);
+    assert(versions_ != nullptr);
+    if (!immutable_db_options_.track_options_file_number_in_manifest) {
+      return Status::OK();
+    }
+    auto* column_family_set = versions_->GetColumnFamilySet();
+    assert(column_family_set != nullptr);
+    for (auto* cfd : *column_family_set) {
+      assert(cfd != nullptr);
+      if (cfd->IsDropped() || excluded_cf_id_set.count(cfd->GetID()) != 0) {
+        continue;
+      }
+      cf_names.push_back(cfd->GetName());
+      cf_opts.push_back(cfd->GetLatestCFOptions());
+    }
+    for (const auto& column_family : added_column_families) {
+      cf_names.push_back(column_family.name);
+      cf_opts.push_back(column_family.options);
+    }
+    db_options = BuildDBOptions(immutable_db_options_, mutable_db_options_);
+  }
+
+  return PersistOptionsFile(write_options, db_options, cf_names, cf_opts,
+                            options_file_number, options_file_size);
+}
+
 namespace {
 void DeleteOptionsFilesHelper(const std::map<uint64_t, std::string>& filenames,
                               const size_t num_files_to_keep,
+                              uint64_t protected_file_number,
                               const std::shared_ptr<Logger>& info_log,
                               Env* env) {
   if (filenames.size() <= num_files_to_keep) {
@@ -6713,6 +6993,11 @@ void DeleteOptionsFilesHelper(const std::map<uint64_t, std::string>& filenames,
   }
   for (auto iter = std::next(filenames.begin(), num_files_to_keep);
        iter != filenames.end(); ++iter) {
+    const uint64_t file_number =
+        std::numeric_limits<uint64_t>::max() - iter->first;
+    if (file_number == protected_file_number) {
+      continue;
+    }
     if (!env->DeleteFile(iter->second).ok()) {
       ROCKS_LOG_WARN(info_log, "Unable to delete options file %s",
                      iter->second.c_str());
@@ -6744,8 +7029,17 @@ Status DBImpl::DeleteObsoleteOptionsFiles(bool schedule_only) {
     }
   }
 
-  // Keeps the latest 2 Options file
+  // Keep the latest two snapshots for legacy fallback. The snapshot named by
+  // the committed MANIFEST number is retained separately below and can
+  // increase the total number of retained OPTIONS files beyond two.
   const size_t kNumOptionsFilesKept = 2;
+  uint64_t protected_file_number = 0;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    if (versions_->has_committed_options_file_number()) {
+      protected_file_number = versions_->options_file_number();
+    }
+  }
   if (options_filenames.size() > kNumOptionsFilesKept) {
     if (schedule_only) {
       InstrumentedMutexLock l(&mutex_);
@@ -6754,12 +7048,16 @@ Status DBImpl::DeleteObsoleteOptionsFiles(bool schedule_only) {
            iter != options_filenames.end(); ++iter) {
         const uint64_t file_number =
             std::numeric_limits<uint64_t>::max() - iter->first;
+        if (file_number == protected_file_number) {
+          continue;
+        }
         SchedulePendingPurge(iter->second, GetName(), kOptionsFile, file_number,
                              /*job_id=*/0);
       }
       SchedulePurge();
     } else {
       DeleteOptionsFilesHelper(options_filenames, kNumOptionsFilesKept,
+                               protected_file_number,
                                immutable_db_options_.info_log, GetEnv());
     }
   }
@@ -6767,17 +7065,19 @@ Status DBImpl::DeleteObsoleteOptionsFiles(bool schedule_only) {
 }
 
 Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name,
-                                           bool is_remote_compaction_enabled) {
+                                           uint64_t options_file_number,
+                                           uint64_t* options_file_size) {
   Status s;
 
-  uint64_t options_file_number = versions_->NewFileNumber();
+  assert(options_file_size != nullptr);
   std::string options_file_name =
       OptionsFileName(GetName(), options_file_number);
-  uint64_t options_file_size = 0;
-  s = GetEnv()->GetFileSize(file_name, &options_file_size);
+  Env* env = GetEnv();
+  assert(env != nullptr);
+  s = env->GetFileSize(file_name, options_file_size);
   if (s.ok()) {
     // Retry if the file name happen to conflict with an existing one.
-    s = GetEnv()->RenameFile(file_name, options_file_name);
+    s = env->RenameFile(file_name, options_file_name);
     std::unique_ptr<FSDirectory> dir_obj;
     if (s.ok()) {
       s = fs_->NewDirectory(GetName(), IOOptions(), &dir_obj, nullptr);
@@ -6801,47 +7101,33 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name,
     }
   }
 
-  if (s.ok()) {
-    enum class ObsoleteOptionsFileCleanup {
-      kSkip,
-      kDeleteNow,
-      kSchedule,
-    };
-    ObsoleteOptionsFileCleanup obsolete_options_file_cleanup =
-        ObsoleteOptionsFileCleanup::kSkip;
+  return s;
+}
 
-    {
-      InstrumentedMutexLock l(&mutex_);
-      versions_->options_file_number_ = options_file_number;
-      versions_->options_file_size_ = options_file_size;
-      if (!disable_delete_obsolete_files_ && !is_remote_compaction_enabled) {
-        if (immutable_db_options_.avoid_unnecessary_blocking_io &&
-            !reject_new_background_jobs_) {
-          // DB::Open() sets `opened_successfully_` after WriteOptionsFile()
-          // returns, then schedules the deferred OPTIONS-file purge.
-          obsolete_options_file_cleanup =
-              opened_successfully_ ? ObsoleteOptionsFileCleanup::kSchedule
-                                   : ObsoleteOptionsFileCleanup::kSkip;
-        } else {
-          obsolete_options_file_cleanup =
-              ObsoleteOptionsFileCleanup::kDeleteNow;
-        }
-      }
-    }
-
-    if (obsolete_options_file_cleanup != ObsoleteOptionsFileCleanup::kSkip) {
-      Status obsolete_options_status =
-          DeleteObsoleteOptionsFiles(obsolete_options_file_cleanup ==
-                                     ObsoleteOptionsFileCleanup::kSchedule);
-      if (!obsolete_options_status.ok()) {
-        ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                       "Unable to delete obsolete OPTIONS files: %s",
-                       obsolete_options_status.ToString().c_str());
+void DBImpl::MaybeDeleteObsoleteOptionsFiles() {
+  enum class Cleanup { kSkip, kDeleteNow, kSchedule };
+  Cleanup cleanup = Cleanup::kSkip;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    if (!disable_delete_obsolete_files_ &&
+        immutable_db_options_.compaction_service == nullptr) {
+      if (immutable_db_options_.avoid_unnecessary_blocking_io &&
+          !reject_new_background_jobs_) {
+        cleanup = opened_successfully_ ? Cleanup::kSchedule : Cleanup::kSkip;
+      } else {
+        cleanup = Cleanup::kDeleteNow;
       }
     }
   }
-
-  return s;
+  if (cleanup == Cleanup::kSkip) {
+    return;
+  }
+  Status s = DeleteObsoleteOptionsFiles(cleanup == Cleanup::kSchedule);
+  if (!s.ok()) {
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "Unable to delete obsolete OPTIONS files: %s",
+                   s.ToString().c_str());
+  }
 }
 
 #ifndef NROCKSDB_THREAD_STATUS

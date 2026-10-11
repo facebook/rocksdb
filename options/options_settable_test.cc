@@ -482,6 +482,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "avoid_unnecessary_blocking_io=false;"
       "log_readahead_size=0;"
       "write_dbid_to_manifest=false;"
+      "track_options_file_number_in_manifest=true;"
       "optimize_manifest_for_recovery=false;"
       "best_efforts_recovery=false;"
       "max_bgerror_resume_count=2;"

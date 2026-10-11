@@ -308,6 +308,7 @@ DECLARE_bool(use_full_merge_v1);
 DECLARE_int32(sync_wal_one_in);
 DECLARE_bool(avoid_unnecessary_blocking_io);
 DECLARE_bool(write_dbid_to_manifest);
+DECLARE_bool(track_options_file_number_in_manifest);
 DECLARE_bool(optimize_manifest_for_recovery);
 DECLARE_bool(write_identity_file);
 DECLARE_bool(reuse_manifest_on_open);

@@ -1636,6 +1636,30 @@ struct DBOptions {
   // are phased out.
   bool write_dbid_to_manifest = true;
 
+  // EXPERIMENTAL: If true, each durable OPTIONS file is followed by a MANIFEST
+  // record committing its file number. For a column-family create or drop, the
+  // commit and membership edit are the same MANIFEST record.
+  //
+  // This value is persisted in OPTIONS files so readers can distinguish a
+  // tracked file that was durably renamed but not committed from a file written
+  // by a legacy or disabled writer. A higher file with this value false
+  // supersedes an older MANIFEST commit. A higher file with this value true is
+  // ignored until its number is committed.
+  //
+  // Older binaries safely ignore the MANIFEST field and retain their legacy
+  // highest-numbered-OPTIONS behavior. Rollback binaries must know this option
+  // before the feature is enabled so they can parse newly written OPTIONS
+  // files.
+  //
+  // The multi-column-family create/drop APIs preserve their existing partial
+  // success behavior while writing one complete OPTIONS snapshot per batch.
+  // A partial batch can leave the committed snapshot with extra column
+  // families; LoadLatestOptions and CheckOptionsCompatibility filter those
+  // entries against the live MANIFEST membership.
+  //
+  // Default: false
+  bool track_options_file_number_in_manifest = false;
+
   // It is expected that the Identity file will be obsoleted by recording
   // DB ID in the manifest (see write_dbid_to_manifest). Setting this to true
   // maintains the historical behavior of writing an Identity file, while
