@@ -1474,6 +1474,10 @@ class VersionSet {
   static Status GetOptionsFileManifestState(
       const std::string& dbname, FileSystem* fs,
       OptionsFileManifestState* manifest_state);
+  static Status GetOptionsFileManifestState(
+      const std::string& dbname, FileSystem* fs,
+      OptionsFileManifestState* manifest_state, uint64_t* next_file_number,
+      uint64_t* last_valid_manifest_record_end);
 
   // Resolves OPTIONS files against recovered MANIFEST state. A legacy file
   // (tracking absent or false) supersedes an older committed file. Tracked
