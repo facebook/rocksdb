@@ -3682,6 +3682,12 @@ TEST_P(ColumnFamilyTest, FlushCloseWALFiles) {
 TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
   SpecialEnv env(Env::Default());
   db_options_.env = &env;
+  // The DB keeps its Env pointer until Close(). Close it before the local Env
+  // is destroyed, including when an ASSERT below exits the test early.
+  Defer close_db_on_exit([this] {
+    Close();
+    db_options_.env = env_;
+  });
   db_options_.max_background_flushes = 1;
   // When this option is removed, the test will need re-engineering
   db_options_.background_close_inactive_wals = true;
@@ -3691,25 +3697,38 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
   CreateColumnFamilies({"one"});
   ASSERT_OK(Put(1, "fodor", "mirko"));
   // Create an iterator holding the current super version.
-  Iterator* it = db_->NewIterator(ReadOptions(), handles_[1]);
+  std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions(), handles_[1]));
   ASSERT_OK(it->status());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::BGWorkFlush:done",
+       "ColumnFamilyTest::IteratorCloseWALFile1:SetupFlushDone"},
+  });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  Defer disable_sync_points(
+      [] { ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing(); });
+
   // A flush will make `it` hold the last reference of its super version.
   ASSERT_OK(Flush(1));
+  // Flush() can return before the background function releases all temporary
+  // references to the old super version.
+  TEST_SYNC_POINT("ColumnFamilyTest::IteratorCloseWALFile1:SetupFlushDone");
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
+      {"ColumnFamilyTest::IteratorCloseWALFile1:ReleaseFlush",
+       "DBImpl::BackgroundCallFlush:start"},
+  });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_OK(Put(1, "fodor", "mirko"));
   ASSERT_OK(Put(0, "fodor", "mirko"));
   ASSERT_OK(Put(1, "fodor", "mirko"));
 
-  // Flush jobs will close previous WAL files after finishing. By
-  // block flush jobs from running, we trigger a condition where
-  // the iterator destructor should close the WAL files.
-  test::SleepingBackgroundTask sleeping_task;
-  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
-                 Env::Priority::HIGH);
-  // Make sure the task is sleeping. Otherwise, it might start to execute
-  // after sleeping_task.WaitUntilDone() and cause TSAN warning.
-  sleeping_task.WaitUntilSleeping();
-
+  // Flush jobs close previous WAL files after finishing. Keep the next flush
+  // from starting so the iterator destructor is responsible for closing the
+  // WAL. Occupying one Env worker is insufficient because the shared Env can
+  // have multiple HIGH-priority workers.
   WriteOptions wo;
   wo.sync = true;
   ASSERT_OK(db_->Put(wo, handles_[1], "fodor", "mirko"));
@@ -3717,18 +3736,15 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
   ASSERT_EQ(2, env.num_open_wal_file_.load());
   // Deleting the iterator will clear its super version, triggering
   // closing all files
-  delete it;
+  it.reset();
   ASSERT_EQ(1, env.num_open_wal_file_.load());
 
-  sleeping_task.WakeUp();
-  sleeping_task.WaitUntilDone();
+  TEST_SYNC_POINT("ColumnFamilyTest::IteratorCloseWALFile1:ReleaseFlush");
   WaitForFlush(1);
 
   Reopen();
   ASSERT_EQ("mirko", Get(0, "fodor"));
   ASSERT_EQ("mirko", Get(1, "fodor"));
-  db_options_.env = env_;
-  Close();
 }
 
 TEST_P(ColumnFamilyTest, IteratorCloseWALFile2) {
