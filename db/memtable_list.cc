@@ -1052,8 +1052,14 @@ Status InstallMemtableAtomicFlushResults(
   }
 
   // this can release and reacquire the mutex.
-  s = vset->LogAndApply(cfds, read_options, write_options, edit_lists, mu,
-                        db_directory);
+  // InstallMemtableAtomicFlushResults requires a live VersionSet; the pointer
+  // form is retained for the surrounding API and predates this call.
+  // @lint-ignore NULLSAFECLANG nullable-dereference
+  s = vset->LogAndApply(
+      cfds, read_options, write_options, edit_lists,
+      VersionSet::LogAndApplyColumnFamilyMode::kMayRepeatColumnFamilies,
+      /*new_mutable_cf_options=*/nullptr,
+      /*compaction_phase_anchor_time=*/std::nullopt, mu, db_directory);
 
   for (size_t k = 0; k != cfds.size(); ++k) {
     auto* imm = (imm_lists == nullptr) ? cfds[k]->imm() : imm_lists->at(k);
