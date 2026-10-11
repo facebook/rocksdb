@@ -98,7 +98,7 @@ endif  # FMT_SOURCE_PATH
 	PLATFORM_LDFLAGS += -lglog
 endif
 
-FOLLY_COMMIT_HASH = 2a68075b77d958854d895e78fe6c41940dd49f3c
+FOLLY_COMMIT_HASH = 424d88f832874a7257116a6f5f5d625624a156a6
 FOLLY_GETDEPS_CACHE_DIR = /tmp/rocksdb-getdeps-cache
 
 define restore_folly_getdeps_downloads
