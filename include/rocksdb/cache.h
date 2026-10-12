@@ -481,10 +481,15 @@ struct HyperClockCacheOptions : public ShardedCacheOptions {
 // the key. The total capacity is divided and evenly assigned to each shard,
 // and each shard has two FIFO queues for evictions: new entries enter
 // probation, and probation victims with enough access frequency are promoted
-// to resident (second-chance) instead of being evicted. Placement is inferred
+// to resident (second-chance) instead of being evicted. Keys (not values)
+// recently evicted from probation are remembered, and re-inserting one goes
+// directly to resident. Placement is inferred
 // from access frequency: Cache::Priority is ignored. Each shard has a mutex
 // for exclusive access during operations. Pinned entries are never evicted;
 // eviction scans past them and a fully-pinned shard evicts nothing.
+// The memory that remembers recently evicted keys (a few bytes plus one
+// hash-map entry per remembered key, at most one remembered key per
+// cached entry) is not charged against capacity.
 // Under kFullChargeCacheMetadata (the default) the hash table's bucket
 // array also counts against capacity: 128 bytes per shard at
 // construction, growing as the table resizes, and never shrinking.

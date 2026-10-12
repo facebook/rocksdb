@@ -13,6 +13,7 @@
 #include "port/port.h"
 #include "util/autovector.h"
 #include "util/distributed_mutex.h"
+#include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace fifo_cache {
@@ -251,6 +252,10 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   // threadsafe beyond the shard lock taken inside.
   size_t TEST_GetProbationBudget() const;
 
+  // Test-only: slots in the ghost queue, an upper bound on the keys it
+  // remembers. Not threadsafe beyond the shard lock taken inside.
+  size_t TEST_GetGhostSize() const;
+
   // Probation list only; resident entries are not visible here.
   void TEST_GetFIFOList(FIFOHandle** fifo);
 
@@ -314,7 +319,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   // eviction account for table growth before it happens.
   size_t TableGrowthChargeOnInsert(FIFOHandle* e);
   friend class FIFOCache;
-  // Insert an item into the hash table and append it to the FIFO queue.
+  // Insert an item into the hash table and append it to probation, or to
+  // resident if its key is in the ghost queue (consuming the ghost).
   // Older unpinned items are evicted as necessary. Frees `item` on
   // non-OK status.
   Status InsertItem(FIFOHandle* item, FIFOHandle** handle);
@@ -330,6 +336,9 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   void RemoveUnpinned(const FIFOHandle* e);
   // The resident entry after e in clock order, skipping the dummy head.
   FIFOHandle* ResidentNext(FIFOHandle* e);
+  // Whether e is a zero-charge kNoopCacheItemHelper entry, as
+  // CacheWithSecondaryAdapter inserts to record recent use of a key.
+  bool IsPlaceholder(const FIFOHandle* e) const;
 
   // Frequency counter range and promotion threshold. A Lookup saturates at
   // kMaxFrequency; a probation head at or above kPromoteThreshold is
@@ -374,8 +383,9 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
 
   // One sweep over probation from the head: unpinned entries at or above
   // kPromoteThreshold move to the resident tail (counter reset), unpinned
-  // entries below it are evicted, pinned entries move to the probation
-  // tail, so long-lived pins are not re-walked by every eviction.
+  // entries below it are evicted and their keys recorded in the ghost
+  // queue, pinned entries move to the probation tail, so long-lived pins
+  // are not re-walked by every eviction.
   // Stops once freed >= need. Returns whether it promoted anything. Not
   // thread safe - call with mutex_ held.
   bool EvictFromProbation(size_t need, size_t* freed,
@@ -389,6 +399,14 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   // safe - call with mutex_ held.
   void EvictFromResident(size_t need, size_t* freed,
                          autovector<FIFOHandle*>* deleted);
+
+  // Records a probation victim's shard hash in the ghost queue, dropping
+  // the oldest ghosts beyond the bound. Call before erasing the victim
+  // from table_ so that a full shard of N entries keeps N ghosts.
+  void GhostRecord(uint32_t hash);
+
+  // Removes a shard hash from the ghost queue; returns whether it was there.
+  bool GhostTake(uint32_t hash);
 
   void NotifyEvicted(const autovector<FIFOHandle*>& evicted_handles);
 
@@ -405,9 +423,9 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   // Dummy heads of the two queues. For probation .prev is newest and .next
   // is oldest; resident's order starts at resident_hand_.
   // New entries enter probation, which holds 12% of the shard's capacity
-  // by charge; probation victims with enough frequency are promoted to
-  // resident, which holds the remainder. Together they contain all
-  // in-cache items, pinned and unpinned.
+  // by charge, unless readmitted from the ghost queue; probation victims with
+  // enough frequency are promoted to resident, which holds the remainder.
+  // Together they contain all in-cache items, pinned and unpinned.
   FIFOHandle probation_{};
   FIFOHandle resident_{};
   // Resident is a clock: its oldest entry is resident_hand_ and its newest
@@ -458,6 +476,38 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   // reservations, pinned index and filter blocks) must not hold probation
   // over budget and stop the resident clock.
   size_t probation_unpinned_usage_;
+
+  // Ghost queue: shard hashes (FIFOHandle::hash) of keys recently evicted
+  // from probation, no values. Re-inserting a remembered key goes straight
+  // to resident, so an entry whose reuse distance exceeds probation but not
+  // the whole shard is still recognised as reused. Resident victims are
+  // never recorded: they already had their chance. A hash collision only
+  // admits one entry to resident at freq 0, where it is evicted on its
+  // first visit.
+  // Bound: at most table_.size() slots, oldest dropped first, i.e. reuse is
+  // remembered over about one shard's worth of evictions, and ghost memory
+  // stays proportional to the table it shadows. Not charged to usage_:
+  // about 4 bytes of ring plus one index entry per remembered key.
+  // Placeholder inserts (zero charge, kNoopCacheItemHelper, as
+  // CacheWithSecondaryAdapter uses to record recent use) neither take nor
+  // leave a ghost, so readmission credit reaches the real entry.
+  // ghost_index_ maps a hash to the sequence number of its latest slot, so
+  // a stale slot (consumed by readmission, or superseded) is skipped when
+  // it reaches the head; stale slots still count toward the bound.
+  // Slots live in a power-of-two ring addressed by sequence number, so the
+  // ring allocates nothing once it has grown to the bound, and growing
+  // never moves a slot to another sequence number. ghost_index_ is
+  // allocation-free with folly (F14); std::unordered_map, used without
+  // USE_FOLLY, allocates a node per recorded ghost.
+  std::unique_ptr<uint32_t[]> ghost_ring_;
+  // Ring length, 0 or a power of two. Grows to the slot bound and never
+  // shrinks, like table_.
+  size_t ghost_ring_length_;
+  // Sequence number of the oldest slot; slots are ghost_head_seq_ up to
+  // ghost_head_seq_ + ghost_size_.
+  uint64_t ghost_head_seq_;
+  size_t ghost_size_;
+  UnorderedMap<uint32_t, uint64_t> ghost_index_;
 
   // mutex_ protects the following state.
   // We don't count mutex_ as the cache's internal state so semantically we
