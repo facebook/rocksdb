@@ -180,7 +180,8 @@ TEST_P(CacheTest, UsageTest) {
   auto precise_cache = NewCache(kCapacity, 0, false, kFullChargeCacheMetadata);
   ASSERT_EQ(0, cache->GetUsage());
   size_t baseline_meta_usage = precise_cache->GetUsage();
-  if (!IsHyperClock()) {
+  // FIFOCache charges its hash table's bucket array.
+  if (!IsHyperClock() && GetParam() != kFIFO) {
     ASSERT_EQ(0, baseline_meta_usage);
   }
 
@@ -208,9 +209,9 @@ TEST_P(CacheTest, UsageTest) {
   cache->EraseUnRefEntries();
   precise_cache->EraseUnRefEntries();
   ASSERT_EQ(0, cache->GetUsage());
-  if (GetParam() != kAutoHyperClock) {
-    // NOTE: AutoHyperClockCache meta usage grows in proportion to lifetime
-    // max number of entries.
+  if (GetParam() != kAutoHyperClock && GetParam() != kFIFO) {
+    // NOTE: AutoHyperClockCache and FIFOCache meta usage grows in proportion
+    // to lifetime max number of entries.
     ASSERT_EQ(baseline_meta_usage, precise_cache->GetUsage());
   }
 
@@ -249,7 +250,8 @@ TEST_P(CacheTest, PinnedUsageTest) {
   auto cache = NewCache(kCapacity, 8, false, kDontChargeCacheMetadata);
   auto precise_cache = NewCache(kCapacity, 8, false, kFullChargeCacheMetadata);
   size_t baseline_meta_usage = precise_cache->GetUsage();
-  if (!IsHyperClock()) {
+  // FIFOCache charges its hash table's bucket array.
+  if (!IsHyperClock() && GetParam() != kFIFO) {
     ASSERT_EQ(0, baseline_meta_usage);
   }
 
@@ -428,6 +430,12 @@ TEST_P(CacheTest, EntriesArePinned) {
 }
 
 TEST_P(CacheTest, EvictionPolicy) {
+  if (GetParam() == kFIFO) {
+    ROCKSDB_GTEST_BYPASS(
+        "Plain FIFOCache ignores lookups by design; frequency-based "
+        "retention arrives with the probation queue.");
+    return;
+  }
   Insert(100, 101);
   Insert(200, 201);
   // Frequently used entry must be kept around
