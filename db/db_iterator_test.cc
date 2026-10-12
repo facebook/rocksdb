@@ -29,6 +29,43 @@
 #include "util/random.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
 
+#ifdef OS_LINUX
+namespace {
+struct QueryAbortState {
+  int check_count = 0;
+  int abort_after_check_count = -1;
+};
+
+QueryAbortState& GetQueryAbortState() {
+  static thread_local QueryAbortState state;
+  return state;
+}
+
+class ScopedQueryAbort {
+ public:
+  explicit ScopedQueryAbort(int abort_after_check_count) {
+    QueryAbortState& state = GetQueryAbortState();
+    state.check_count = 0;
+    state.abort_after_check_count = abort_after_check_count;
+  }
+
+  ~ScopedQueryAbort() { GetQueryAbortState().abort_after_check_count = -1; }
+
+  int check_count() const { return GetQueryAbortState().check_count; }
+};
+}  // namespace
+
+extern "C" bool RocksDbThreadYieldAndCheckAbort() {
+  QueryAbortState& state = GetQueryAbortState();
+  if (state.abort_after_check_count < 0) {
+    return false;
+  }
+  ++state.check_count;
+  return state.abort_after_check_count > 0 &&
+         state.check_count >= state.abort_after_check_count;
+}
+#endif  // OS_LINUX
+
 namespace ROCKSDB_NAMESPACE {
 
 // A dumb ReadCallback which saying every key is committed.
@@ -44,6 +81,100 @@ class DBIteratorBaseTest : public DBTestBase {
   DBIteratorBaseTest()
       : DBTestBase("db_iterator_test", /*env_do_fsync=*/true) {}
 };
+
+#ifdef OS_LINUX
+TEST_F(DBIteratorBaseTest, PrevChecksQueryAbort) {
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Put("c", "vc"));
+
+  for (int abort_after_check_count = 1; abort_after_check_count <= 2;
+       ++abort_after_check_count) {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek("c");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+
+    ScopedQueryAbort abort(abort_after_check_count);
+    iter->Prev();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsAborted());
+  }
+}
+
+TEST_F(DBIteratorBaseTest, ForwardMergeChecksQueryAbort) {
+  Options options = CurrentOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("b", "base"));
+  for (int i = 0; i < 4; ++i) {
+    ASSERT_OK(db_->Merge(WriteOptions(), "b", "operand"));
+  }
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  {
+    ScopedQueryAbort abort(/*abort_after_check_count=*/0);
+    iter->Seek("b");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "b");
+    ASSERT_EQ(iter->value(), "base,operand,operand,operand,operand");
+    ASSERT_EQ(abort.check_count(), 4);
+  }
+
+  iter.reset(db_->NewIterator(ReadOptions()));
+  {
+    ScopedQueryAbort abort(/*abort_after_check_count=*/3);
+    iter->Seek("b");
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsAborted());
+    ASSERT_EQ(abort.check_count(), 3);
+  }
+}
+
+TEST_F(DBIteratorBaseTest, PrevReseekMergeChecksQueryAbort) {
+  Options options = CurrentOptions();
+  options.max_sequential_skip_in_iterations = 2;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("b", "base"));
+  for (int i = 0; i < 4; ++i) {
+    ASSERT_OK(db_->Merge(WriteOptions(), "b", "operand"));
+  }
+  ASSERT_OK(Put("c", "vc"));
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->Seek("c");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  {
+    ScopedQueryAbort abort(/*abort_after_check_count=*/0);
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "b");
+    // One check reaches "b", two trigger the reseek, four scan merge
+    // operands, and three finish positioning before "b".
+    ASSERT_EQ(abort.check_count(), 10);
+  }
+
+  iter.reset(db_->NewIterator(ReadOptions()));
+  iter->Seek("c");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  {
+    ScopedQueryAbort abort(/*abort_after_check_count=*/4);
+    iter->Prev();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsAborted());
+    ASSERT_EQ(abort.check_count(), 4);
+  }
+}
+#endif  // OS_LINUX
 
 TEST_F(DBIteratorBaseTest, APICallsWithPerfContext) {
   // Set up the DB
@@ -3827,6 +3958,71 @@ INSTANTIATE_TEST_CASE_P(DBIteratorTestInstance, DBIteratorTest,
 
 // Tests how DBIter work with ReadCallback
 class DBIteratorWithReadCallbackTest : public DBIteratorTest {};
+
+#ifdef OS_LINUX
+TEST_F(DBIteratorWithReadCallbackTest,
+       PrevReseekVisibilityScanChecksQueryAbort) {
+  class TestReadCallback : public ReadCallback {
+   public:
+    explicit TestReadCallback(SequenceNumber max_visible_seq)
+        : ReadCallback(max_visible_seq) {}
+
+    bool IsVisibleFullCheck(SequenceNumber seq) override {
+      return seq <= max_visible_seq_;
+    }
+  };
+
+  Options options = CurrentOptions();
+  options.max_sequential_skip_in_iterations = 2;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va"));
+  for (int i = 0; i < 4; ++i) {
+    ASSERT_OK(Put("b", "visible"));
+  }
+  ASSERT_OK(Put("c", "vc"));
+  TestReadCallback callback(db_->GetLatestSequenceNumber());
+  ASSERT_OK(Put("b", "hidden"));
+
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
+      db_->DefaultColumnFamily());
+  auto* cfd = cfh->cfd();
+  DBImpl* db_impl = dbfull();
+  SuperVersion* super_version = cfd->GetReferencedSuperVersion(db_impl);
+  std::unique_ptr<Iterator> iter(
+      db_impl->NewIteratorImpl(ReadOptions(), cfh, super_version,
+                               db_->GetLatestSequenceNumber(), &callback));
+  iter->Seek("c");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  {
+    ScopedQueryAbort abort(/*abort_after_check_count=*/0);
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "b");
+    // One check reaches "b", two trigger the reseek, one skips the invisible
+    // value, and two finish positioning before "b".
+    ASSERT_EQ(abort.check_count(), 6);
+  }
+
+  super_version = cfd->GetReferencedSuperVersion(db_impl);
+  iter.reset(db_impl->NewIteratorImpl(ReadOptions(), cfh, super_version,
+                                      db_->GetLatestSequenceNumber(),
+                                      &callback));
+  iter->Seek("c");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  {
+    ScopedQueryAbort abort(/*abort_after_check_count=*/4);
+    iter->Prev();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsAborted());
+    ASSERT_EQ(abort.check_count(), 4);
+  }
+}
+#endif  // OS_LINUX
 
 TEST_F(DBIteratorWithReadCallbackTest, ReadCallback) {
   class TestReadCallback : public ReadCallback {

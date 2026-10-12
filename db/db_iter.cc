@@ -690,6 +690,14 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
     // TODO(lth): If we reseek to sequence number greater than ikey_.sequence,
     // then it does not make sense to reseek as we would actually land further
     // away from the desired key. There is opportunity for optimization here.
+    // This could be a long-running operation due to tombstones, etc.
+    bool aborted = ROCKSDB_THREAD_YIELD_CHECK_ABORT();
+    if (UNLIKELY(aborted)) {
+      valid_ = false;
+      status_ = Status::Aborted("Query abort.");
+      return false;
+    }
+
     if (num_skipped > max_skip_ && !reseek_done) {
       is_key_seqnum_zero_ = false;
       num_skipped = 0;
@@ -734,14 +742,6 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
       RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
     } else {
       iter_.Next();
-    }
-
-    // This could be a long-running operation due to tombstones, etc.
-    bool aborted = ROCKSDB_THREAD_YIELD_CHECK_ABORT();
-    if (aborted) {
-      valid_ = false;
-      status_ = Status::Aborted("Query abort.");
-      return false;
     }
   } while (iter_.Valid());
 
@@ -790,7 +790,20 @@ bool DBIter::MergeValuesNewToOld() {
   TEST_SYNC_POINT("DBIter::MergeValuesNewToOld:PushedFirstOperand");
 
   ParsedInternalKey ikey;
-  for (iter_.Next(); iter_.Valid(); iter_.Next()) {
+  while (true) {
+    // This could be a long-running operation due to merge operands, etc.
+    bool aborted = ROCKSDB_THREAD_YIELD_CHECK_ABORT();
+    if (UNLIKELY(aborted)) {
+      valid_ = false;
+      status_ = Status::Aborted("Query abort.");
+      return false;
+    }
+
+    iter_.Next();
+    if (!iter_.Valid()) {
+      break;
+    }
+
     TEST_SYNC_POINT("DBIter::MergeValuesNewToOld:SteppedToNextOperand");
     if (!ParseKey(&ikey)) {
       return false;
@@ -1247,6 +1260,15 @@ bool DBIter::FindValueForCurrentKey(bool& found_visible) {
     }
 
     PERF_COUNTER_ADD(internal_key_skipped_count, 1);
+
+    // This could be a long-running operation due to tombstones, etc.
+    bool aborted = ROCKSDB_THREAD_YIELD_CHECK_ABORT();
+    if (UNLIKELY(aborted)) {
+      valid_ = false;
+      status_ = Status::Aborted("Query abort.");
+      return false;
+    }
+
     iter_.Prev();
     ++num_skipped;
 
@@ -1399,6 +1421,14 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       break;
     }
 
+    // This could be a long-running operation due to tombstones, etc.
+    bool aborted = ROCKSDB_THREAD_YIELD_CHECK_ABORT();
+    if (UNLIKELY(aborted)) {
+      valid_ = false;
+      status_ = Status::Aborted("Query abort.");
+      return false;
+    }
+
     iter_.Next();
   }
 
@@ -1468,6 +1498,14 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   PERF_COUNTER_ADD(internal_merge_count, 1);
 
   while (true) {
+    // This could be a long-running operation due to merge operands, etc.
+    bool aborted = ROCKSDB_THREAD_YIELD_CHECK_ABORT();
+    if (UNLIKELY(aborted)) {
+      valid_ = false;
+      status_ = Status::Aborted("Query abort.");
+      return false;
+    }
+
     iter_.Next();
 
     if (!iter_.Valid()) {
@@ -1661,6 +1699,14 @@ bool DBIter::FindUserKeyBeforeSavedKey() {
       PERF_COUNTER_ADD(internal_recent_skipped_count, 1);
     } else {
       PERF_COUNTER_ADD(internal_key_skipped_count, 1);
+    }
+
+    // This could be a long-running operation due to tombstones, etc.
+    bool aborted = ROCKSDB_THREAD_YIELD_CHECK_ABORT();
+    if (UNLIKELY(aborted)) {
+      valid_ = false;
+      status_ = Status::Aborted("Query abort.");
+      return false;
     }
 
     if (num_skipped >= max_skip_) {
