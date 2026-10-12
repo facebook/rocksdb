@@ -221,6 +221,12 @@ Status DBImpl::CreateOptionsFileForSubsetCheckpoint(
     return Status::OK();
   }
 
+  // The snapshot's CF options are shallow copies that share live pointer
+  // sub-options (e.g. RibbonFilterPolicy, whose bloom_before_level is mutated
+  // in place by SetOptions). Hold options_mutex_, as WriteOptionsFile does, so
+  // SetOptions cannot change them between writing the file and verifying it.
+  InstrumentedMutexLock ol(&options_mutex_);
+
   const std::string options_path =
       OptionsFileName(checkpoint_dir, options_snapshot.options_file_number);
   return PersistRocksDBOptions(
