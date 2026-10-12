@@ -27,7 +27,7 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
     }
   }
 
-  ~FaultInjectionSecondaryCache() override {}
+  ~FaultInjectionSecondaryCache() override = default;
 
   const char* Name() const override { return "FaultInjectionSecondaryCache"; }
 
@@ -70,7 +70,7 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
                  std::unique_ptr<SecondaryCacheResultHandle>&& base)
         : cache_(cache), base_(std::move(base)), value_(nullptr), size_(0) {}
 
-    ~ResultHandle() override {}
+    ~ResultHandle() override = default;
 
     bool IsReady() override;
 

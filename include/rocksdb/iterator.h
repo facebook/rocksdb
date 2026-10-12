@@ -32,6 +32,8 @@ class Iterator : public IteratorBase {
   // No copying allowed
   Iterator(const Iterator&) = delete;
   void operator=(const Iterator&) = delete;
+  Iterator(Iterator&&) = delete;
+  void operator=(Iterator&&) = delete;
 
   ~Iterator() override {}
 

@@ -134,6 +134,8 @@ class WritePreparedTxn : public PessimisticTransaction {
   // No copying allowed
   WritePreparedTxn(const WritePreparedTxn&) = delete;
   void operator=(const WritePreparedTxn&) = delete;
+  WritePreparedTxn(WritePreparedTxn&&) = delete;
+  void operator=(WritePreparedTxn&&) = delete;
 
   ~WritePreparedTxn() override {}
 

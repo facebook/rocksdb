@@ -101,6 +101,8 @@ class Mutex {
   // No copying
   Mutex(const Mutex&) = delete;
   void operator=(const Mutex&) = delete;
+  Mutex(Mutex&&) = delete;
+  void operator=(Mutex&&) = delete;
 
   ~Mutex();
 
@@ -132,6 +134,8 @@ class RWMutex {
   // No copying allowed
   RWMutex(const RWMutex&) = delete;
   void operator=(const RWMutex&) = delete;
+  RWMutex(RWMutex&&) = delete;
+  void operator=(RWMutex&&) = delete;
 
   ~RWMutex();
 

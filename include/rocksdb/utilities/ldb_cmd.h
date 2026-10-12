@@ -136,6 +136,12 @@ class LDBCommand {
 
   virtual bool NoDBOpen() { return false; }
 
+  // No copying allowed
+  LDBCommand(const LDBCommand&) = delete;
+  LDBCommand& operator=(const LDBCommand&) = delete;
+  LDBCommand(LDBCommand&&) = delete;
+  LDBCommand& operator=(LDBCommand&&) = delete;
+
   virtual ~LDBCommand() { CloseDB(); }
 
   /* Run the command, and return the execute result. */

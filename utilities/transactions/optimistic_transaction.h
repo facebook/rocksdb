@@ -32,6 +32,8 @@ class OptimisticTransaction : public TransactionBaseImpl {
   // No copying allowed
   OptimisticTransaction(const OptimisticTransaction&) = delete;
   void operator=(const OptimisticTransaction&) = delete;
+  OptimisticTransaction(OptimisticTransaction&&) = delete;
+  void operator=(OptimisticTransaction&&) = delete;
 
   ~OptimisticTransaction() override;
 

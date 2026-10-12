@@ -1213,6 +1213,12 @@ class DBImpl : public DB
       batches_[seq] = {log, batch, batch_cnt};
     }
 
+    // No copying allowed
+    RecoveredTransaction(const RecoveredTransaction&) = delete;
+    RecoveredTransaction& operator=(const RecoveredTransaction&) = delete;
+    RecoveredTransaction(RecoveredTransaction&&) = delete;
+    RecoveredTransaction& operator=(RecoveredTransaction&&) = delete;
+
     ~RecoveredTransaction() {
       for (auto& it : batches_) {
         delete it.second.batch_;
@@ -1748,6 +1754,13 @@ class DBImpl : public DB
   // with corresponding column_family_data and column_family_options.
   class RecoveryContext {
    public:
+    RecoveryContext() = default;
+    // No copying allowed
+    RecoveryContext(const RecoveryContext&) = delete;
+    RecoveryContext& operator=(const RecoveryContext&) = delete;
+    RecoveryContext(RecoveryContext&&) = delete;
+    RecoveryContext& operator=(RecoveryContext&&) = delete;
+
     ~RecoveryContext() {
       for (auto& edit_list : edit_lists_) {
         for (auto* edit : edit_list) {
@@ -2263,6 +2276,12 @@ class DBImpl : public DB
 
     explicit WriteContext(bool create_superversion = false)
         : superversion_context(create_superversion) {}
+
+    // No copying allowed
+    WriteContext(const WriteContext&) = delete;
+    WriteContext& operator=(const WriteContext&) = delete;
+    WriteContext(WriteContext&&) = delete;
+    WriteContext& operator=(WriteContext&&) = delete;
 
     ~WriteContext() {
       superversion_context.Clean();
@@ -3287,6 +3306,8 @@ class DBImpl : public DB
       }
       return *this;
     }
+
+    ~UnpublishedWAL() = default;
 
     void Reset() {
       log_number = 0;

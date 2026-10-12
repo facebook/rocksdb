@@ -175,6 +175,7 @@ class CompactionJob {
   CompactionJob(CompactionJob&& job) = delete;
   CompactionJob(const CompactionJob& job) = delete;
   CompactionJob& operator=(const CompactionJob& job) = delete;
+  CompactionJob& operator=(CompactionJob&& job) = delete;
 
   // REQUIRED: mutex held
   // Prepare for the compaction by setting up boundaries for each subcompaction

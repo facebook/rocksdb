@@ -49,6 +49,8 @@ class BlockBasedTableBuilder : public TableBuilder {
   // No copying allowed
   BlockBasedTableBuilder(const BlockBasedTableBuilder&) = delete;
   BlockBasedTableBuilder& operator=(const BlockBasedTableBuilder&) = delete;
+  BlockBasedTableBuilder(BlockBasedTableBuilder&&) = delete;
+  BlockBasedTableBuilder& operator=(BlockBasedTableBuilder&&) = delete;
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~BlockBasedTableBuilder() override;

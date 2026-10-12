@@ -722,6 +722,8 @@ class FilePickerMultiGet {
         user_comparator_(other.user_comparator_),
         internal_comparator_(other.internal_comparator_),
         hit_file_(other.hit_file_) {}
+  FilePickerMultiGet& operator=(FilePickerMultiGet&&) = delete;
+  ~FilePickerMultiGet() = default;
 
  private:
   unsigned int num_levels_;
@@ -1210,6 +1212,12 @@ class LevelIterator final : public InternalIterator {
       *range_tombstone_iter_ptr_ = &range_tombstone_iter_;
     }
   }
+
+  // No copying allowed
+  LevelIterator(const LevelIterator&) = delete;
+  LevelIterator& operator=(const LevelIterator&) = delete;
+  LevelIterator(LevelIterator&&) = delete;
+  LevelIterator& operator=(LevelIterator&&) = delete;
 
   ~LevelIterator() override {
     delete file_iter_.Set(nullptr);
@@ -5449,6 +5457,11 @@ struct VersionSet::ManifestWriter {
         edit_list(e),
         manifest_write_callback(manifest_wcb),
         max_file_opening_threads(_max_file_opening_threads) {}
+  // No copying allowed
+  ManifestWriter(const ManifestWriter&) = delete;
+  ManifestWriter& operator=(const ManifestWriter&) = delete;
+  ManifestWriter(ManifestWriter&&) = delete;
+  ManifestWriter& operator=(ManifestWriter&&) = delete;
   ~ManifestWriter() { status.PermitUncheckedError(); }
 
   bool IsAllVersionIndependentEdits() const {

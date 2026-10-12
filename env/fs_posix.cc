@@ -200,6 +200,13 @@ class PosixFileLock : public FileLock {
   int fd_ = /*invalid*/ -1;
   std::string filename;
 
+  PosixFileLock() = default;
+  // No copying allowed
+  PosixFileLock(const PosixFileLock&) = delete;
+  PosixFileLock& operator=(const PosixFileLock&) = delete;
+  PosixFileLock(PosixFileLock&&) = delete;
+  PosixFileLock& operator=(PosixFileLock&&) = delete;
+
   void Clear() {
     fd_ = -1;
     filename.clear();

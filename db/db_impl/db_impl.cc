@@ -7373,7 +7373,7 @@ class FileIngestionHandleImpl : public FileIngestionHandle {
   Status Abort() override;
 
   DBImpl* const db_;
-  std::vector<ExternalSstFileIngestionJob> jobs_;
+  std::vector<std::unique_ptr<ExternalSstFileIngestionJob>> jobs_;
   std::unique_ptr<std::list<uint64_t>::iterator> pending_output_elem_;
   bool fill_cache_ = true;
   // Set true once committed or aborted, so the destructor does not roll back.
@@ -7398,7 +7398,7 @@ void DBImpl::RollbackPreparedFileIngestion(FileIngestionHandleImpl* const h) {
   // pending-output protection, leaving the DB unchanged.
   const Status rollback_status = Status::Incomplete("file ingestion aborted");
   for (auto& job : h->jobs_) {
-    job.Cleanup(rollback_status);
+    job->Cleanup(rollback_status);
   }
   {
     InstrumentedMutexLock l(&mutex_);
@@ -7512,14 +7512,14 @@ Status DBImpl::PrepareFileIngestion(
     }
   }
 
-  std::vector<ExternalSstFileIngestionJob> ingestion_jobs;
+  std::vector<std::unique_ptr<ExternalSstFileIngestionJob>> ingestion_jobs;
   ingestion_jobs.reserve(num_cfs);
   for (const auto& arg : args) {
     auto* cfd = static_cast<ColumnFamilyHandleImpl*>(arg.column_family)->cfd();
-    ingestion_jobs.emplace_back(versions_.get(), cfd, immutable_db_options_,
-                                mutable_db_options_, file_options_, &snapshots_,
-                                arg.options, &directories_, &event_logger_,
-                                io_tracer_);
+    ingestion_jobs.push_back(std::make_unique<ExternalSstFileIngestionJob>(
+        versions_.get(), cfd, immutable_db_options_, mutable_db_options_,
+        file_options_, &snapshots_, arg.options, &directories_, &event_logger_,
+        io_tracer_));
   }
 
   // TODO (yanqin) maybe handle the case in which column_families have
@@ -7527,8 +7527,8 @@ Status DBImpl::PrepareFileIngestion(
   std::unique_ptr<std::list<uint64_t>::iterator> pending_output_elem;
   size_t total = 0;
   for (size_t i = 0; i != num_cfs; ++i) {
-    total += ingestion_jobs[i].NumFilesToPrepare(args[i].external_files.size(),
-                                                 args[i].atomic_replace_range);
+    total += ingestion_jobs[i]->NumFilesToPrepare(args[i].external_files.size(),
+                                                  args[i].atomic_replace_range);
   }
   uint64_t next_file_number = 0;
   Status status = ReserveFileNumbersBeforeIngestion(
@@ -7543,12 +7543,12 @@ Status DBImpl::PrepareFileIngestion(
   // TODO(yanqin) maybe make jobs run in parallel
   uint64_t start_file_number = next_file_number;
   for (size_t i = 1; i != num_cfs; ++i) {
-    start_file_number += ingestion_jobs[i - 1].NumFilesToPrepare(
+    start_file_number += ingestion_jobs[i - 1]->NumFilesToPrepare(
         args[i - 1].external_files.size(), args[i - 1].atomic_replace_range);
     SuperVersion* super_version =
-        ingestion_jobs[i].GetColumnFamilyData()->GetReferencedSuperVersion(
+        ingestion_jobs[i]->GetColumnFamilyData()->GetReferencedSuperVersion(
             this);
-    Status es = ingestion_jobs[i].Prepare(
+    Status es = ingestion_jobs[i]->Prepare(
         args[i].external_files, args[i].files_checksums,
         args[i].files_checksum_func_names, args[i].file_infos,
         args[i].atomic_replace_range, args[i].file_temperature,
@@ -7563,9 +7563,9 @@ Status DBImpl::PrepareFileIngestion(
   TEST_SYNC_POINT("DBImpl::IngestExternalFiles:BeforeLastJobPrepare:1");
   {
     SuperVersion* super_version =
-        ingestion_jobs[0].GetColumnFamilyData()->GetReferencedSuperVersion(
+        ingestion_jobs[0]->GetColumnFamilyData()->GetReferencedSuperVersion(
             this);
-    Status es = ingestion_jobs[0].Prepare(
+    Status es = ingestion_jobs[0]->Prepare(
         args[0].external_files, args[0].files_checksums,
         args[0].files_checksum_func_names, args[0].file_infos,
         args[0].atomic_replace_range, args[0].file_temperature,
@@ -7577,7 +7577,7 @@ Status DBImpl::PrepareFileIngestion(
   }
   if (!status.ok()) {
     for (size_t i = 0; i != num_cfs; ++i) {
-      ingestion_jobs[i].Cleanup(status);
+      ingestion_jobs[i]->Cleanup(status);
     }
     InstrumentedMutexLock l(&mutex_);
     ReleaseFileNumberFromPendingOutputs(pending_output_elem);
@@ -7636,13 +7636,13 @@ Status DBImpl::CommitFileIngestionHandles(
       hs.push_back(h);
       for (auto& job : h->jobs_) {
         max_file_opening_threads =
-            std::max(max_file_opening_threads, job.file_opening_threads());
-        auto [it, inserted] =
-            primary_job_for_cfd.try_emplace(job.GetColumnFamilyData(), &job);
+            std::max(max_file_opening_threads, job->file_opening_threads());
+        auto [it, inserted] = primary_job_for_cfd.try_emplace(
+            job->GetColumnFamilyData(), job.get());
         if (inserted) {
-          ingestion_jobs.push_back(&job);
+          ingestion_jobs.push_back(job.get());
         } else {
-          status = it->second->MergeForSameColumnFamily(&job);
+          status = it->second->MergeForSameColumnFamily(job.get());
           if (!status.ok()) {
             return status;
           }

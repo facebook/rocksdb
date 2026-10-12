@@ -449,7 +449,7 @@ class KeySegmentsExtractor {
     }
   };
 
-  virtual ~KeySegmentsExtractor() {}
+  virtual ~KeySegmentsExtractor() = default;
 
   // A class name for this extractor. See also expectations in GetId().
   virtual const char* Name() const = 0;
@@ -531,7 +531,7 @@ using FilterInput =
 // Not user extensible, name sometimes shortened to SQFC
 class SstQueryFilterConfig {
  public:
-  virtual ~SstQueryFilterConfig() {}
+  virtual ~SstQueryFilterConfig() = default;
 };
 
 // A filtering scheme that stores minimum and maximum values (according
@@ -663,7 +663,7 @@ class SstQueryFilterConfigsManager
   static Status MakeShared(const Data& data,
                            std::shared_ptr<SstQueryFilterConfigsManager>* out);
 
-  virtual ~SstQueryFilterConfigsManager() {}
+  virtual ~SstQueryFilterConfigsManager() = default;
 
   // EXPERIMENTAL/TEMPORARY: hook into table properties for persisting
   // filters and table_filter for applying to range queries.

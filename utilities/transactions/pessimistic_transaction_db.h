@@ -274,7 +274,7 @@ class WriteCommittedTxnDB : public PessimisticTransactionDB {
                                const TransactionDBOptions& txn_db_options)
       : PessimisticTransactionDB(db, txn_db_options) {}
 
-  ~WriteCommittedTxnDB() override {}
+  ~WriteCommittedTxnDB() override = default;
 
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const TransactionOptions& txn_options,
@@ -326,6 +326,12 @@ class SnapshotCreationCallback : public PostMemTableCallback {
         snapshot_(snapshot) {
     assert(db_impl_);
   }
+
+  // No copying allowed
+  SnapshotCreationCallback(const SnapshotCreationCallback&) = delete;
+  SnapshotCreationCallback& operator=(const SnapshotCreationCallback&) = delete;
+  SnapshotCreationCallback(SnapshotCreationCallback&&) = delete;
+  SnapshotCreationCallback& operator=(SnapshotCreationCallback&&) = delete;
 
   ~SnapshotCreationCallback() override {
     snapshot_creation_status_.PermitUncheckedError();

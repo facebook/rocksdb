@@ -168,9 +168,15 @@ class ReadaheadSequentialFile : public FSSequentialFile {
     buffer_.AllocateNewBuffer(readahead_size_);
   }
 
+  ~ReadaheadSequentialFile() override = default;
+
   ReadaheadSequentialFile(const ReadaheadSequentialFile&) = delete;
 
   ReadaheadSequentialFile& operator=(const ReadaheadSequentialFile&) = delete;
+
+  ReadaheadSequentialFile(ReadaheadSequentialFile&&) = delete;
+
+  ReadaheadSequentialFile& operator=(ReadaheadSequentialFile&&) = delete;
 
   IOStatus Read(size_t n, const IOOptions& opts, Slice* result, char* scratch,
                 IODebugContext* dbg) override {

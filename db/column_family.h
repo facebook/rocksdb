@@ -950,6 +950,11 @@ class RefedColumnFamilySet {
     explicit iterator(ColumnFamilySet::iterator wrapped) : wrapped_(wrapped) {
       MaybeRef(*wrapped_);
     }
+    // No copying allowed
+    iterator(const iterator&) = delete;
+    iterator& operator=(const iterator&) = delete;
+    iterator(iterator&&) = delete;
+    iterator& operator=(iterator&&) = delete;
     ~iterator() { MaybeUnref(*wrapped_); }
     inline void MaybeRef(ColumnFamilyData* cfd) {
       if (cfd->GetID() != ColumnFamilyData::kDummyColumnFamilyDataId) {

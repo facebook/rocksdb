@@ -105,6 +105,8 @@ class SmallEnumSet {
     const_iterator(const_iterator&& that) noexcept = default;
     const_iterator& operator=(const_iterator&& that) noexcept = default;
 
+    ~const_iterator() = default;
+
     // equality
     bool operator==(const const_iterator& that) const {
       assert(set_ == that.set_);

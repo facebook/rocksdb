@@ -161,6 +161,8 @@ class DBIter final : public Iterator {
   // No copying allowed
   DBIter(const DBIter&) = delete;
   void operator=(const DBIter&) = delete;
+  DBIter(DBIter&&) = delete;
+  void operator=(DBIter&&) = delete;
 
   ~DBIter() override {
     MarkMemtableForFlushForAvgTrigger();

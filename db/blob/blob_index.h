@@ -55,6 +55,10 @@ class BlobIndex {
 
   BlobIndex(const BlobIndex&) = default;
   BlobIndex& operator=(const BlobIndex&) = default;
+  BlobIndex(BlobIndex&&) = default;
+  BlobIndex& operator=(BlobIndex&&) = default;
+
+  ~BlobIndex() = default;
 
   bool IsInlined() const { return type_ == Type::kInlinedTTL; }
 

@@ -196,7 +196,7 @@ class Checkpoint {
                                     const std::string& export_dir,
                                     ExportImportFilesMetaData** metadata);
 
-  virtual ~Checkpoint() {}
+  virtual ~Checkpoint() = default;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

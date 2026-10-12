@@ -32,9 +32,9 @@ class CacheReservationManager {
   // for an incremental amount of memory used (i.e, incremental_memory_used)
   class CacheReservationHandle {
    public:
-    virtual ~CacheReservationHandle() {}
+    virtual ~CacheReservationHandle() = default;
   };
-  virtual ~CacheReservationManager() {}
+  virtual ~CacheReservationManager() = default;
   virtual Status UpdateCacheReservation(std::size_t new_memory_used) = 0;
   // TODO(hx235): replace the usage of
   // `UpdateCacheReservation(memory_used_delta, increase)` with
@@ -235,6 +235,11 @@ class ConcurrentCacheReservationManager
       cache_res_mgr_ = cache_res_mgr;
       cache_res_handle_ = std::move(cache_res_handle);
     }
+    // No copying allowed
+    CacheReservationHandle(const CacheReservationHandle&) = delete;
+    CacheReservationHandle& operator=(const CacheReservationHandle&) = delete;
+    CacheReservationHandle(CacheReservationHandle&&) = delete;
+    CacheReservationHandle& operator=(CacheReservationHandle&&) = delete;
 
     ~CacheReservationHandle() override {
       std::lock_guard<std::mutex> lock(cache_res_mgr_->cache_res_mgr_mu_);

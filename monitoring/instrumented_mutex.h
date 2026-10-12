@@ -82,6 +82,8 @@ class InstrumentedMutexLock {
   InstrumentedMutex* const mutex_;
   InstrumentedMutexLock(const InstrumentedMutexLock&) = delete;
   void operator=(const InstrumentedMutexLock&) = delete;
+  InstrumentedMutexLock(InstrumentedMutexLock&&) = delete;
+  void operator=(InstrumentedMutexLock&&) = delete;
 };
 
 // RAII wrapper for temporary releasing InstrumentedMutex inside
@@ -98,6 +100,8 @@ class InstrumentedMutexUnlock {
   InstrumentedMutex* const mutex_;
   InstrumentedMutexUnlock(const InstrumentedMutexUnlock&) = delete;
   void operator=(const InstrumentedMutexUnlock&) = delete;
+  InstrumentedMutexUnlock(InstrumentedMutexUnlock&&) = delete;
+  void operator=(InstrumentedMutexUnlock&&) = delete;
 };
 
 class InstrumentedCondVar {

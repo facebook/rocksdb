@@ -189,6 +189,8 @@ class PinnableSlice : public Slice, public Cleanable {
   PinnableSlice(PinnableSlice&) = delete;
   PinnableSlice& operator=(PinnableSlice&) = delete;
 
+  ~PinnableSlice() = default;
+
   inline void PinSlice(const Slice& s, CleanupFunction f, void* arg1,
                        void* arg2) {
     assert(!pinned_);

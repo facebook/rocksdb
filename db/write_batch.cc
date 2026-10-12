@@ -232,16 +232,30 @@ WriteBatch::WriteBatch(WriteBatch&& src) noexcept
 
 WriteBatch& WriteBatch::operator=(const WriteBatch& src) {
   if (&src != this) {
-    this->~WriteBatch();
-    new (this) WriteBatch(src);
+    *this = WriteBatch(src);
   }
   return *this;
 }
 
-WriteBatch& WriteBatch::operator=(WriteBatch&& src) {
+WriteBatch& WriteBatch::operator=(WriteBatch&& src) noexcept {
   if (&src != this) {
-    this->~WriteBatch();
-    new (this) WriteBatch(std::move(src));
+    // Same end state as WriteBatch(WriteBatch&&), which leaves the other
+    // members at their defaults.
+    save_points_ = std::move(src.save_points_);
+    wal_term_point_ = src.wal_term_point_;
+    is_latest_persistent_state_ = false;
+    needs_in_place_update_ts_ = false;
+    has_key_with_ts_ = false;
+    content_flags_.store(src.content_flags_.load(std::memory_order_relaxed),
+                         std::memory_order_relaxed);
+    max_bytes_ = src.max_bytes_;
+    prot_info_ = std::move(src.prot_info_);
+    default_cf_ts_sz_ = src.default_cf_ts_sz_;
+    track_timestamp_size_ = false;
+    cf_id_to_ts_sz_.clear();
+    // Not `rep_ = std::move(src.rep_)`, which can keep the old buffer in
+    // `rep_` or hand it to `src`. The temporary frees it.
+    std::string(std::move(src.rep_)).swap(rep_);
   }
   return *this;
 }
@@ -2194,6 +2208,8 @@ class MemTableInserter : public WriteBatch::Handler {
 
   MemTableInserter(const MemTableInserter&) = delete;
   MemTableInserter& operator=(const MemTableInserter&) = delete;
+  MemTableInserter(MemTableInserter&&) = delete;
+  MemTableInserter& operator=(MemTableInserter&&) = delete;
 
   // The batch seq is regularly restarted; In normal mode it is set when
   // MemTableInserter is constructed in the write thread and in recovery mode it

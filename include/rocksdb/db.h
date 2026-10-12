@@ -157,7 +157,7 @@ struct MultiGetOutputMetadata {
 
 class ColumnFamilyHandle {
  public:
-  virtual ~ColumnFamilyHandle() {}
+  virtual ~ColumnFamilyHandle() = default;
   // Returns the name of the column family associated with the current handle.
   virtual const std::string& GetName() const = 0;
   // Returns the ID of the column family associated with the current handle.
@@ -522,6 +522,8 @@ class DB {
   // No copying allowed
   DB(const DB&) = delete;
   void operator=(const DB&) = delete;
+  DB(DB&&) = delete;
+  void operator=(DB&&) = delete;
 
   virtual ~DB();
 

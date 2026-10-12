@@ -113,7 +113,7 @@ struct TablePropertiesNames {
 // including data loss, unreported corruption, deadlocks, and more.
 class TablePropertiesCollector {
  public:
-  virtual ~TablePropertiesCollector() {}
+  virtual ~TablePropertiesCollector() = default;
 
   // DEPRECATE User defined collector should implement AddUserKey(), though
   //           this old function still works for backward compatible reason.
@@ -207,7 +207,7 @@ class TablePropertiesCollectorFactory : public Customizable {
               _last_level_inclusive_max_seqno_threshold) {}
   };
 
-  ~TablePropertiesCollectorFactory() override {}
+  ~TablePropertiesCollectorFactory() override = default;
   static const char* Type() { return "TablePropertiesCollectorFactory"; }
   static Status CreateFromString(
       const ConfigOptions& options, const std::string& value,

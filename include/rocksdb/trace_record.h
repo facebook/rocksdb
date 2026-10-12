@@ -107,6 +107,12 @@ class WriteQueryTraceRecord : public QueryTraceRecord {
 
   WriteQueryTraceRecord(const std::string& write_batch_rep, uint64_t timestamp);
 
+  // No copying allowed
+  WriteQueryTraceRecord(const WriteQueryTraceRecord&) = delete;
+  WriteQueryTraceRecord& operator=(const WriteQueryTraceRecord&) = delete;
+  WriteQueryTraceRecord(WriteQueryTraceRecord&&) = delete;
+  WriteQueryTraceRecord& operator=(WriteQueryTraceRecord&&) = delete;
+
   ~WriteQueryTraceRecord() override;
 
   TraceType GetTraceType() const override { return kTraceWrite; }
@@ -129,6 +135,12 @@ class GetQueryTraceRecord : public QueryTraceRecord {
 
   GetQueryTraceRecord(uint32_t column_family_id, const std::string& key,
                       uint64_t timestamp);
+
+  // No copying allowed
+  GetQueryTraceRecord(const GetQueryTraceRecord&) = delete;
+  GetQueryTraceRecord& operator=(const GetQueryTraceRecord&) = delete;
+  GetQueryTraceRecord(GetQueryTraceRecord&&) = delete;
+  GetQueryTraceRecord& operator=(GetQueryTraceRecord&&) = delete;
 
   ~GetQueryTraceRecord() override;
 
@@ -196,6 +208,14 @@ class IteratorSeekQueryTraceRecord : public IteratorQueryTraceRecord {
                                const std::string& upper_bound,
                                uint64_t timestamp);
 
+  // No copying allowed
+  IteratorSeekQueryTraceRecord(const IteratorSeekQueryTraceRecord&) = delete;
+  IteratorSeekQueryTraceRecord& operator=(const IteratorSeekQueryTraceRecord&) =
+      delete;
+  IteratorSeekQueryTraceRecord(IteratorSeekQueryTraceRecord&&) = delete;
+  IteratorSeekQueryTraceRecord& operator=(IteratorSeekQueryTraceRecord&&) =
+      delete;
+
   ~IteratorSeekQueryTraceRecord() override;
 
   // Trace type matches the seek type.
@@ -229,6 +249,12 @@ class MultiGetQueryTraceRecord : public QueryTraceRecord {
   MultiGetQueryTraceRecord(std::vector<uint32_t> column_family_ids,
                            const std::vector<std::string>& keys,
                            uint64_t timestamp);
+
+  // No copying allowed
+  MultiGetQueryTraceRecord(const MultiGetQueryTraceRecord&) = delete;
+  MultiGetQueryTraceRecord& operator=(const MultiGetQueryTraceRecord&) = delete;
+  MultiGetQueryTraceRecord(MultiGetQueryTraceRecord&&) = delete;
+  MultiGetQueryTraceRecord& operator=(MultiGetQueryTraceRecord&&) = delete;
 
   ~MultiGetQueryTraceRecord() override;
 

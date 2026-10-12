@@ -55,6 +55,12 @@ class BlockCacheTier : public PersistentCacheTier {
     assert(!insert_th_.joinable());
   }
 
+  // No copying allowed
+  BlockCacheTier(const BlockCacheTier&) = delete;
+  BlockCacheTier& operator=(const BlockCacheTier&) = delete;
+  BlockCacheTier(BlockCacheTier&&) = delete;
+  BlockCacheTier& operator=(BlockCacheTier&&) = delete;
+
   Status Insert(const Slice& key, const char* data, const size_t size) override;
   Status Lookup(const Slice& key, std::unique_ptr<char[]>* data,
                 size_t* size) override;

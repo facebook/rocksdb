@@ -21,6 +21,12 @@ class CountedSequentialFile : public FSSequentialFileOwnerWrapper {
                         CountedFileSystem* fs)
       : FSSequentialFileOwnerWrapper(std::move(f)), fs_(fs) {}
 
+  // No copying allowed
+  CountedSequentialFile(const CountedSequentialFile&) = delete;
+  CountedSequentialFile& operator=(const CountedSequentialFile&) = delete;
+  CountedSequentialFile(CountedSequentialFile&&) = delete;
+  CountedSequentialFile& operator=(CountedSequentialFile&&) = delete;
+
   ~CountedSequentialFile() override { fs_->counters()->closes++; }
 
   IOStatus Read(size_t n, const IOOptions& options, Slice* result,
@@ -48,6 +54,12 @@ class CountedRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
   CountedRandomAccessFile(std::unique_ptr<FSRandomAccessFile>&& f,
                           CountedFileSystem* fs)
       : FSRandomAccessFileOwnerWrapper(std::move(f)), fs_(fs) {}
+
+  // No copying allowed
+  CountedRandomAccessFile(const CountedRandomAccessFile&) = delete;
+  CountedRandomAccessFile& operator=(const CountedRandomAccessFile&) = delete;
+  CountedRandomAccessFile(CountedRandomAccessFile&&) = delete;
+  CountedRandomAccessFile& operator=(CountedRandomAccessFile&&) = delete;
 
   ~CountedRandomAccessFile() override { fs_->counters()->closes++; }
 
@@ -216,6 +228,12 @@ class CountedDirectory : public FSDirectoryWrapper {
  public:
   CountedDirectory(std::unique_ptr<FSDirectory>&& f, CountedFileSystem* fs)
       : FSDirectoryWrapper(std::move(f)), fs_(fs) {}
+
+  // No copying allowed
+  CountedDirectory(const CountedDirectory&) = delete;
+  CountedDirectory& operator=(const CountedDirectory&) = delete;
+  CountedDirectory(CountedDirectory&&) = delete;
+  CountedDirectory& operator=(CountedDirectory&&) = delete;
 
   IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override {
     IOStatus rv = FSDirectoryWrapper::Fsync(options, dbg);

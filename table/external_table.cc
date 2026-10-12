@@ -264,6 +264,9 @@ class ExternalTableIteratorAdapter : public InternalIterator {
   ExternalTableIteratorAdapter(const ExternalTableIteratorAdapter&) = delete;
   ExternalTableIteratorAdapter& operator=(const ExternalTableIteratorAdapter&) =
       delete;
+  ExternalTableIteratorAdapter(ExternalTableIteratorAdapter&&) = delete;
+  ExternalTableIteratorAdapter& operator=(ExternalTableIteratorAdapter&&) =
+      delete;
 
   ~ExternalTableIteratorAdapter() override {}
 
@@ -617,6 +620,8 @@ class ExternalTableReaderAdapter : public TableReader {
   ExternalTableReaderAdapter(const ExternalTableReaderAdapter&) = delete;
   ExternalTableReaderAdapter& operator=(const ExternalTableReaderAdapter&) =
       delete;
+  ExternalTableReaderAdapter(ExternalTableReaderAdapter&&) = delete;
+  ExternalTableReaderAdapter& operator=(ExternalTableReaderAdapter&&) = delete;
 
   InternalIterator* NewIterator(
       const ReadOptions& read_options, const SliceTransform* prefix_extractor,

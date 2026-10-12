@@ -802,6 +802,12 @@ struct BlockBasedTable::Rep {
         user_defined_timestamps_persisted(_user_defined_timestamps_persisted),
         fs_prefetch_support(CheckFSFeatureSupport(
             _ioptions.fs.get(), FSSupportedOps::kFSPrefetch)) {}
+  // No copying allowed
+  Rep(const Rep&) = delete;
+  Rep& operator=(const Rep&) = delete;
+  Rep(Rep&&) = delete;
+  Rep& operator=(Rep&&) = delete;
+
   ~Rep() { status.PermitUncheckedError(); }
   const ImmutableOptions& ioptions;
   const EnvOptions& env_options;

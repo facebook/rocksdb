@@ -68,6 +68,15 @@ class WriteUnpreparedTxnReadCallback : public ReadCallback {
     (void)backed_by_snapshot_;  // to silence unused private field warning
   }
 
+  // No copying allowed
+  WriteUnpreparedTxnReadCallback(const WriteUnpreparedTxnReadCallback&) =
+      delete;
+  WriteUnpreparedTxnReadCallback& operator=(
+      const WriteUnpreparedTxnReadCallback&) = delete;
+  WriteUnpreparedTxnReadCallback(WriteUnpreparedTxnReadCallback&&) = delete;
+  WriteUnpreparedTxnReadCallback& operator=(WriteUnpreparedTxnReadCallback&&) =
+      delete;
+
   ~WriteUnpreparedTxnReadCallback() override {
     // If it is not backed by snapshot, the caller must check validity
     assert(valid_checked_ || backed_by_snapshot_ == kBackedByDBSnapshot);

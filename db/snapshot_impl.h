@@ -65,8 +65,13 @@ class SnapshotList {
     count_ = 0;
   }
 
-  // No copy-construct.
+  ~SnapshotList() = default;
+
+  // No copying allowed
   SnapshotList(const SnapshotList&) = delete;
+  SnapshotList& operator=(const SnapshotList&) = delete;
+  SnapshotList(SnapshotList&&) = delete;
+  SnapshotList& operator=(SnapshotList&&) = delete;
 
   bool empty() const {
     assert(list_.next_ != &list_ || 0 == count_);

@@ -48,7 +48,7 @@ class OccLockBuckets {
  public:
   // Most details in internal derived class.
   // Users should not derive from this class.
-  virtual ~OccLockBuckets() {}
+  virtual ~OccLockBuckets() = default;
 
   virtual size_t ApproximateMemoryUsage() const = 0;
 
@@ -120,6 +120,8 @@ class OptimisticTransactionDB : public StackableDB {
 
   OptimisticTransactionDB(const OptimisticTransactionDB&) = delete;
   void operator=(const OptimisticTransactionDB&) = delete;
+  OptimisticTransactionDB(OptimisticTransactionDB&&) = delete;
+  void operator=(OptimisticTransactionDB&&) = delete;
 
  protected:
   // To Create an OptimisticTransactionDB, call Open()

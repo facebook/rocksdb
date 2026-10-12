@@ -565,6 +565,8 @@ struct BlockContents {
     AssertSingleOwner();
     return *this;
   }
+
+  ~BlockContents() = default;
 };
 
 // The `data` points to serialized block contents read in from file, which

@@ -434,7 +434,6 @@ class InternalKeyComparator
   //    overhead, set `named` to false. In that case, `Name()` will return a
   //    generic name that is non-specific to the underlying comparator.
   explicit InternalKeyComparator(const Comparator* c) : user_comparator_(c) {}
-  ~InternalKeyComparator() override {}
 
   int Compare(const Slice& a, const Slice& b) const override;
 
@@ -621,6 +620,8 @@ class IterKey {
   // No copying allowed
   IterKey(const IterKey&) = delete;
   void operator=(const IterKey&) = delete;
+  IterKey(IterKey&&) = delete;
+  void operator=(IterKey&&) = delete;
 
   ~IterKey() {
     ResetBuffer();

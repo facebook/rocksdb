@@ -25,7 +25,7 @@ namespace ROCKSDB_NAMESPACE {
 
 // TODO(yhchiang): the rate will not be accurate when we run test in parallel.
 class RateLimiterTest : public testing::Test {
- protected:
+ public:
   ~RateLimiterTest() override {
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();

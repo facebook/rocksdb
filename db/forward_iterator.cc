@@ -49,6 +49,12 @@ class ForwardLevelIterator : public InternalIterator {
     status_.PermitUncheckedError();  // Allow uninitialized status through
   }
 
+  // No copying allowed
+  ForwardLevelIterator(const ForwardLevelIterator&) = delete;
+  ForwardLevelIterator& operator=(const ForwardLevelIterator&) = delete;
+  ForwardLevelIterator(ForwardLevelIterator&&) = delete;
+  ForwardLevelIterator& operator=(ForwardLevelIterator&&) = delete;
+
   ~ForwardLevelIterator() override {
     // Reset current pointer
     if (pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled()) {

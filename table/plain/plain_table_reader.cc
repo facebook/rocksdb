@@ -51,7 +51,9 @@ class PlainTableIterator : public InternalIterator {
   explicit PlainTableIterator(PlainTableReader* table, bool use_prefix_seek);
   // No copying allowed
   PlainTableIterator(const PlainTableIterator&) = delete;
-  void operator=(const Iterator&) = delete;
+  void operator=(const PlainTableIterator&) = delete;
+  PlainTableIterator(PlainTableIterator&&) = delete;
+  void operator=(PlainTableIterator&&) = delete;
 
   ~PlainTableIterator() override;
 

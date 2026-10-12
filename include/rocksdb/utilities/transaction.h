@@ -109,7 +109,7 @@ class Endpoint {
 // the actual snapshot gets created
 class TransactionNotifier {
  public:
-  virtual ~TransactionNotifier() {}
+  virtual ~TransactionNotifier() = default;
 
   // Implement this method to receive notification when a snapshot is
   // requested via SetSnapshotOnNextOperation.
@@ -138,6 +138,8 @@ class Transaction {
   // No copying allowed
   Transaction(const Transaction&) = delete;
   void operator=(const Transaction&) = delete;
+  Transaction(Transaction&&) = delete;
+  void operator=(Transaction&&) = delete;
 
   virtual ~Transaction() {}
 

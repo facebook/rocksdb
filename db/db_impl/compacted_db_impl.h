@@ -18,6 +18,8 @@ class CompactedDBImpl : public DBImpl {
   // No copying allowed
   CompactedDBImpl(const CompactedDBImpl&) = delete;
   void operator=(const CompactedDBImpl&) = delete;
+  CompactedDBImpl(CompactedDBImpl&&) = delete;
+  void operator=(CompactedDBImpl&&) = delete;
 
   ~CompactedDBImpl() override;
 

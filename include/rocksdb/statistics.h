@@ -924,7 +924,7 @@ enum StatsLevel : uint8_t {
 // including data loss, unreported corruption, deadlocks, and more.
 class Statistics : public Customizable {
  public:
-  ~Statistics() override {}
+  ~Statistics() override = default;
   static const char* Type() { return "Statistics"; }
   static Status CreateFromString(const ConfigOptions& opts,
                                  const std::string& value,

@@ -191,6 +191,8 @@ class Cache : public Customizable {
   // No copying allowed
   Cache(const Cache&) = delete;
   Cache& operator=(const Cache&) = delete;
+  Cache(Cache&&) = delete;
+  Cache& operator=(Cache&&) = delete;
 
   // Destroys all remaining entries by calling the associated "deleter"
   ~Cache() override {}

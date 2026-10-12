@@ -36,6 +36,9 @@ class LineFileReader {
 
   LineFileReader(const LineFileReader&) = delete;
   LineFileReader& operator=(const LineFileReader&) = delete;
+  LineFileReader(LineFileReader&&) = delete;
+  LineFileReader& operator=(LineFileReader&&) = delete;
+  ~LineFileReader() = default;
 
   // Reads another line from the file, returning true on success and saving
   // the line to `out`, without delimiter, or returning false on failure. You

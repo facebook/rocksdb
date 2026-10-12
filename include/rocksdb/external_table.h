@@ -372,7 +372,7 @@ struct ExternalTableBuilderAddContext {
 //    implementation is optional.
 class ExternalTableBuilderBase {
  public:
-  virtual ~ExternalTableBuilderBase() {}
+  virtual ~ExternalTableBuilderBase() = default;
 
   // Write a point key-value pair. In basic mode, key is a user key. In full
   // mode, key is a stored RocksDB internal key and ParseEntry() can be used to

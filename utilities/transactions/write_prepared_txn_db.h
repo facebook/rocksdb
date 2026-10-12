@@ -607,6 +607,13 @@ class WritePreparedTxnDB : public WritePreparedTxnDBBase {
     friend class WritePreparedTxnDB;
 
    public:
+    PreparedHeap() = default;
+    // No copying allowed
+    PreparedHeap(const PreparedHeap&) = delete;
+    PreparedHeap& operator=(const PreparedHeap&) = delete;
+    PreparedHeap(PreparedHeap&&) = delete;
+    PreparedHeap& operator=(PreparedHeap&&) = delete;
+
     ~PreparedHeap() {
       if (!TEST_CRASH_) {
         assert(heap_.empty());
@@ -894,6 +901,14 @@ class WritePreparedTxnReadCallback : public ReadCallback {
         backed_by_snapshot_(backed_by_snapshot) {
     (void)backed_by_snapshot_;  // to silence unused private field warning
   }
+
+  // No copying allowed
+  WritePreparedTxnReadCallback(const WritePreparedTxnReadCallback&) = delete;
+  WritePreparedTxnReadCallback& operator=(const WritePreparedTxnReadCallback&) =
+      delete;
+  WritePreparedTxnReadCallback(WritePreparedTxnReadCallback&&) = delete;
+  WritePreparedTxnReadCallback& operator=(WritePreparedTxnReadCallback&&) =
+      delete;
 
   ~WritePreparedTxnReadCallback() override {
     // If it is not backed by snapshot, the caller must check validity

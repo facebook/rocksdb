@@ -26,6 +26,8 @@ class ConcurrentTaskLimiterImpl : public ConcurrentTaskLimiter {
   ConcurrentTaskLimiterImpl(const ConcurrentTaskLimiterImpl&) = delete;
   ConcurrentTaskLimiterImpl& operator=(const ConcurrentTaskLimiterImpl&) =
       delete;
+  ConcurrentTaskLimiterImpl(ConcurrentTaskLimiterImpl&&) = delete;
+  ConcurrentTaskLimiterImpl& operator=(ConcurrentTaskLimiterImpl&&) = delete;
 
   ~ConcurrentTaskLimiterImpl() override;
 
@@ -62,6 +64,8 @@ class TaskLimiterToken {
   // no copying allowed
   TaskLimiterToken(const TaskLimiterToken&) = delete;
   void operator=(const TaskLimiterToken&) = delete;
+  TaskLimiterToken(TaskLimiterToken&&) = delete;
+  void operator=(TaskLimiterToken&&) = delete;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

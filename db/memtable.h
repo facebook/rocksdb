@@ -605,6 +605,8 @@ class MemTable final : public ReadOnlyMemTable {
   // No copying allowed
   MemTable(const MemTable&) = delete;
   MemTable& operator=(const MemTable&) = delete;
+  MemTable(MemTable&&) = delete;
+  MemTable& operator=(MemTable&&) = delete;
 
   ~MemTable() override;
 
