@@ -88,6 +88,9 @@ class InjectedErrorLog {
     char op_name[kMaxOpNameLen];
     char file_name[kMaxFileNameLen];
     char status_message[kMaxStatusMessageLen];
+    // Explicit tail padding so the size does not depend on the alignment of
+    // uint64_t (4 bytes on i386, 8 bytes on most other targets).
+    uint8_t padding[4];
   };
 
   static_assert(sizeof(Entry) == 256,
