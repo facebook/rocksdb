@@ -153,6 +153,12 @@ class TtlIterator : public Iterator {
  public:
   explicit TtlIterator(Iterator* iter) : iter_(iter) { assert(iter_); }
 
+  // No copying allowed
+  TtlIterator(const TtlIterator&) = delete;
+  TtlIterator& operator=(const TtlIterator&) = delete;
+  TtlIterator(TtlIterator&&) = delete;
+  TtlIterator& operator=(TtlIterator&&) = delete;
+
   ~TtlIterator() override { delete iter_; }
 
   bool Valid() const override { return iter_->Valid(); }

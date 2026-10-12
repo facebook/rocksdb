@@ -573,6 +573,11 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
     // Start by aggressively waking up idle workers
     emit_counter_for_wake_up = -static_cast<int32_t>(num_worker_threads);
   }
+  // No copying allowed
+  ParallelCompressionRep(const ParallelCompressionRep&) = delete;
+  ParallelCompressionRep& operator=(const ParallelCompressionRep&) = delete;
+  ParallelCompressionRep(ParallelCompressionRep&&) = delete;
+  ParallelCompressionRep& operator=(ParallelCompressionRep&&) = delete;
 
   ~ParallelCompressionRep() {
 #ifndef NDEBUG
@@ -1851,6 +1856,8 @@ struct BlockBasedTableBuilder::Rep {
 
   Rep(const Rep&) = delete;
   Rep& operator=(const Rep&) = delete;
+  Rep(Rep&&) = delete;
+  Rep& operator=(Rep&&) = delete;
 
   void PrePopulateCompressionProperties(
       UnownedPtr<CompressionManager> compression_manager) {

@@ -14,7 +14,7 @@ namespace ROCKSDB_NAMESPACE {
 // An interface for converting a slice to a readable string
 class SliceFormatter {
  public:
-  virtual ~SliceFormatter() {}
+  virtual ~SliceFormatter() = default;
   virtual std::string Format(const Slice& s) const = 0;
 };
 

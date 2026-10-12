@@ -208,8 +208,6 @@ uint64_t MultiplyCheckOverflow(uint64_t op1, uint64_t op2) {
 AnalyzerOptions::AnalyzerOptions()
     : correlation_map(kTaTypeNum, std::vector<int>(kTaTypeNum, -1)) {}
 
-AnalyzerOptions::~AnalyzerOptions() = default;
-
 void AnalyzerOptions::SparseCorrelationInput(const std::string& in_str) {
   std::string cur = in_str;
   if (cur.size() == 0) {

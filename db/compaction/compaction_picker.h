@@ -276,7 +276,7 @@ class NullCompactionPicker : public CompactionPicker {
   NullCompactionPicker(const ImmutableOptions& ioptions,
                        const InternalKeyComparator* icmp)
       : CompactionPicker(ioptions, icmp) {}
-  ~NullCompactionPicker() override {}
+  ~NullCompactionPicker() override = default;
 
   // Always return "nullptr"
   Compaction* PickCompaction(

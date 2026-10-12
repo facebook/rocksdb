@@ -249,6 +249,10 @@ class WritableFileWriter final : public FSWritableFile {
 
   WritableFileWriter& operator=(const WritableFileWriter&) = delete;
 
+  WritableFileWriter(WritableFileWriter&&) = delete;
+
+  WritableFileWriter& operator=(WritableFileWriter&&) = delete;
+
   ~WritableFileWriter() override {
     IOOptions io_options;
 #ifndef NDEBUG

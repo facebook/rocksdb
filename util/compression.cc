@@ -1706,6 +1706,16 @@ class BuiltinDecompressorV2OptimizeZstdWithDict final
   }
 #endif  // ROCKSDB_ZSTD_DDICT
 
+  // No copying allowed
+  BuiltinDecompressorV2OptimizeZstdWithDict(
+      const BuiltinDecompressorV2OptimizeZstdWithDict&) = delete;
+  BuiltinDecompressorV2OptimizeZstdWithDict& operator=(
+      const BuiltinDecompressorV2OptimizeZstdWithDict&) = delete;
+  BuiltinDecompressorV2OptimizeZstdWithDict(
+      BuiltinDecompressorV2OptimizeZstdWithDict&&) = delete;
+  BuiltinDecompressorV2OptimizeZstdWithDict& operator=(
+      BuiltinDecompressorV2OptimizeZstdWithDict&&) = delete;
+
   const char* Name() const override {
     return "BuiltinDecompressorV2OptimizeZstdWithDict";
   }

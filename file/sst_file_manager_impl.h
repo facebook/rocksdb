@@ -33,6 +33,8 @@ class SstFileManagerImpl : public SstFileManager {
   // No copy
   SstFileManagerImpl(const SstFileManagerImpl& sfm) = delete;
   SstFileManagerImpl& operator=(const SstFileManagerImpl& sfm) = delete;
+  SstFileManagerImpl(SstFileManagerImpl&&) = delete;
+  SstFileManagerImpl& operator=(SstFileManagerImpl&&) = delete;
 
   ~SstFileManagerImpl() override;
 

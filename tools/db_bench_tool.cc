@@ -2658,6 +2658,12 @@ class ReporterAgent {
     reporting_thread_ = port::Thread([&]() { SleepAndReport(); });
   }
 
+  // No copying allowed
+  ReporterAgent(const ReporterAgent&) = delete;
+  ReporterAgent& operator=(const ReporterAgent&) = delete;
+  ReporterAgent(ReporterAgent&&) = delete;
+  ReporterAgent& operator=(ReporterAgent&&) = delete;
+
   ~ReporterAgent() {
     {
       std::unique_lock<std::mutex> lk(mutex_);
@@ -3639,6 +3645,7 @@ struct SharedState {
     Duration& operator=(Duration&&) = default;
     Duration(const Duration&) = delete;
     Duration& operator=(const Duration&) = delete;
+    ~Duration() = default;
 
     int64_t GetStage() { return std::min(ops_, max_ops_ - 1) / ops_per_stage_; }
 
@@ -4395,6 +4402,12 @@ class Benchmark {
       mock_app_clock_.reset(new TimestampEmulator());
     }
   }
+
+  // No copying allowed
+  Benchmark(const Benchmark&) = delete;
+  Benchmark& operator=(const Benchmark&) = delete;
+  Benchmark(Benchmark&&) = delete;
+  Benchmark& operator=(Benchmark&&) = delete;
 
   void DeleteDBs() {
     // Caller MUST hold DbStateMutationGuard (proven by ownership flag).

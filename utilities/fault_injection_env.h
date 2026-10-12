@@ -132,7 +132,7 @@ class TestDirectory : public Directory {
   explicit TestDirectory(FaultInjectionTestEnv* env, std::string dirname,
                          Directory* dir)
       : env_(env), dirname_(dirname), dir_(dir) {}
-  ~TestDirectory() override {}
+  ~TestDirectory() override = default;
 
   Status Fsync() override;
   Status Close() override;
@@ -147,6 +147,11 @@ class FaultInjectionTestEnv : public EnvWrapper {
  public:
   explicit FaultInjectionTestEnv(Env* base)
       : EnvWrapper(base), filesystem_active_(true) {}
+  // No copying allowed
+  FaultInjectionTestEnv(const FaultInjectionTestEnv&) = delete;
+  FaultInjectionTestEnv& operator=(const FaultInjectionTestEnv&) = delete;
+  FaultInjectionTestEnv(FaultInjectionTestEnv&&) = delete;
+  FaultInjectionTestEnv& operator=(FaultInjectionTestEnv&&) = delete;
   ~FaultInjectionTestEnv() override { error_.PermitUncheckedError(); }
 
   static const char* kClassName() { return "FaultInjectionTestEnv"; }

@@ -31,6 +31,12 @@ class StackableDB : public DB {
   explicit StackableDB(std::unique_ptr<DB>&& db)
       : db_(db.get()), shared_db_ptr_(std::move(db)) {}
 
+  // No copying allowed
+  StackableDB(const StackableDB&) = delete;
+  StackableDB& operator=(const StackableDB&) = delete;
+  StackableDB(StackableDB&&) = delete;
+  StackableDB& operator=(StackableDB&&) = delete;
+
   ~StackableDB() override {
     if (shared_db_ptr_ == nullptr) {
       delete db_;

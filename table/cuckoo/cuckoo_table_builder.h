@@ -35,6 +35,8 @@ class CuckooTableBuilder : public TableBuilder {
   // No copying allowed
   CuckooTableBuilder(const CuckooTableBuilder&) = delete;
   void operator=(const CuckooTableBuilder&) = delete;
+  CuckooTableBuilder(CuckooTableBuilder&&) = delete;
+  void operator=(CuckooTableBuilder&&) = delete;
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~CuckooTableBuilder() override {}

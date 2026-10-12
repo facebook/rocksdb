@@ -37,6 +37,11 @@ class EnvMirror : public EnvWrapper {
  public:
   EnvMirror(Env* a, Env* b, bool free_a = false, bool free_b = false)
       : EnvWrapper(a), a_(a), b_(b), free_a_(free_a), free_b_(free_b) {}
+  // No copying allowed
+  EnvMirror(const EnvMirror&) = delete;
+  EnvMirror& operator=(const EnvMirror&) = delete;
+  EnvMirror(EnvMirror&&) = delete;
+  EnvMirror& operator=(EnvMirror&&) = delete;
   ~EnvMirror() override {
     if (free_a_) delete a_;
     if (free_b_) delete b_;

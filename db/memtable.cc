@@ -539,6 +539,8 @@ class MemTableIterator : public InternalIterator {
   // No copying allowed
   MemTableIterator(const MemTableIterator&) = delete;
   void operator=(const MemTableIterator&) = delete;
+  MemTableIterator(MemTableIterator&&) = delete;
+  void operator=(MemTableIterator&&) = delete;
 
   ~MemTableIterator() override {
 #ifndef NDEBUG
@@ -772,6 +774,8 @@ class TimestampStrippingIterator : public InternalIterator {
   // No copying allowed
   TimestampStrippingIterator(const TimestampStrippingIterator&) = delete;
   void operator=(const TimestampStrippingIterator&) = delete;
+  TimestampStrippingIterator(TimestampStrippingIterator&&) = delete;
+  void operator=(TimestampStrippingIterator&&) = delete;
 
   ~TimestampStrippingIterator() override {
     if (arena_mode_) {

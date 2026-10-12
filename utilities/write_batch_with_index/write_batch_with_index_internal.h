@@ -255,7 +255,7 @@ class WBWIIteratorImpl final : public WBWIIterator {
         iterate_lower_bound_(iterate_lower_bound),
         iterate_upper_bound_(iterate_upper_bound) {}
 
-  ~WBWIIteratorImpl() override {}
+  ~WBWIIteratorImpl() override = default;
 
   bool Valid() const override {
     return !out_of_bound_ && ValidRegardlessOfBoundLimit();

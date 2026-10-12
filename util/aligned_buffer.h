@@ -95,6 +95,8 @@ class AlignedBuffer {
 
   AlignedBuffer& operator=(const AlignedBuffer&) = delete;
 
+  ~AlignedBuffer() = default;
+
   static bool isAligned(const void* ptr, size_t alignment) {
     return reinterpret_cast<uintptr_t>(ptr) % alignment == 0;
   }

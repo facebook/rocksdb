@@ -81,6 +81,7 @@ struct Node {
 
   // Needed for placement new below which is fine
   Node() = default;
+  [[maybe_unused]] ~Node() = default;
 
  private:
   std::atomic<Node*> next_;
@@ -88,6 +89,8 @@ struct Node {
   // Prohibit copying due to the below
   Node(const Node&) = delete;
   Node& operator=(const Node&) = delete;
+  Node(Node&&) = delete;
+  Node& operator=(Node&&) = delete;
 
  public:
   char key[1];

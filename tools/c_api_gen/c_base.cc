@@ -415,6 +415,13 @@ struct rocksdb_readoptions_t {
   std::function<bool(const TableProperties&)> table_filter_func;
   std::shared_ptr<UserDefinedIndexFactory> table_index_factory;
 
+  rocksdb_readoptions_t() = default;
+  // No copying allowed
+  rocksdb_readoptions_t(const rocksdb_readoptions_t&) = delete;
+  rocksdb_readoptions_t& operator=(const rocksdb_readoptions_t&) = delete;
+  rocksdb_readoptions_t(rocksdb_readoptions_t&&) = delete;
+  rocksdb_readoptions_t& operator=(rocksdb_readoptions_t&&) = delete;
+
   ~rocksdb_readoptions_t() { ClearTableFilter(); }
 
   void ClearTableFilter() {
@@ -801,14 +808,22 @@ struct rocksdb_open_and_compact_options_t {
 };
 
 struct rocksdb_compactionfilter_t : public CompactionFilter {
-  void* state_;
-  void (*destructor_)(void*);
+  void* state_ = nullptr;
+  void (*destructor_)(void*) = nullptr;
   unsigned char (*filter_)(void*, int level, const char* key, size_t key_length,
                            const char* existing_value, size_t value_length,
                            char** new_value, size_t* new_value_length,
-                           unsigned char* value_changed);
-  const char* (*name_)(void*);
-  unsigned char ignore_snapshots_;
+                           unsigned char* value_changed) = nullptr;
+  const char* (*name_)(void*) = nullptr;
+  unsigned char ignore_snapshots_ = true;
+
+  rocksdb_compactionfilter_t() = default;
+  // No copying allowed
+  rocksdb_compactionfilter_t(const rocksdb_compactionfilter_t&) = delete;
+  rocksdb_compactionfilter_t& operator=(const rocksdb_compactionfilter_t&) =
+      delete;
+  rocksdb_compactionfilter_t(rocksdb_compactionfilter_t&&) = delete;
+  rocksdb_compactionfilter_t& operator=(rocksdb_compactionfilter_t&&) = delete;
 
   ~rocksdb_compactionfilter_t() override { (*destructor_)(state_); }
 
@@ -834,11 +849,22 @@ struct rocksdb_compactionfilter_t : public CompactionFilter {
 };
 
 struct rocksdb_compactionfilterfactory_t : public CompactionFilterFactory {
-  void* state_;
-  void (*destructor_)(void*);
+  void* state_ = nullptr;
+  void (*destructor_)(void*) = nullptr;
   rocksdb_compactionfilter_t* (*create_compaction_filter_)(
-      void*, rocksdb_compactionfiltercontext_t* context);
-  const char* (*name_)(void*);
+      void*, rocksdb_compactionfiltercontext_t* context) = nullptr;
+  const char* (*name_)(void*) = nullptr;
+
+  rocksdb_compactionfilterfactory_t() = default;
+  // No copying allowed
+  rocksdb_compactionfilterfactory_t(const rocksdb_compactionfilterfactory_t&) =
+      delete;
+  rocksdb_compactionfilterfactory_t& operator=(
+      const rocksdb_compactionfilterfactory_t&) = delete;
+  rocksdb_compactionfilterfactory_t(rocksdb_compactionfilterfactory_t&&) =
+      delete;
+  rocksdb_compactionfilterfactory_t& operator=(
+      rocksdb_compactionfilterfactory_t&&) = delete;
 
   ~rocksdb_compactionfilterfactory_t() override { (*destructor_)(state_); }
 
@@ -868,6 +894,12 @@ struct rocksdb_comparator_t : public Comparator {
   rocksdb_comparator_t() : Comparator() {}
 
   rocksdb_comparator_t(size_t ts_size) : Comparator(ts_size) {}
+
+  // No copying allowed
+  rocksdb_comparator_t(const rocksdb_comparator_t&) = delete;
+  rocksdb_comparator_t& operator=(const rocksdb_comparator_t&) = delete;
+  rocksdb_comparator_t(rocksdb_comparator_t&&) = delete;
+  rocksdb_comparator_t& operator=(rocksdb_comparator_t&&) = delete;
 
   ~rocksdb_comparator_t() override { (*destructor_)(state_); }
 
@@ -900,9 +932,16 @@ struct rocksdb_comparator_t : public Comparator {
 };
 
 struct rocksdb_filterpolicy_t : public FilterPolicy {
-  void* state_;
-  void (*destructor_)(void*);
-  const char* (*name_)(void*);
+  void* state_ = nullptr;
+  void (*destructor_)(void*) = nullptr;
+  const char* (*name_)(void*) = nullptr;
+
+  rocksdb_filterpolicy_t() = default;
+  // No copying allowed
+  rocksdb_filterpolicy_t(const rocksdb_filterpolicy_t&) = delete;
+  rocksdb_filterpolicy_t& operator=(const rocksdb_filterpolicy_t&) = delete;
+  rocksdb_filterpolicy_t(rocksdb_filterpolicy_t&&) = delete;
+  rocksdb_filterpolicy_t& operator=(rocksdb_filterpolicy_t&&) = delete;
 
   ~rocksdb_filterpolicy_t() override { (*destructor_)(state_); }
 
@@ -910,19 +949,29 @@ struct rocksdb_filterpolicy_t : public FilterPolicy {
 };
 
 struct rocksdb_mergeoperator_t : public MergeOperator {
-  void* state_;
-  void (*destructor_)(void*);
-  const char* (*name_)(void*);
+  void* state_ = nullptr;
+  void (*destructor_)(void*) = nullptr;
+  const char* (*name_)(void*) = nullptr;
   char* (*full_merge_)(void*, const char* key, size_t key_length,
                        const char* existing_value, size_t existing_value_length,
                        const char* const* operands_list,
                        const size_t* operands_list_length, int num_operands,
-                       unsigned char* success, size_t* new_value_length);
+                       unsigned char* success,
+                       size_t* new_value_length) = nullptr;
   char* (*partial_merge_)(void*, const char* key, size_t key_length,
                           const char* const* operands_list,
                           const size_t* operands_list_length, int num_operands,
-                          unsigned char* success, size_t* new_value_length);
-  void (*delete_value_)(void*, const char* value, size_t value_length);
+                          unsigned char* success,
+                          size_t* new_value_length) = nullptr;
+  void (*delete_value_)(void*, const char* value,
+                        size_t value_length) = nullptr;
+
+  rocksdb_mergeoperator_t() = default;
+  // No copying allowed
+  rocksdb_mergeoperator_t(const rocksdb_mergeoperator_t&) = delete;
+  rocksdb_mergeoperator_t& operator=(const rocksdb_mergeoperator_t&) = delete;
+  rocksdb_mergeoperator_t(rocksdb_mergeoperator_t&&) = delete;
+  rocksdb_mergeoperator_t& operator=(rocksdb_mergeoperator_t&&) = delete;
 
   ~rocksdb_mergeoperator_t() override { (*destructor_)(state_); }
 
@@ -1004,12 +1053,19 @@ struct rocksdb_env_t {
 };
 
 struct rocksdb_slicetransform_t : public SliceTransform {
-  void* state_;
-  void (*destructor_)(void*);
-  const char* (*name_)(void*);
+  void* state_ = nullptr;
+  void (*destructor_)(void*) = nullptr;
+  const char* (*name_)(void*) = nullptr;
   char* (*transform_)(void*, const char* key, size_t length,
-                      size_t* dst_length);
-  unsigned char (*in_domain_)(void*, const char* key, size_t length);
+                      size_t* dst_length) = nullptr;
+  unsigned char (*in_domain_)(void*, const char* key, size_t length) = nullptr;
+
+  rocksdb_slicetransform_t() = default;
+  // No copying allowed
+  rocksdb_slicetransform_t(const rocksdb_slicetransform_t&) = delete;
+  rocksdb_slicetransform_t& operator=(const rocksdb_slicetransform_t&) = delete;
+  rocksdb_slicetransform_t(rocksdb_slicetransform_t&&) = delete;
+  rocksdb_slicetransform_t& operator=(rocksdb_slicetransform_t&&) = delete;
 
   ~rocksdb_slicetransform_t() override { (*destructor_)(state_); }
 
@@ -1332,6 +1388,14 @@ struct rocksdb_compactionservice_t : public CompactionService {
         wait_(wait),
         cancel_awaiting_jobs_(cancel_awaiting_jobs),
         on_installation_(on_installation) {}
+
+  // No copying allowed
+  rocksdb_compactionservice_t(const rocksdb_compactionservice_t&) = delete;
+  rocksdb_compactionservice_t& operator=(const rocksdb_compactionservice_t&) =
+      delete;
+  rocksdb_compactionservice_t(rocksdb_compactionservice_t&&) = delete;
+  rocksdb_compactionservice_t& operator=(rocksdb_compactionservice_t&&) =
+      delete;
 
   ~rocksdb_compactionservice_t() override {
     if (destructor_) {
@@ -5693,7 +5757,12 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_format(
   // they delegate to a NewBloomFilterPolicy() instead of user
   // supplied C functions.
   struct Wrapper : public rocksdb_filterpolicy_t {
-    const FilterPolicy* rep_;
+    const FilterPolicy* rep_ = nullptr;
+    Wrapper() = default;
+    Wrapper(const Wrapper&) = delete;
+    Wrapper& operator=(const Wrapper&) = delete;
+    Wrapper(Wrapper&&) = delete;
+    Wrapper& operator=(Wrapper&&) = delete;
     ~Wrapper() override { delete rep_; }
     const char* Name() const override { return rep_->Name(); }
     const char* CompatibilityName() const override {
@@ -5733,7 +5802,12 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_ribbon_format(
   // they delegate to a NewRibbonFilterPolicy() instead of user
   // supplied C functions.
   struct Wrapper : public rocksdb_filterpolicy_t {
-    const FilterPolicy* rep_;
+    const FilterPolicy* rep_ = nullptr;
+    Wrapper() = default;
+    Wrapper(const Wrapper&) = delete;
+    Wrapper& operator=(const Wrapper&) = delete;
+    Wrapper(Wrapper&&) = delete;
+    Wrapper& operator=(Wrapper&&) = delete;
     ~Wrapper() override { delete rep_; }
     const char* Name() const override { return rep_->Name(); }
     const char* CompatibilityName() const override {

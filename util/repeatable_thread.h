@@ -38,6 +38,12 @@ class RepeatableThread {
         thread_([this] { thread(); }) {
   }
 
+  // No copying allowed
+  RepeatableThread(const RepeatableThread&) = delete;
+  RepeatableThread& operator=(const RepeatableThread&) = delete;
+  RepeatableThread(RepeatableThread&&) = delete;
+  RepeatableThread& operator=(RepeatableThread&&) = delete;
+
   void cancel() {
     {
       InstrumentedMutexLock l(&mutex_);

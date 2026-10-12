@@ -51,6 +51,8 @@ class PlainTableBuilder : public TableBuilder {
   // No copying allowed
   PlainTableBuilder(const PlainTableBuilder&) = delete;
   void operator=(const PlainTableBuilder&) = delete;
+  PlainTableBuilder(PlainTableBuilder&&) = delete;
+  void operator=(PlainTableBuilder&&) = delete;
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~PlainTableBuilder() override;

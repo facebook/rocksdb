@@ -111,6 +111,7 @@ struct LockInfo {
   }
 
   DECLARE_DEFAULT_MOVES(LockInfo);
+  ~LockInfo() = default;
 
   bool exclusive;
   autovector<TransactionID> txn_ids;
@@ -138,6 +139,13 @@ void DebugWakeUpWaiter(TransactionID txn_id, TransactionID waiter_id,
 
 // Key lock waiter context, used for free the lock automatically
 struct KeyLockWaiterContext {
+  KeyLockWaiterContext() = default;
+  // No copying allowed
+  KeyLockWaiterContext(const KeyLockWaiterContext&) = delete;
+  KeyLockWaiterContext& operator=(const KeyLockWaiterContext&) = delete;
+  KeyLockWaiterContext(KeyLockWaiterContext&&) = delete;
+  KeyLockWaiterContext& operator=(KeyLockWaiterContext&&) = delete;
+
   // When a lock waiter is aborted due to dead lock or time out, this function
   // is used to wake up the waiters after it, if they could proceed.
   void TryWakeUpNextWaiters(const LockInfo& lock_info, const std::string& key) {
@@ -334,6 +342,12 @@ struct LockMap {
       lock_map_stripes_.push_back(stripe);
     }
   }
+
+  // No copying allowed
+  LockMap(const LockMap&) = delete;
+  LockMap& operator=(const LockMap&) = delete;
+  LockMap(LockMap&&) = delete;
+  LockMap& operator=(LockMap&&) = delete;
 
   ~LockMap() {
     for (auto stripe : lock_map_stripes_) {

@@ -41,6 +41,8 @@ class PessimisticTransaction : public TransactionBaseImpl {
   // No copying allowed
   PessimisticTransaction(const PessimisticTransaction&) = delete;
   void operator=(const PessimisticTransaction&) = delete;
+  PessimisticTransaction(PessimisticTransaction&&) = delete;
+  void operator=(PessimisticTransaction&&) = delete;
 
   ~PessimisticTransaction() override;
 
@@ -245,6 +247,8 @@ class WriteCommittedTxn : public PessimisticTransaction {
   // No copying allowed
   WriteCommittedTxn(const WriteCommittedTxn&) = delete;
   void operator=(const WriteCommittedTxn&) = delete;
+  WriteCommittedTxn(WriteCommittedTxn&&) = delete;
+  void operator=(WriteCommittedTxn&&) = delete;
 
   ~WriteCommittedTxn() override {}
 

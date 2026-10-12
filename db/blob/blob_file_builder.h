@@ -68,6 +68,8 @@ class BlobFileBuilder {
 
   BlobFileBuilder(const BlobFileBuilder&) = delete;
   BlobFileBuilder& operator=(const BlobFileBuilder&) = delete;
+  BlobFileBuilder(BlobFileBuilder&&) = delete;
+  BlobFileBuilder& operator=(BlobFileBuilder&&) = delete;
 
   ~BlobFileBuilder();
 

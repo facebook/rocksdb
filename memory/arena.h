@@ -27,6 +27,8 @@ class Arena : public Allocator {
   // No copying allowed
   Arena(const Arena&) = delete;
   void operator=(const Arena&) = delete;
+  Arena(Arena&&) = delete;
+  void operator=(Arena&&) = delete;
 
   static constexpr size_t kInlineSize = 2048;
   static constexpr size_t kMinBlockSize = 4096;

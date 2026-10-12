@@ -56,7 +56,12 @@ class Configurable {
   };
 
  public:
-  virtual ~Configurable() {}
+  Configurable() = default;
+  Configurable(const Configurable&) = default;
+  Configurable& operator=(const Configurable&) = default;
+  Configurable(Configurable&&) = default;
+  Configurable& operator=(Configurable&&) = default;
+  virtual ~Configurable() = default;
 
   // Returns the raw pointer of the named options that is used by this
   // object, or nullptr if this function is not supported.

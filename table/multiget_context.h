@@ -151,6 +151,12 @@ class MultiGetContext {
     }
   }
 
+  // No copying allowed
+  MultiGetContext(const MultiGetContext&) = delete;
+  MultiGetContext& operator=(const MultiGetContext&) = delete;
+  MultiGetContext(MultiGetContext&&) = delete;
+  MultiGetContext& operator=(MultiGetContext&&) = delete;
+
   ~MultiGetContext() {
     for (size_t i = 0; i < num_keys_; ++i) {
       lookup_key_ptr_[i].~LookupKey();
@@ -223,6 +229,9 @@ class MultiGetContext {
         assert(range->ctx_ == other.ctx_);
       }
       Iterator& operator=(const Iterator&) = default;
+      Iterator(Iterator&&) = default;
+      Iterator& operator=(Iterator&&) = default;
+      ~Iterator() = default;
 
       Iterator& operator++() {
         while (++index_ < range_->end_ &&

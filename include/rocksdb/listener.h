@@ -977,7 +977,7 @@ class EventListener : public Customizable {
   // should not call blocking DB APIs or run for an extended period of time.
   virtual void OnDBShutdownBegin(DB* /*db*/) {}
 
-  ~EventListener() override {}
+  ~EventListener() override = default;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

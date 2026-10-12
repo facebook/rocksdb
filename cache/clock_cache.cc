@@ -1856,6 +1856,12 @@ class AutoHyperClockTable::ChainRewriteLock {
     assert(saved_head_.IsLocked());
   }
 
+  // No copying allowed
+  ChainRewriteLock(const ChainRewriteLock&) = delete;
+  ChainRewriteLock& operator=(const ChainRewriteLock&) = delete;
+  ChainRewriteLock(ChainRewriteLock&&) = delete;
+  ChainRewriteLock& operator=(ChainRewriteLock&&) = delete;
+
   ~ChainRewriteLock() {
     if (!IsEnd()) {
       // Release lock

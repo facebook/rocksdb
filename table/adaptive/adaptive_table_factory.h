@@ -22,8 +22,6 @@ class TableBuilder;
 
 class AdaptiveTableFactory : public TableFactory {
  public:
-  ~AdaptiveTableFactory() override {}
-
   explicit AdaptiveTableFactory(
       std::shared_ptr<TableFactory> table_factory_to_write,
       std::shared_ptr<TableFactory> block_based_table_factory,

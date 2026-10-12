@@ -280,6 +280,9 @@ struct FileOptions : EnvOptions {
         file_metadata(opts.file_metadata) {}
 
   FileOptions& operator=(const FileOptions&) = default;
+  FileOptions(FileOptions&&) = default;
+  FileOptions& operator=(FileOptions&&) = default;
+  ~FileOptions() = default;
 };
 
 // A structure to pass back some debugging information from the FileSystem
@@ -407,6 +410,7 @@ class FileSystem : public Customizable {
 
   // No copying allowed
   FileSystem(const FileSystem&) = delete;
+  FileSystem(FileSystem&&) = delete;
 
   ~FileSystem() override;
 
@@ -864,6 +868,7 @@ class FileSystem : public Customizable {
 
  private:
   void operator=(const FileSystem&);
+  void operator=(FileSystem&&) = delete;
 };
 
 // A file abstraction for reading sequentially through a file
@@ -871,7 +876,7 @@ class FSSequentialFile {
  public:
   FSSequentialFile() {}
 
-  virtual ~FSSequentialFile() {}
+  virtual ~FSSequentialFile() = default;
 
   // Read up to "n" bytes from the file.  "scratch[0..n-1]" may be
   // written by this routine.  Sets "*result" to the data that was
@@ -1001,7 +1006,7 @@ class FSRandomAccessFile {
  public:
   FSRandomAccessFile() {}
 
-  virtual ~FSRandomAccessFile() {}
+  virtual ~FSRandomAccessFile() = default;
 
   // Read up to "n" bytes from the file starting at "offset".
   // "scratch[0..n-1]" may be written by this routine.  Sets "*result"
@@ -1460,6 +1465,8 @@ class FSWritableFile {
   // No copying allowed
   FSWritableFile(const FSWritableFile&);
   void operator=(const FSWritableFile&);
+  FSWritableFile(FSWritableFile&&) = delete;
+  void operator=(FSWritableFile&&) = delete;
 
  protected:
   Env::IOPriority io_priority_;
@@ -1475,7 +1482,7 @@ class FSRandomRWFile {
   // For cases when Close() hasn't been called, many derived classes of
   // FSRandomRWFile will need to call Close() non-virtually in their destructor,
   // and ignore the result, to ensure resources are released.
-  virtual ~FSRandomRWFile() {}
+  virtual ~FSRandomRWFile() = default;
 
   // Indicates if the class makes use of direct I/O
   // If false you must pass aligned buffer to Write()
@@ -1545,6 +1552,8 @@ class FSMemoryMappedFileBuffer {
   // movable if desired, however, since
   FSMemoryMappedFileBuffer(const FSMemoryMappedFileBuffer&) = delete;
   FSMemoryMappedFileBuffer& operator=(const FSMemoryMappedFileBuffer&) = delete;
+  FSMemoryMappedFileBuffer(FSMemoryMappedFileBuffer&&) = delete;
+  FSMemoryMappedFileBuffer& operator=(FSMemoryMappedFileBuffer&&) = delete;
 
   void* GetBase() const { return base_; }
   size_t GetLen() const { return length_; }
@@ -1561,7 +1570,7 @@ class FSDirectory {
   // For cases when Close() hasn't been called, many derived classes of
   // FSDirectory will need to call Close() non-virtually in their destructor,
   // and ignore the result, to ensure resources are released.
-  virtual ~FSDirectory() {}
+  virtual ~FSDirectory() = default;
   // Fsync directory. Can be called concurrently from multiple threads.
   virtual IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) = 0;
 
@@ -1624,7 +1633,7 @@ class FileSystemWrapper : public FileSystem {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
   explicit FileSystemWrapper(const std::shared_ptr<FileSystem>& t);
-  ~FileSystemWrapper() override {}
+  ~FileSystemWrapper() override = default;
 
   // Return the target to which this Env forwards all calls
   FileSystem* target() const { return target_.get(); }

@@ -30,7 +30,7 @@ class AsyncFileReader {
  public:
   AsyncFileReader(FileSystem* fs, Statistics* stats) : fs_(fs), stats_(stats) {}
 
-  ~AsyncFileReader() {}
+  ~AsyncFileReader() = default;
 
   ReadOperation<ReadAwaiter> MultiReadAsync(RandomAccessFileReader* file,
                                             const IOOptions& opts,

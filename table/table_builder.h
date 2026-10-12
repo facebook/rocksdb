@@ -211,7 +211,7 @@ struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
 class TableBuilder {
  public:
   // REQUIRES: Either Finish() or Abandon() has been called.
-  virtual ~TableBuilder() {}
+  virtual ~TableBuilder() = default;
 
   // Add key,value to the table being constructed.
   // REQUIRES: key is after any previously added key according to comparator.

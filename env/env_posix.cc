@@ -219,6 +219,11 @@ class PosixEnv : public CompositeEnv {
 
   struct JoinThreadsOnExit {
     explicit JoinThreadsOnExit(PosixEnv& _deflt) : deflt(_deflt) {}
+    // No copying allowed
+    JoinThreadsOnExit(const JoinThreadsOnExit&) = delete;
+    JoinThreadsOnExit& operator=(const JoinThreadsOnExit&) = delete;
+    JoinThreadsOnExit(JoinThreadsOnExit&&) = delete;
+    JoinThreadsOnExit& operator=(JoinThreadsOnExit&&) = delete;
     ~JoinThreadsOnExit() {
       for (const auto tid : deflt.threads_to_join_) {
         pthread_join(tid, nullptr);

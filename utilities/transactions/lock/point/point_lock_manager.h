@@ -114,6 +114,8 @@ class PointLockManager : public LockManager {
   // No copying allowed
   PointLockManager(const PointLockManager&) = delete;
   PointLockManager& operator=(const PointLockManager&) = delete;
+  PointLockManager(PointLockManager&&) = delete;
+  PointLockManager& operator=(PointLockManager&&) = delete;
 
   ~PointLockManager() override {}
 

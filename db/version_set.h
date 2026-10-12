@@ -157,6 +157,8 @@ class VersionStorageInfo {
   // No copying allowed
   VersionStorageInfo(const VersionStorageInfo&) = delete;
   void operator=(const VersionStorageInfo&) = delete;
+  VersionStorageInfo(VersionStorageInfo&&) = delete;
+  void operator=(VersionStorageInfo&&) = delete;
   ~VersionStorageInfo();
 
   void Reserve(int level, size_t size) { files_[level].reserve(size); }
@@ -931,6 +933,9 @@ struct ObsoleteFileInfo {
 
     return *this;
   }
+
+  ~ObsoleteFileInfo() = default;
+
   void DeleteMetadata() {
     if (file_metadata_cache_res_mgr) {
       Status s = file_metadata_cache_res_mgr->UpdateCacheReservation(
@@ -1290,6 +1295,8 @@ class Version {
   // No copying allowed
   Version(const Version&) = delete;
   void operator=(const Version&) = delete;
+  Version(Version&&) = delete;
+  void operator=(Version&&) = delete;
 };
 
 class BaseReferencedVersionBuilder;
@@ -1334,6 +1341,8 @@ class VersionSet {
   // No copying allowed
   VersionSet(const VersionSet&) = delete;
   void operator=(const VersionSet&) = delete;
+  VersionSet(VersionSet&&) = delete;
+  void operator=(VersionSet&&) = delete;
 
   virtual ~VersionSet();
 
@@ -2223,8 +2232,10 @@ class ReactiveVersionSet : public VersionSet {
   }
 
   // No copy allowed
-  ReactiveVersionSet(const ReactiveVersionSet&);
-  ReactiveVersionSet& operator=(const ReactiveVersionSet&);
+  ReactiveVersionSet(const ReactiveVersionSet&) = delete;
+  ReactiveVersionSet& operator=(const ReactiveVersionSet&) = delete;
+  ReactiveVersionSet(ReactiveVersionSet&&) = delete;
+  ReactiveVersionSet& operator=(ReactiveVersionSet&&) = delete;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

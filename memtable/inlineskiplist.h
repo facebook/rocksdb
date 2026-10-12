@@ -80,6 +80,9 @@ class InlineSkipList {
   // No copying allowed
   InlineSkipList(const InlineSkipList&) = delete;
   InlineSkipList& operator=(const InlineSkipList&) = delete;
+  InlineSkipList(InlineSkipList&&) = delete;
+  InlineSkipList& operator=(InlineSkipList&&) = delete;
+  ~InlineSkipList() = default;
 
   // Allocates a key and a skip-list node, returning a pointer to the key
   // portion of the node.  This method is thread-safe if the allocator

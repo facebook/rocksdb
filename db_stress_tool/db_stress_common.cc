@@ -1044,6 +1044,12 @@ class MyXXH64Checksum : public FileChecksumGenerator {
     XXH64_reset(state_, 0);
   }
 
+  // No copying allowed
+  MyXXH64Checksum(const MyXXH64Checksum&) = delete;
+  MyXXH64Checksum& operator=(const MyXXH64Checksum&) = delete;
+  MyXXH64Checksum(MyXXH64Checksum&&) = delete;
+  MyXXH64Checksum& operator=(MyXXH64Checksum&&) = delete;
+
   ~MyXXH64Checksum() override { XXH64_freeState(state_); }
 
   void Update(const char* data, size_t n) override {

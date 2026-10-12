@@ -52,8 +52,6 @@ class BlockBasedTableFactory : public TableFactory {
   explicit BlockBasedTableFactory(
       const BlockBasedTableOptions& table_options = BlockBasedTableOptions());
 
-  ~BlockBasedTableFactory() override {}
-
   // Method to allow CheckedCast to work for this class
   static const char* kClassName() { return kBlockBasedTableName(); }
 

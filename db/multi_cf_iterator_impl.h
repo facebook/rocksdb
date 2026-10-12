@@ -41,6 +41,8 @@ class MultiCfIteratorImpl {
   // No copy allowed
   MultiCfIteratorImpl(const MultiCfIteratorImpl&) = delete;
   MultiCfIteratorImpl& operator=(const MultiCfIteratorImpl&) = delete;
+  MultiCfIteratorImpl(MultiCfIteratorImpl&&) = delete;
+  MultiCfIteratorImpl& operator=(MultiCfIteratorImpl&&) = delete;
 
   Slice key() const {
     assert(Valid());

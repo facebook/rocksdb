@@ -245,6 +245,14 @@ class ExternalSstFileIngestionJob {
     assert(ucmp_);
   }
 
+  // No copying allowed
+  ExternalSstFileIngestionJob(const ExternalSstFileIngestionJob&) = delete;
+  ExternalSstFileIngestionJob& operator=(const ExternalSstFileIngestionJob&) =
+      delete;
+  ExternalSstFileIngestionJob(ExternalSstFileIngestionJob&&) = delete;
+  ExternalSstFileIngestionJob& operator=(ExternalSstFileIngestionJob&&) =
+      delete;
+
   ~ExternalSstFileIngestionJob() { UnregisterRange(); }
 
   ColumnFamilyData* GetColumnFamilyData() const { return cfd_; }

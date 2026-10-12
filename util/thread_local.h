@@ -47,6 +47,8 @@ class ThreadLocalPtr {
 
   ThreadLocalPtr(const ThreadLocalPtr&) = delete;
   ThreadLocalPtr& operator=(const ThreadLocalPtr&) = delete;
+  ThreadLocalPtr(ThreadLocalPtr&&) = delete;
+  ThreadLocalPtr& operator=(ThreadLocalPtr&&) = delete;
 
   ~ThreadLocalPtr();
 

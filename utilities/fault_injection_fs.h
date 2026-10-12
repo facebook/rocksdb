@@ -97,6 +97,8 @@ class InjectedErrorLog {
   ~InjectedErrorLog();
   InjectedErrorLog(const InjectedErrorLog&) = delete;
   InjectedErrorLog& operator=(const InjectedErrorLog&) = delete;
+  InjectedErrorLog(InjectedErrorLog&&) = delete;
+  InjectedErrorLog& operator=(InjectedErrorLog&&) = delete;
 
   void Record(const Slice& op_name, const Slice& file_name,
               const TaggedEntryDetail& detail, const IOStatus& status);
@@ -333,7 +335,7 @@ class TestFSRandomAccessFile : public FSRandomAccessFile {
   explicit TestFSRandomAccessFile(const std::string& fname,
                                   std::unique_ptr<FSRandomAccessFile>&& f,
                                   FaultInjectionTestFS* fs);
-  ~TestFSRandomAccessFile() override {}
+  ~TestFSRandomAccessFile() override = default;
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
                 Slice* result, char* scratch,
                 IODebugContext* dbg) const override;
@@ -389,7 +391,7 @@ class TestFSDirectory : public FSDirectory {
   explicit TestFSDirectory(FaultInjectionTestFS* fs, std::string dirname,
                            FSDirectory* dir)
       : fs_(fs), dirname_(std::move(dirname)), dir_(dir) {}
-  ~TestFSDirectory() override {}
+  ~TestFSDirectory() override = default;
 
   IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override;
 
@@ -427,6 +429,11 @@ class FaultInjectionTestFS : public FileSystemWrapper {
         ingest_data_corruption_before_write_(false),
         checksum_handoff_func_type_(kCRC32c),
         injected_error_log_(injected_error_log_path) {}
+  // No copying allowed
+  FaultInjectionTestFS(const FaultInjectionTestFS&) = delete;
+  FaultInjectionTestFS& operator=(const FaultInjectionTestFS&) = delete;
+  FaultInjectionTestFS(FaultInjectionTestFS&&) = delete;
+  FaultInjectionTestFS& operator=(FaultInjectionTestFS&&) = delete;
   ~FaultInjectionTestFS() override { fs_error_.PermitUncheckedError(); }
 
   static const char* kClassName() { return "FaultInjectionTestFS"; }
@@ -929,6 +936,11 @@ class FaultInjectionTestFS : public FileSystemWrapper {
           frames(0),
           retryable(false),
           has_data_loss(false) {}
+    // No copying allowed
+    ErrorContext(const ErrorContext&) = delete;
+    ErrorContext& operator=(const ErrorContext&) = delete;
+    ErrorContext(ErrorContext&&) = delete;
+    ErrorContext& operator=(ErrorContext&&) = delete;
     ~ErrorContext() {
       if (callstack) {
         free(callstack);

@@ -39,7 +39,7 @@ class PartitionedIndexIterator : public InternalIteratorBase<IndexValue> {
             table_->get_rep()->table_options.initial_auto_readahead_size) {
   }
 
-  ~PartitionedIndexIterator() override {}
+  ~PartitionedIndexIterator() override = default;
 
   void Seek(const Slice& target) override;
   void SeekForPrev(const Slice&) override {

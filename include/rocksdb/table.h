@@ -1169,8 +1169,6 @@ class RandomAccessFileReader;
 // A base class for table factories.
 class TableFactory : public Customizable {
  public:
-  ~TableFactory() override {}
-
   static const char* kBlockCacheOpts() { return "BlockCache"; }
   static const char* kBlockBasedTableName() { return "BlockBasedTable"; }
   static const char* kPlainTableName() { return "PlainTable"; }

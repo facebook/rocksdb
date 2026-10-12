@@ -128,6 +128,12 @@ class SstFileWriter {
                 bool invalidate_page_cache = true,
                 Env::IOPriority io_priority = Env::IOPriority::IO_TOTAL);
 
+  // No copying allowed
+  SstFileWriter(const SstFileWriter&) = delete;
+  SstFileWriter& operator=(const SstFileWriter&) = delete;
+  SstFileWriter(SstFileWriter&&) = delete;
+  SstFileWriter& operator=(SstFileWriter&&) = delete;
+
   ~SstFileWriter();
 
   // Prepare SstFileWriter to write into file located at "file_path".

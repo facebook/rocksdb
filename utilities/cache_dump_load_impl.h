@@ -99,6 +99,11 @@ class CacheDumperImpl : public CacheDumper {
       : options_(dump_options), cache_(cache), writer_(std::move(writer)) {
     dumped_size_bytes_ = 0;
   }
+  // No copying allowed
+  CacheDumperImpl(const CacheDumperImpl&) = delete;
+  CacheDumperImpl& operator=(const CacheDumperImpl&) = delete;
+  CacheDumperImpl(CacheDumperImpl&&) = delete;
+  CacheDumperImpl& operator=(CacheDumperImpl&&) = delete;
   ~CacheDumperImpl() override { writer_.reset(); }
   Status SetDumpFilter(const std::vector<DB*>& db_list) override;
   IOStatus DumpCacheEntriesToWriter() override;
@@ -140,7 +145,7 @@ class CacheDumpedLoaderImpl : public CacheDumpedLoader {
       : options_(dump_options),
         secondary_cache_(secondary_cache),
         reader_(std::move(reader)) {}
-  ~CacheDumpedLoaderImpl() override {}
+  ~CacheDumpedLoaderImpl() override = default;
   IOStatus RestoreCacheEntriesToSecondaryCache() override;
 
  private:
@@ -161,6 +166,12 @@ class ToFileCacheDumpWriter : public CacheDumpWriter {
   explicit ToFileCacheDumpWriter(
       std::unique_ptr<WritableFileWriter>&& file_writer)
       : file_writer_(std::move(file_writer)) {}
+
+  // No copying allowed
+  ToFileCacheDumpWriter(const ToFileCacheDumpWriter&) = delete;
+  ToFileCacheDumpWriter& operator=(const ToFileCacheDumpWriter&) = delete;
+  ToFileCacheDumpWriter(ToFileCacheDumpWriter&&) = delete;
+  ToFileCacheDumpWriter& operator=(ToFileCacheDumpWriter&&) = delete;
 
   ~ToFileCacheDumpWriter() override {
     ToFileCacheDumpWriter::Close().PermitUncheckedError();
@@ -218,6 +229,12 @@ class FromFileCacheDumpReader : public CacheDumpReader {
       : file_reader_(std::move(reader)),
         offset_(0),
         buffer_(new char[kDumpReaderBufferSize]) {}
+
+  // No copying allowed
+  FromFileCacheDumpReader(const FromFileCacheDumpReader&) = delete;
+  FromFileCacheDumpReader& operator=(const FromFileCacheDumpReader&) = delete;
+  FromFileCacheDumpReader(FromFileCacheDumpReader&&) = delete;
+  FromFileCacheDumpReader& operator=(FromFileCacheDumpReader&&) = delete;
 
   ~FromFileCacheDumpReader() override { delete[] buffer_; }
 

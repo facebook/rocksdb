@@ -48,6 +48,7 @@ class ConcurrentArena : public Allocator {
   explicit ConcurrentArena(size_t block_size = Arena::kMinBlockSize,
                            AllocTracker* tracker = nullptr,
                            size_t huge_page_size = 0);
+  ~ConcurrentArena() override = default;
 
   char* Allocate(size_t bytes) override {
     return AllocateImpl(bytes, false /*force_arena*/,
@@ -210,6 +211,8 @@ class ConcurrentArena : public Allocator {
 
   ConcurrentArena(const ConcurrentArena&) = delete;
   ConcurrentArena& operator=(const ConcurrentArena&) = delete;
+  ConcurrentArena(ConcurrentArena&&) = delete;
+  ConcurrentArena& operator=(ConcurrentArena&&) = delete;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
