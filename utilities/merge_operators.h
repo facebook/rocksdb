@@ -17,6 +17,7 @@ class MergeOperators {
  public:
   static std::shared_ptr<MergeOperator> CreatePutOperator();
   static std::shared_ptr<MergeOperator> CreateDeprecatedPutOperator();
+  static std::shared_ptr<MergeOperator> CreateInt64AddOperator();
   static std::shared_ptr<MergeOperator> CreateUInt64AddOperator();
   static std::shared_ptr<MergeOperator> CreateStringAppendOperator();
   static std::shared_ptr<MergeOperator> CreateStringAppendOperator(
