@@ -12,6 +12,7 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 #include "cache/cache_reservation_manager.h"
 #include "port/port.h"
@@ -46,6 +47,8 @@ class TailPrefetchStats {
   size_t next_ = 0;
   size_t num_records_ = 0;
 };
+
+Status ValidateIndexMode(BlockBasedTableOptions::IndexMode index_mode);
 
 class BlockBasedTableFactory : public TableFactory {
  public:
@@ -88,6 +91,10 @@ class BlockBasedTableFactory : public TableFactory {
   }
 
  protected:
+  Status ConfigureOptions(
+      const ConfigOptions& config_options,
+      const std::unordered_map<std::string, std::string>& opts_map,
+      std::unordered_map<std::string, std::string>* unused) override;
   const void* GetOptionsPtr(const std::string& name) const override;
   Status ParseOption(const ConfigOptions& config_options,
                      const OptionTypeInfo& opt_info,
@@ -96,7 +103,11 @@ class BlockBasedTableFactory : public TableFactory {
   void InitializeOptions();
 
  private:
+  void UpdateIndexMode();
+
   BlockBasedTableOptions table_options_;
+  bool index_mode_explicit_;
+  bool skip_standard_index_ = false;
   // Share some state among cloned instances
   struct SharedState {
     std::shared_ptr<CacheReservationManager> table_reader_cache_res_mgr;
