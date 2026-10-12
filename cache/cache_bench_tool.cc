@@ -439,6 +439,12 @@ class CacheBench {
       opts.memory_allocator = allocator;
       ConfigureSecondaryCache(opts);
       return NewLRUCache(opts);
+    } else if (FLAGS_cache_type == "fifo_cache") {
+      FIFOCacheOptions opts(FLAGS_cache_size, FLAGS_num_shard_bits,
+                            false /* strict_capacity_limit */, allocator);
+      opts.hash_seed = BitwiseAnd(FLAGS_seed, INT32_MAX);
+      ConfigureSecondaryCache(opts);
+      return opts.MakeSharedCache();
     } else {
       fprintf(stderr, "Cache type not supported.\n");
       exit(1);

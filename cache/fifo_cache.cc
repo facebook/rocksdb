@@ -3,6 +3,32 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+// FIFOCache implements S3-FIFO, from "FIFO Queues are All You Need for Cache
+// Eviction" (SOSP '23): https://jasony.me/publication/sosp23-s3fifo.pdf
+//
+// Each shard has three FIFO queues:
+//   P (probation): where new entries start. Budget: 12% of shard capacity,
+//     by charge.
+//   R (resident): entries that showed reuse. The rest of the capacity.
+//   G (ghost): key hashes of entries evicted from P. No values.
+//
+// How it works:
+//   - A hit bumps a per-entry counter (max 3). It never moves the entry.
+//   - Eviction runs only when the shard is over capacity. P goes first when
+//     it is over its budget.
+//   - At P's head: counter >= 2 moves to R with the counter reset. Otherwise
+//     the entry is evicted and its key is recorded in G.
+//   - At R's head: counter > 0 is decremented and moved to R's tail. Counter
+//     0 is evicted.
+//   - Inserting a key found in G skips P and goes straight to R.
+//   - Pinned entries are never evicted.
+//
+// Expectation: entries read once, and scans, leave through P without
+// touching R, so hot entries survive. This should mean fewer misses than LRU
+// on skewed and scan-heavy workloads. Hits stay cheap: a counter bump, no
+// list moves. Each shard takes a mutex, so throughput is not expected to
+// match the lock-free HyperClockCache.
+
 #include "cache/fifo_cache.h"
 
 #include <algorithm>
