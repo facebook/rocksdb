@@ -21,7 +21,7 @@ class SliceFormatter {
 // Options for customizing ldb tool (beyond the DB Options)
 struct LDBOptions {
   // Create LDBOptions with default values for all fields
-  LDBOptions();
+  ROCKSDB_LIBRARY_API LDBOptions();
 
   // Key formatter that converts a slice to a readable string.
   // Default: Slice::ToString()
@@ -35,7 +35,7 @@ class LDBTool {
   // DEPRECATED because this function does not return, which can result in
   // memory leaks being reported because of the default Options() etc. not being
   // destroyed.
-  void Run(
+  ROCKSDB_LIBRARY_API void Run(
       int argc, char** argv, Options db_options = Options(),
       const LDBOptions& ldb_options = LDBOptions(),
       const std::vector<ColumnFamilyDescriptor>* column_families = nullptr);

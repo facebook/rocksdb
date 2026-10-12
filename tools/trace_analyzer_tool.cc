@@ -1905,7 +1905,7 @@ Status TraceAnalyzer::WriteRangeDeleteTraceSequence(const uint32_t& cf_id,
 }
 
 // The entrance function of Trace_Analyzer
-int trace_analyzer_tool(int argc, char** argv) {
+ROCKSDB_LIBRARY_API int trace_analyzer_tool(int argc, char** argv) {
   std::string trace_path;
   std::string output_path;
 

@@ -16,6 +16,7 @@
 #include "monitoring/statistics_impl.h"
 #include "options/db_options.h"
 #include "options/options_helper.h"
+#include "rocksdb/c.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/comparator.h"
