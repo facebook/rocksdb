@@ -1,0 +1,1 @@
+`BlockBasedTableOptions::user_defined_index_factory` is now rejected when the column family comparator carries user-defined timestamps. `DB::Open` and `SstFileWriter` return `InvalidArgument` instead of failing later during flush or compaction.

@@ -1,0 +1,1 @@
+Parallel compression (`CompressionOptions::parallel_threads > 1`) now works alongside a configured `user_defined_index_factory`, instead of being silently disabled. The built-in trie index supports it. Custom index implementations that have not opted in keep building single-threaded.
