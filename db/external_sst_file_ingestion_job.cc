@@ -704,6 +704,7 @@ Status ExternalSstFileIngestionJob::Run() {
 
   if (atomic_replace_range_.has_value()) {
     auto* vstorage = super_version->current->storage_info();
+    files_to_replace_.clear();
     if (atomic_replace_range_->unset()) {
       if (cfd_->compaction_picker()->IsCompactionInProgress()) {
         return Status::InvalidArgument(
@@ -711,8 +712,10 @@ Status ExternalSstFileIngestionJob::Run() {
       }
       for (int lvl = 0; lvl < cfd_->NumberLevels(); lvl++) {
         for (auto file : vstorage->LevelFiles(lvl)) {
-          // Set up to delete file to be replaced
-          edit_.DeleteFile(lvl, file->fd.GetNumber());
+          status = AddFileToReplace(lvl, file);
+          if (!status.ok()) {
+            return status;
+          }
         }
       }
     } else {
@@ -732,8 +735,10 @@ Status ExternalSstFileIngestionJob::Run() {
                                            file->smallest, file->largest)) {
             if (file_range_checker_.Contains(*atomic_replace_range_,
                                              file->smallest, file->largest)) {
-              // Set up to delete file to be replaced
-              edit_.DeleteFile(lvl, file->fd.GetNumber());
+              status = AddFileToReplace(lvl, file);
+              if (!status.ok()) {
+                return status;
+              }
             } else {
               has_partial_overlap = true;
             }
@@ -984,10 +989,33 @@ void ExternalSstFileIngestionJob::CreateEquivalentFileIngestingCompactions() {
   }
 }
 
+Status ExternalSstFileIngestionJob::AddFileToReplace(int level,
+                                                     FileMetaData* file) {
+  // Range checks against registered compactions do not cover every input
+  // file, e.g. inputs of a compaction outputting to a different level or
+  // files marked by DeleteFilesInRanges().
+  if (file->being_compacted) {
+    return Status::InvalidArgument(
+        "Atomic replace range overlaps with pending compaction");
+  }
+  edit_.DeleteFile(level, file->fd.GetNumber());
+  files_to_replace_.push_back(file);
+  return Status::OK();
+}
+
 void ExternalSstFileIngestionJob::RegisterRange() {
   for (const auto& c : file_ingesting_compactions_) {
     cfd_->compaction_picker()->RegisterCompaction(c);
   }
+  // Compaction pickers only skip files marked as being compacted. Universal
+  // compaction does not check range overlap for L0 outputs, so without this a
+  // compaction picked while LogAndApply() has released the DB mutex can take
+  // a replaced file as input and later fail to delete it from the LSM tree.
+  for (FileMetaData* f : files_to_replace_) {
+    assert(!f->being_compacted);
+    f->being_compacted = true;
+  }
+  files_to_replace_marked_ = true;
 }
 
 void ExternalSstFileIngestionJob::UnregisterRange() {
@@ -1001,6 +1029,15 @@ void ExternalSstFileIngestionJob::UnregisterRange() {
     delete f;
   }
   compaction_input_metdatas_.clear();
+
+  if (files_to_replace_marked_) {
+    for (FileMetaData* f : files_to_replace_) {
+      assert(f->being_compacted);
+      f->being_compacted = false;
+    }
+    files_to_replace_marked_ = false;
+  }
+  files_to_replace_.clear();
 }
 
 void ExternalSstFileIngestionJob::UpdateStats() {
