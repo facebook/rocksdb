@@ -38,7 +38,7 @@ package org.rocksdb;
  *
  * <p>This class is thread-safe, as is the {@link RocksDB} it wraps.
  */
-public abstract class RocksDBAddr {
+public class RocksDBAddr {
   private final RocksDB db;
 
   /**

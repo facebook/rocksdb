@@ -314,6 +314,7 @@ set(JAVA_MAIN_CLASSES
   src/test/java/org/rocksdb/WriteBatchTest.java
   src/test/java/org/rocksdb/test/TestableEventListener.java
   src/test/java/org/rocksdb/util/CapturingWriteBatchHandler.java
+  src/test/java/org/rocksdb/util/DirectByteBufferAddress.java
   src/test/java/org/rocksdb/util/WriteBatchGetter.java
 )
 
@@ -425,7 +426,6 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/util/ByteBufferAllocator.java
   src/test/java/org/rocksdb/util/BytewiseComparatorIntTest.java
   src/test/java/org/rocksdb/util/BytewiseComparatorTest.java
-  src/test/java/org/rocksdb/util/DirectByteBufferAddress.java
   src/test/java/org/rocksdb/util/DirectByteBufferAllocator.java
   src/test/java/org/rocksdb/util/EnvironmentTest.java
   src/test/java/org/rocksdb/util/HeapByteBufferAllocator.java

@@ -19,7 +19,7 @@ package org.rocksdb;
  *
  * <p>This class is not thread-safe, like the batch it wraps.
  */
-public abstract class WriteBatchAddr {
+public class WriteBatchAddr {
   private final AbstractWriteBatch writeBatch;
 
   /**
