@@ -1,0 +1,1 @@
+Fixed `MultiGet` with `ReadOptions::async_io` returning `NotSupported` when io_uring initialization or an asynchronous read submission fails. It now checks async I/O support on the reading thread and falls back to synchronous reads when needed.
