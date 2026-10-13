@@ -2783,7 +2783,8 @@ TEST_F(CompactionServiceTest, CompactionInfo) {
 
   CompactionServiceJobInfo info = my_cs->GetCompactionInfoForStart();
   ASSERT_EQ(dbname_, info.db_name);
-  std::string db_id, db_session_id;
+  std::string db_id;
+  std::string db_session_id;
   ASSERT_OK(db_->GetDbIdentity(db_id));
   ASSERT_EQ(db_id, info.db_id);
   ASSERT_OK(db_->GetDbSessionId(db_session_id));

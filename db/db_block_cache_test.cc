@@ -1921,7 +1921,10 @@ TEST_F(CacheKeyTest, DBImplSessionIdStructure) {
   // counter."
   std::string session_id1 = DBImpl::GenerateDbSessionId(/*env*/ nullptr);
   std::string session_id2 = DBImpl::GenerateDbSessionId(/*env*/ nullptr);
-  uint64_t upper1, upper2, lower1, lower2;
+  uint64_t upper1;
+  uint64_t upper2;
+  uint64_t lower1;
+  uint64_t lower2;
   ASSERT_OK(DecodeSessionId(session_id1, &upper1, &lower1));
   ASSERT_OK(DecodeSessionId(session_id2, &upper2, &lower2));
   // Because generated in same process
@@ -1981,7 +1984,8 @@ struct CacheKeyDecoder {
   }
 
   void Decode(const CacheKey& key) {
-    uint64_t file_num_etc64, offset_etc64;
+    uint64_t file_num_etc64;
+    uint64_t offset_etc64;
     DeconstructNonemptyCacheKey(key, &file_num_etc64, &offset_etc64);
 
     // First decode session counter

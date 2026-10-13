@@ -98,8 +98,12 @@ class Stats {
     seconds_ += other.seconds_;
     num_compact_files_succeed_ += other.num_compact_files_succeed_;
     num_compact_files_failed_ += other.num_compact_files_failed_;
-    if (other.start_ < start_) start_ = other.start_;
-    if (other.finish_ > finish_) finish_ = other.finish_;
+    if (other.start_ < start_) {
+      start_ = other.start_;
+    }
+    if (other.finish_ > finish_) {
+      finish_ = other.finish_;
+    }
   }
 
   void Stop() {
@@ -121,20 +125,21 @@ class Stats {
     done_++;
     if (FLAGS_progress_reports) {
       if (done_ >= next_report_) {
-        if (next_report_ < 1000)
+        if (next_report_ < 1000) {
           next_report_ += 100;
-        else if (next_report_ < 5000)
+        } else if (next_report_ < 5000) {
           next_report_ += 500;
-        else if (next_report_ < 10000)
+        } else if (next_report_ < 10000) {
           next_report_ += 1000;
-        else if (next_report_ < 50000)
+        } else if (next_report_ < 50000) {
           next_report_ += 5000;
-        else if (next_report_ < 100000)
+        } else if (next_report_ < 100000) {
           next_report_ += 10000;
-        else if (next_report_ < 500000)
+        } else if (next_report_ < 500000) {
           next_report_ += 50000;
-        else
+        } else {
           next_report_ += 100000;
+        }
         fprintf(stdout, "... finished %ld ops%30s\r", done_, "");
       }
     }

@@ -226,7 +226,8 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
       vstorage->LevelFiles(last_level);
 
   // Compute effective size and limit for comparison.
-  uint64_t effective_size, effective_max;
+  uint64_t effective_size;
+  uint64_t effective_max;
   GetEffectiveSizeAndLimit(fifo_opts, total_size,
                            vstorage->GetBlobStats().total_file_size,
                            &effective_size, &effective_max);

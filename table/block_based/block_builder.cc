@@ -475,7 +475,10 @@ void BlockBuilder::RewriteRestartKeysStrippingPrefix() {
     //   V4 (index blocks with value delta encoding): no value_size field --
     //     the value is a self-delimiting BlockHandle.
     //     <shared=0><non_shared>[<value_offset> if separated]<key><value>
-    uint32_t shared = 0, non_shared = 0, value_size = 0, value_offset = 0;
+    uint32_t shared = 0;
+    uint32_t non_shared = 0;
+    uint32_t value_size = 0;
+    uint32_t value_offset = 0;
     in = GetVarint32Ptr(in, limit, &shared);
     in = GetVarint32Ptr(in, limit, &non_shared);
     if (!use_value_delta_encoding_) {

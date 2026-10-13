@@ -697,7 +697,8 @@ int WriteBatchEntryComparator::operator()(
     return 1;
   }
 
-  Slice key1, key2;
+  Slice key1;
+  Slice key2;
   if (entry1->search_key == nullptr) {
     key1 = Slice(write_batch_->Data().data() + entry1->key_offset,
                  entry1->key_size);
@@ -751,7 +752,8 @@ const Comparator* WriteBatchEntryComparator::GetComparator(
 
 WriteEntry WBWIIteratorImpl::Entry() const {
   WriteEntry ret;
-  Slice blob, xid;
+  Slice blob;
+  Slice xid;
   const WriteBatchIndexEntry* iter_entry = skip_list_iter_.key();
   // this is guaranteed with Valid()
   assert(iter_entry != nullptr &&

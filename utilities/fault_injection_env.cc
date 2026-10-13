@@ -316,7 +316,8 @@ Status FaultInjectionTestEnv::ReopenWritableFile(
   }
 
   bool exists;
-  Status s, exists_s = target()->FileExists(fname);
+  Status s;
+  Status exists_s = target()->FileExists(fname);
   if (exists_s.IsNotFound()) {
     exists = false;
   } else if (exists_s.ok()) {

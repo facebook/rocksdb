@@ -573,7 +573,8 @@ bool UniversalCompactionBuilder::IsInputFilesNonOverlapping(Compaction* c) {
   auto comparator = icmp_->user_comparator();
   int first_iter = 1;
 
-  InputFileInfo prev, curr;
+  InputFileInfo prev;
+  InputFileInfo curr;
 
   SmallestKeyHeap smallest_key_priority_q =
       create_level_heap(c, icmp_->user_comparator());
@@ -1421,7 +1422,8 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
   // Since we need to go from lower level up and this is in the reverse
   // order, compared to level order, we first write to an reversed
   // data structure and finally copy them to compaction inputs.
-  InternalKey smallest, largest;
+  InternalKey smallest;
+  InternalKey largest;
   picker_->GetRange(second_last_level_inputs, &smallest, &largest);
   std::vector<CompactionInputFiles> inputs_reverse;
   for (auto it = ++(++sorted_runs_.rbegin()); it != sorted_runs_.rend(); it++) {

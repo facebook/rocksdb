@@ -200,7 +200,8 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
 
   ColumnFamilyOptions base_cf_opt;
   ColumnFamilyOptions new_cf_opt;
-  ConfigOptions exact, loose;
+  ConfigOptions exact;
+  ConfigOptions loose;
   exact.input_strings_escaped = false;
   exact.ignore_unknown_options = false;
   exact.sanity_level = ConfigOptions::kSanityLevelExactMatch;
@@ -1398,7 +1399,8 @@ class CustomEnv : public EnvWrapper {
 };
 
 TEST_F(OptionsTest, GetOptionsFromStringTest) {
-  Options base_options, new_options;
+  Options base_options;
+  Options new_options;
   ConfigOptions config_options;
   config_options.input_strings_escaped = false;
   config_options.ignore_unknown_options = false;
@@ -1516,7 +1518,8 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
 }
 
 TEST_F(OptionsTest, DBOptionsSerialization) {
-  Options base_options, new_options;
+  Options base_options;
+  Options new_options;
   Random rnd(301);
   ConfigOptions config_options;
   config_options.input_strings_escaped = false;
@@ -1567,7 +1570,8 @@ TEST_F(OptionsTest, DBOptionsComposeImmutable) {
   // we get same constituent options.
   ConfigOptions config_options;
   Random rnd(301);
-  DBOptions base_opts, new_opts;
+  DBOptions base_opts;
+  DBOptions new_opts;
   test::RandomInitDBOptions(&base_opts, &rnd);
   MutableDBOptions m_opts(base_opts);
   ImmutableDBOptions i_opts(base_opts);
@@ -1599,7 +1603,8 @@ TEST_F(OptionsTest, CFOptionsComposeImmutable) {
   // we get same constituent options.
   ConfigOptions config_options;
   Random rnd(301);
-  ColumnFamilyOptions base_opts, new_opts;
+  ColumnFamilyOptions base_opts;
+  ColumnFamilyOptions new_opts;
   DBOptions dummy;  // Needed to create ImmutableCFOptions
   test::RandomInitCFOptions(&base_opts, dummy, &rnd);
   MutableCFOptions m_opts(base_opts);
@@ -1613,7 +1618,8 @@ TEST_F(OptionsTest, CFOptionsComposeImmutable) {
 
 TEST_F(OptionsTest, GetMutableCFOptions) {
   Random rnd(228);
-  ColumnFamilyOptions base, copy;
+  ColumnFamilyOptions base;
+  ColumnFamilyOptions copy;
   std::string opts_str;
   std::unordered_map<std::string, std::string> opts_map;
   ConfigOptions config_options;
@@ -1621,7 +1627,8 @@ TEST_F(OptionsTest, GetMutableCFOptions) {
 
   test::RandomInitCFOptions(&base, dummy, &rnd);
   ColumnFamilyOptions result;
-  MutableCFOptions m_opts(base), new_opts;
+  MutableCFOptions m_opts(base);
+  MutableCFOptions new_opts;
 
   ASSERT_OK(GetStringFromMutableCFOptions(config_options, m_opts, &opts_str));
   ASSERT_OK(StringToMap(opts_str, &opts_map));
@@ -1635,7 +1642,8 @@ TEST_F(OptionsTest, GetMutableCFOptions) {
 
 TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
   Options options;
-  ColumnFamilyOptions base_opt, new_opt;
+  ColumnFamilyOptions base_opt;
+  ColumnFamilyOptions new_opt;
   base_opt.comparator = test::BytewiseComparatorWithU64TsWrapper();
   Random rnd(302);
   ConfigOptions config_options;
@@ -2305,7 +2313,8 @@ TEST_F(OptionsTest, OnlyMutableDBOptions) {
 
   ASSERT_GT(a_names.size(), m_names.size());
   for (const auto& n : m_names) {
-    std::string m, d;
+    std::string m;
+    std::string d;
     ASSERT_OK(mdb_config->GetOption(cfg_opts, n, &m));
     ASSERT_OK(db_config->GetOption(cfg_opts, n, &d));
     ASSERT_EQ(m, d);
@@ -2353,7 +2362,8 @@ TEST_F(OptionsTest, OnlyMutableCFOptions) {
 
   ASSERT_GT(a_names.size(), m_names.size());
   for (const auto& n : m_names) {
-    std::string m, d;
+    std::string m;
+    std::string d;
     ASSERT_OK(mcf_config->GetOption(cfg_opts, n, &m));
     ASSERT_OK(cf_config->GetOption(cfg_opts, n, &d));
     ASSERT_EQ(m, d);
@@ -2373,8 +2383,10 @@ TEST_F(OptionsTest, OnlyMutableCFOptions) {
 
 TEST_F(OptionsTest, SstPartitionerTest) {
   ConfigOptions cfg_opts;
-  ColumnFamilyOptions cf_opts, new_opt;
-  std::string opts_str, mismatch;
+  ColumnFamilyOptions cf_opts;
+  ColumnFamilyOptions new_opt;
+  std::string opts_str;
+  std::string mismatch;
 
   ASSERT_OK(SstPartitionerFactory::CreateFromString(
       cfg_opts, SstPartitionerFixedPrefixFactory::kClassName(),
@@ -2408,8 +2420,10 @@ TEST_F(OptionsTest, SstPartitionerTest) {
 
 TEST_F(OptionsTest, FileChecksumGenFactoryTest) {
   ConfigOptions cfg_opts;
-  DBOptions db_opts, new_opt;
-  std::string opts_str, mismatch;
+  DBOptions db_opts;
+  DBOptions new_opt;
+  std::string opts_str;
+  std::string mismatch;
   auto factory = GetFileChecksumGenCrc32cFactory();
 
   cfg_opts.ignore_unsupported_options = false;
@@ -2462,7 +2476,8 @@ class TestTablePropertiesCollectorFactory
 
 TEST_F(OptionsTest, OptionTablePropertiesTest) {
   ConfigOptions cfg_opts;
-  ColumnFamilyOptions orig, copy;
+  ColumnFamilyOptions orig;
+  ColumnFamilyOptions copy;
   orig.table_properties_collector_factories.push_back(
       std::make_shared<TestTablePropertiesCollectorFactory>("1"));
   orig.table_properties_collector_factories.push_back(
@@ -2570,7 +2585,8 @@ static int RegisterTestEventListener(ObjectLibrary& library,
   return 1;
 }
 TEST_F(OptionsTest, OptionsListenerTest) {
-  DBOptions orig, copy;
+  DBOptions orig;
+  DBOptions copy;
   orig.listeners.push_back(std::make_shared<TestEventListener>("1"));
   orig.listeners.push_back(std::make_shared<TestEventListener>("2"));
   orig.listeners.push_back(std::make_shared<TestEventListener>(""));
@@ -2848,7 +2864,8 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(cf_config_options, base_cf_opt,
                                            cf_options_map, &new_cf_opt));
-  ConfigOptions exact, loose;
+  ConfigOptions exact;
+  ConfigOptions loose;
   exact.sanity_level = ConfigOptions::kSanityLevelExactMatch;
   loose.sanity_level = ConfigOptions::kSanityLevelLooselyCompatible;
 
@@ -3482,7 +3499,8 @@ TEST_F(OptionsOldApiTest, GetPlainTableOptionsFromString) {
 }
 
 TEST_F(OptionsOldApiTest, GetOptionsFromStringTest) {
-  Options base_options, new_options;
+  Options base_options;
+  Options new_options;
   base_options.write_buffer_size = 20;
   base_options.min_write_buffer_number_to_merge = 15;
   BlockBasedTableOptions block_based_table_options;
@@ -3548,7 +3566,8 @@ TEST_F(OptionsOldApiTest, GetOptionsFromStringTest) {
 }
 
 TEST_F(OptionsOldApiTest, DBOptionsSerialization) {
-  Options base_options, new_options;
+  Options base_options;
+  Options new_options;
   Random rnd(301);
 
   // Phase 1: Make big change in base_options
@@ -3573,7 +3592,8 @@ TEST_F(OptionsOldApiTest, DBOptionsSerialization) {
 
 TEST_F(OptionsOldApiTest, ColumnFamilyOptionsSerialization) {
   Options options;
-  ColumnFamilyOptions base_opt, new_opt;
+  ColumnFamilyOptions base_opt;
+  ColumnFamilyOptions new_opt;
   Random rnd(302);
   // Phase 1: randomly assign base_opt
   // custom type options
@@ -4675,7 +4695,8 @@ static void TestAndCompareOption(const ConfigOptions& config_options,
                                  const OptionTypeInfo& opt_info,
                                  const std::string& opt_name, void* base_ptr,
                                  void* comp_ptr, bool strip = false) {
-  std::string result, mismatch;
+  std::string result;
+  std::string mismatch;
   ASSERT_OK(opt_info.Serialize(config_options, opt_name, base_ptr, &result));
   if (strip) {
     ASSERT_EQ(result.at(0), '{');
@@ -4715,43 +4736,53 @@ class OptionTypeInfoTest : public testing::Test {};
 TEST_F(OptionTypeInfoTest, BasicTypes) {
   ConfigOptions config_options;
   {
-    bool a = true, b = false;
+    bool a = true;
+    bool b = false;
     TestOptInfo(config_options, OptionType::kBoolean, &a, &b);
   }
   {
-    int a = 100, b = 200;
+    int a = 100;
+    int b = 200;
     TestOptInfo(config_options, OptionType::kInt, &a, &b);
   }
   {
-    int32_t a = 100, b = 200;
+    int32_t a = 100;
+    int32_t b = 200;
     TestOptInfo(config_options, OptionType::kInt32T, &a, &b);
   }
   {
-    int64_t a = 100, b = 200;
+    int64_t a = 100;
+    int64_t b = 200;
     TestOptInfo(config_options, OptionType::kInt64T, &a, &b);
   }
   {
-    unsigned int a = 100, b = 200;
+    unsigned int a = 100;
+    unsigned int b = 200;
     TestOptInfo(config_options, OptionType::kUInt, &a, &b);
   }
   {
-    uint32_t a = 100, b = 200;
+    uint32_t a = 100;
+    uint32_t b = 200;
     TestOptInfo(config_options, OptionType::kUInt32T, &a, &b);
   }
   {
-    uint64_t a = 100, b = 200;
+    uint64_t a = 100;
+    uint64_t b = 200;
     TestOptInfo(config_options, OptionType::kUInt64T, &a, &b);
   }
   {
-    size_t a = 100, b = 200;
+    size_t a = 100;
+    size_t b = 200;
     TestOptInfo(config_options, OptionType::kSizeT, &a, &b);
   }
   {
-    std::string a = "100", b = "200";
+    std::string a = "100";
+    std::string b = "200";
     TestOptInfo(config_options, OptionType::kString, &a, &b);
   }
   {
-    double a = 1.0, b = 2.0;
+    double a = 1.0;
+    double b = 2.0;
     TestOptInfo(config_options, OptionType::kDouble, &a, &b);
   }
 }
@@ -5007,9 +5038,11 @@ TEST_F(OptionTypeInfoTest, TestCustomEnum) {
       {"C", TestEnum::kC},
   };
   OptionTypeInfo opt_info = OptionTypeInfo::Enum<TestEnum>(0, &enum_map);
-  TestEnum e1, e2;
+  TestEnum e1;
+  TestEnum e2;
   ConfigOptions config_options;
-  std::string result, mismatch;
+  std::string result;
+  std::string mismatch;
 
   e2 = TestEnum::kA;
 
@@ -5031,42 +5064,48 @@ TEST_F(OptionTypeInfoTest, TestCustomEnum) {
 TEST_F(OptionTypeInfoTest, TestBuiltinEnum) {
   ConfigOptions config_options;
   for (const auto& iter : OptionsHelper::compaction_style_string_map) {
-    CompactionStyle e1, e2;
+    CompactionStyle e1;
+    CompactionStyle e2;
     TestParseAndCompareOption(config_options,
                               OptionTypeInfo(0, OptionType::kCompactionStyle),
                               "CompactionStyle", iter.first, &e1, &e2);
     ASSERT_EQ(e1, iter.second);
   }
   for (const auto& iter : OptionsHelper::compaction_pri_string_map) {
-    CompactionPri e1, e2;
+    CompactionPri e1;
+    CompactionPri e2;
     TestParseAndCompareOption(config_options,
                               OptionTypeInfo(0, OptionType::kCompactionPri),
                               "CompactionPri", iter.first, &e1, &e2);
     ASSERT_EQ(e1, iter.second);
   }
   for (const auto& iter : OptionsHelper::compression_type_string_map) {
-    CompressionType e1, e2;
+    CompressionType e1;
+    CompressionType e2;
     TestParseAndCompareOption(config_options,
                               OptionTypeInfo(0, OptionType::kCompressionType),
                               "CompressionType", iter.first, &e1, &e2);
     ASSERT_EQ(e1, iter.second);
   }
   for (const auto& iter : OptionsHelper::compaction_stop_style_string_map) {
-    CompactionStopStyle e1, e2;
+    CompactionStopStyle e1;
+    CompactionStopStyle e2;
     TestParseAndCompareOption(
         config_options, OptionTypeInfo(0, OptionType::kCompactionStopStyle),
         "CompactionStopStyle", iter.first, &e1, &e2);
     ASSERT_EQ(e1, iter.second);
   }
   for (const auto& iter : OptionsHelper::checksum_type_string_map) {
-    ChecksumType e1, e2;
+    ChecksumType e1;
+    ChecksumType e2;
     TestParseAndCompareOption(config_options,
                               OptionTypeInfo(0, OptionType::kChecksumType),
                               "CheckSumType", iter.first, &e1, &e2);
     ASSERT_EQ(e1, iter.second);
   }
   for (const auto& iter : OptionsHelper::encoding_type_string_map) {
-    EncodingType e1, e2;
+    EncodingType e1;
+    EncodingType e2;
     TestParseAndCompareOption(config_options,
                               OptionTypeInfo(0, OptionType::kEncodingType),
                               "EncodingType", iter.first, &e1, &e2);
@@ -5105,7 +5144,8 @@ TEST_F(OptionTypeInfoTest, TestStruct) {
   OptionTypeInfo extended_info = OptionTypeInfo::Struct(
       "e", &extended_type_map, 0, OptionVerificationType::kNormal,
       OptionTypeFlags::kMutable);
-  Extended e1, e2;
+  Extended e1;
+  Extended e2;
   ConfigOptions config_options;
   std::string mismatch;
   TestParseAndCompareOption(config_options, basic_info, "b", "{i=33;s=33}",
@@ -5162,7 +5202,8 @@ TEST_F(OptionTypeInfoTest, TestArrayType) {
   OptionTypeInfo array_info = OptionTypeInfo::Array<std::string, 4>(
       0, OptionVerificationType::kNormal, OptionTypeFlags::kNone,
       {0, OptionType::kString});
-  std::array<std::string, 4> array1, array2;
+  std::array<std::string, 4> array1;
+  std::array<std::string, 4> array2;
   std::string mismatch;
 
   ConfigOptions config_options;
@@ -5188,7 +5229,8 @@ TEST_F(OptionTypeInfoTest, TestArrayType) {
   ASSERT_EQ(array1[2], "c");
   ASSERT_EQ(array1[3], "d");
 
-  std::array<std::string, 3> array3, array4;
+  std::array<std::string, 3> array3;
+  std::array<std::string, 3> array4;
   OptionTypeInfo bar_info = OptionTypeInfo::Array<std::string, 3>(
       0, OptionVerificationType::kNormal, OptionTypeFlags::kNone,
       {0, OptionType::kString}, '|');
@@ -5224,7 +5266,8 @@ TEST_F(OptionTypeInfoTest, TestVectorType) {
   OptionTypeInfo vec_info = OptionTypeInfo::Vector<std::string>(
       0, OptionVerificationType::kNormal, OptionTypeFlags::kNone,
       {0, OptionType::kString});
-  std::vector<std::string> vec1, vec2;
+  std::vector<std::string> vec1;
+  std::vector<std::string> vec2;
   std::string mismatch;
 
   ConfigOptions config_options;
@@ -5293,10 +5336,12 @@ TEST_F(OptionTypeInfoTest, TestStaticType) {
   };
 
   ConfigOptions config_options;
-  SimpleOptions opts, copy;
+  SimpleOptions opts;
+  SimpleOptions copy;
   opts.size = 12345;
   opts.verify = false;
-  std::string str, mismatch;
+  std::string str;
+  std::string mismatch;
 
   ASSERT_OK(
       OptionTypeInfo::SerializeType(config_options, type_map, &opts, &str));

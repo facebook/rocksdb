@@ -282,7 +282,8 @@ void MockTableFactory::AssertLatestFiles(
       std::cout << "Wrong content! Content of file, expect:" << std::endl;
       for (const auto& kv : *expect) {
         ParsedInternalKey ikey;
-        std::string key, value;
+        std::string key;
+        std::string value;
         std::tie(key, value) = kv;
         ASSERT_OK(ParseInternalKey(Slice(key), &ikey, true /* log_err_key */));
         std::cout << ikey.DebugString(true, false) << " -> " << value
@@ -291,7 +292,8 @@ void MockTableFactory::AssertLatestFiles(
       std::cout << "actual:" << std::endl;
       for (const auto& kv : it->second) {
         ParsedInternalKey ikey;
-        std::string key, value;
+        std::string key;
+        std::string value;
         std::tie(key, value) = kv;
         ASSERT_OK(ParseInternalKey(Slice(key), &ikey, true /* log_err_key */));
         std::cout << ikey.DebugString(true, false) << " -> " << value

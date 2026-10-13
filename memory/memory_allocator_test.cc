@@ -55,7 +55,8 @@ TEST_P(MemoryAllocatorTest, CreateAllocator) {
   ConfigOptions config_options;
   config_options.ignore_unknown_options = false;
   config_options.ignore_unsupported_options = false;
-  std::shared_ptr<MemoryAllocator> orig, copy;
+  std::shared_ptr<MemoryAllocator> orig;
+  std::shared_ptr<MemoryAllocator> copy;
   Status s = MemoryAllocator::CreateFromString(config_options, id_, &orig);
   if (!IsSupported()) {
     ASSERT_TRUE(s.IsNotSupported());

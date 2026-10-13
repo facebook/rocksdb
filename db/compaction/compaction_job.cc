@@ -2565,7 +2565,8 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
                    get_time_status.ToString().c_str());
   }
   uint64_t current_time = static_cast<uint64_t>(temp_current_time);
-  InternalKey tmp_start, tmp_end;
+  InternalKey tmp_start;
+  InternalKey tmp_end;
   if (sub_compact->start.has_value()) {
     tmp_start.SetMinPossibleForUserKey(*(sub_compact->start));
   }

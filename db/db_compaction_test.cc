@@ -2458,9 +2458,12 @@ TEST_P(DBDeleteFileRangeTest, DeleteFilesInRanges) {
 
   // Delete files in range [0, 299] (inclusive)
   {
-    auto begin_str1 = Key(0), end_str1 = Key(100);
-    auto begin_str2 = Key(100), end_str2 = Key(200);
-    auto begin_str3 = Key(200), end_str3 = Key(299);
+    auto begin_str1 = Key(0);
+    auto end_str1 = Key(100);
+    auto begin_str2 = Key(100);
+    auto end_str2 = Key(200);
+    auto begin_str3 = Key(200);
+    auto end_str3 = Key(299);
     std::vector<RangeOpt> ranges;
     ranges.emplace_back(begin_str1, end_str1);
     ranges.emplace_back(begin_str2, end_str2);
@@ -2482,12 +2485,18 @@ TEST_P(DBDeleteFileRangeTest, DeleteFilesInRanges) {
 
   // Delete files in range [600, 999) (exclusive)
   {
-    auto begin_str1 = Key(600), end_str1 = Key(800);
-    auto begin_str2 = Key(700), end_str2 = Key(900);
-    auto begin_str3 = Key(800), end_str3 = Key(999);
-    Slice begin1(begin_str1), end1(end_str1);
-    Slice begin2(begin_str2), end2(end_str2);
-    Slice begin3(begin_str3), end3(end_str3);
+    auto begin_str1 = Key(600);
+    auto end_str1 = Key(800);
+    auto begin_str2 = Key(700);
+    auto end_str2 = Key(900);
+    auto begin_str3 = Key(800);
+    auto end_str3 = Key(999);
+    Slice begin1(begin_str1);
+    Slice end1(end_str1);
+    Slice begin2(begin_str2);
+    Slice end2(end_str2);
+    Slice begin3(begin_str3);
+    Slice end3(end_str3);
     std::vector<RangePtr> ranges;
     ranges.emplace_back(&begin1, &end1);
     ranges.emplace_back(&begin2, &end2);
@@ -2574,8 +2583,10 @@ TEST_P(DBDeleteFileRangeTest, DeleteFileRangeFileEndpointsOverlapBug) {
 
   // Verify `DeleteFilesInRange` can't drop only file 0 which would cause
   // "1 -> vals[0]" to reappear.
-  std::string begin_str = Key(0), end_str = Key(1);
-  Slice begin = begin_str, end = end_str;
+  std::string begin_str = Key(0);
+  std::string end_str = Key(1);
+  Slice begin = begin_str;
+  Slice end = end_str;
   ASSERT_OK(
       DeleteFilesInRange(db_.get(), db_->DefaultColumnFamily(), &begin, &end));
   ASSERT_EQ(vals[1], GetValue(Key(1)));
@@ -2883,7 +2894,8 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionCFPathUse) {
 
   std::vector<Options> option_vector;
   option_vector.emplace_back(options);
-  ColumnFamilyOptions cf_opt1(options), cf_opt2(options);
+  ColumnFamilyOptions cf_opt1(options);
+  ColumnFamilyOptions cf_opt2(options);
   // Configure CF1 specific paths.
   cf_opt1.cf_paths.emplace_back(dbname_ + "cf1", 500 * 1024);
   cf_opt1.cf_paths.emplace_back(dbname_ + "cf1_2", 4 * 1024 * 1024);
@@ -3659,7 +3671,10 @@ TEST_P(DBCompactionTestWithParam, CompressLevelCompaction) {
   // move to level 3 will not be allowed
   options.compression_per_level = {kNoCompression, kNoCompression,
                                    kZlibCompression};
-  int matches = 0, didnt_match = 0, trivial_move = 0, non_trivial = 0;
+  int matches = 0;
+  int didnt_match = 0;
+  int trivial_move = 0;
+  int non_trivial = 0;
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "Compaction::InputCompressionMatchesOutput:Matches",
@@ -4735,7 +4750,8 @@ TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(kNumLevelFiles, NumTableFilesAtLevel(1));
 
-  std::vector<LiveFileMetaData> pre_release_metadata, post_release_metadata;
+  std::vector<LiveFileMetaData> pre_release_metadata;
+  std::vector<LiveFileMetaData> post_release_metadata;
   db_->GetLiveFilesMetaData(&pre_release_metadata);
   // just need to bump seqnum so ReleaseSnapshot knows the newest key in the SST
   // files does not need to be preserved in case of a future snapshot.
@@ -4882,7 +4898,8 @@ TEST_F(DBCompactionTest, NoCompactBottomLevelFilesWithDeletions) {
   ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr));
   ASSERT_EQ(kNumLevelFiles, NumTableFilesAtLevel(1));
 
-  std::vector<LiveFileMetaData> pre_release_metadata, post_release_metadata;
+  std::vector<LiveFileMetaData> pre_release_metadata;
+  std::vector<LiveFileMetaData> post_release_metadata;
   db_->GetLiveFilesMetaData(&pre_release_metadata);
   // just need to bump seqnum so ReleaseSnapshot knows the newest key in the SST
   // files does not need to be preserved in case of a future snapshot.
@@ -6432,7 +6449,8 @@ TEST_F(DBCompactionTest, CompactRangeFlushOverlappingMemtable) {
       CompactRangeOptions compact_range_opts;
       ASSERT_OK(db_->CompactRange(compact_range_opts, begin_ptr, end_ptr));
 
-      uint64_t get_prop_tmp, num_memtable_entries = 0;
+      uint64_t get_prop_tmp;
+      uint64_t num_memtable_entries = 0;
       ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumEntriesImmMemTables,
                                       &get_prop_tmp));
       num_memtable_entries += get_prop_tmp;
@@ -8201,7 +8219,8 @@ TEST_F(DBCompactionTest, ManualCompactionBottomLevelOptimized) {
 }
 
 TEST_F(DBCompactionTest, ManualCompactionMax) {
-  uint64_t l1_avg_size = 0, l2_avg_size = 0;
+  uint64_t l1_avg_size = 0;
+  uint64_t l2_avg_size = 0;
   auto generate_sst_func = [&]() {
     Random rnd(301);
     for (auto i = 0; i < 100; i++) {
@@ -9389,7 +9408,8 @@ TEST_P(DBCompactionTestL0FilesMisorderCorruptionWithParam,
   // `start` and `end` is carefully chosen so that compact range:
   // (1) doesn't overlap with memtable therefore the memtable won't be flushed
   // (2) should target at compacting s0 with s1 and s2
-  Slice start("k3"), end("k5");
+  Slice start("k3");
+  Slice end("k5");
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, &end));
   // After compaction, we have LSM tree:
   //
@@ -10904,8 +10924,12 @@ TEST_F(DBCompactionTest, FIFOMultiTierTemperatureAging) {
   env_->SetMockSleep();
 
   // Track all temperature file creations
-  int total_hot = 0, total_warm = 0, total_cool = 0, total_cold = 0,
-      total_ice = 0, total_unknown = 0;
+  int total_hot = 0;
+  int total_warm = 0;
+  int total_cool = 0;
+  int total_cold = 0;
+  int total_ice = 0;
+  int total_unknown = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "NewWritableFile::FileOptions.temperature", [&](void* arg) {
         Temperature temperature = *(static_cast<Temperature*>(arg));
@@ -11741,7 +11765,8 @@ TEST_F(DBCompactionTest, DrainUnnecessaryLevelsAfterMultiplierChanged) {
   // necessary, unnecessary levels should to be drained.
   const int kBaseLevelBytes = 256 << 10;  // 256KB
   const int kFileBytes = 64 << 10;        // 64KB
-  const int kInitMultiplier = 2, kChangedMultiplier = 10;
+  const int kInitMultiplier = 2;
+  const int kChangedMultiplier = 10;
   const int kNumFiles = 32;
   const int kNumLevels = 5;
   const int kValueBytes = 1 << 10;  // 1KB

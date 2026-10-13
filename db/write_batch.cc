@@ -549,7 +549,10 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
   bool whole_batch =
       (begin == WriteBatchInternal::kHeader) && (end == wb->rep_.size());
 
-  Slice key, value, blob, xid;
+  Slice key;
+  Slice value;
+  Slice blob;
+  Slice xid;
   uint64_t write_unix_time = 0;
 
   // Sometimes a sub-batch starts with a Noop. We want to exclude such Noops as
@@ -1945,7 +1948,10 @@ Status WriteBatch::VerifyChecksum() const {
   }
   Slice input(rep_.data() + WriteBatchInternal::kHeader,
               rep_.size() - WriteBatchInternal::kHeader);
-  Slice key, value, blob, xid;
+  Slice key;
+  Slice value;
+  Slice blob;
+  Slice xid;
   char tag = 0;
   uint32_t column_family = 0;  // default
   Status s;

@@ -156,7 +156,10 @@ void InitializeHotKeyGenerator(double alpha) {
 // the closer to 0, the higher probability will be. To randomly distribute
 // the hot keys in [0, max_key], we use Random64 to shuffle it.
 int64_t GetOneHotKeyID(double rand_seed, int64_t max_key) {
-  int64_t low = 1, mid, high = zipf_sum_size, zipf = 0;
+  int64_t low = 1;
+  int64_t mid;
+  int64_t high = zipf_sum_size;
+  int64_t zipf = 0;
   while (low <= high) {
     mid = (low + high) / 2;
     if (sum_probs[mid] >= rand_seed && sum_probs[mid - 1] < rand_seed) {

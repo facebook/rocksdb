@@ -828,7 +828,8 @@ TEST_P(SeqnoTimeTablePropTest, PrePopulateInDB) {
   SetTrackTimeDurationOptions(kPreserveSecs, track_options);
   SeqnoToTimeMapping sttm;
   SequenceNumber latest_seqno;
-  uint64_t start_time, end_time;
+  uint64_t start_time;
+  uint64_t end_time;
 
   // #### DB#1, #2: No pre-population without preserve/preclude ####
   // #### But a single entry is added when preserve/preclude enabled ####

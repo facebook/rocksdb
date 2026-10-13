@@ -2284,7 +2284,8 @@ void Version::GetColumnFamilyMetaData(
   int last_level =
       (options.level >= 0) ? options.level + 1 : cfd_->NumberLevels();
 
-  InternalKey ikey_start, ikey_end;
+  InternalKey ikey_start;
+  InternalKey ikey_end;
   const InternalKey* begin = nullptr;
   const InternalKey* end = nullptr;
 
@@ -4700,7 +4701,8 @@ void VersionStorageInfo::GetOverlappingInputs(
     *next_smallest = nullptr;
   }
 
-  Slice user_begin, user_end;
+  Slice user_begin;
+  Slice user_end;
   if (begin != nullptr) {
     user_begin = begin->user_key();
   }

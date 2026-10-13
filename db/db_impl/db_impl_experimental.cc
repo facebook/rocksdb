@@ -24,7 +24,8 @@ Status DBImpl::SuggestCompactRange(ColumnFamilyHandle* column_family,
                                    const Slice* begin, const Slice* end) {
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
-  InternalKey start_key, end_key;
+  InternalKey start_key;
+  InternalKey end_key;
   if (begin != nullptr) {
     start_key.SetMinPossibleForUserKey(*begin);
   }

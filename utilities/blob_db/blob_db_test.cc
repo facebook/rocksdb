@@ -861,7 +861,8 @@ TEST_F(BlobDBTest, GetLiveFilesMetaData) {
   ASSERT_EQ(filename1, livefile[3]);
   ASSERT_EQ(filename2, livefile[4]);
 
-  std::vector<LiveFileStorageInfo> all_files, blob_files;
+  std::vector<LiveFileStorageInfo> all_files;
+  std::vector<LiveFileStorageInfo> blob_files;
   ASSERT_OK(blob_db_->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(),
                                               &all_files));
   for (size_t i = 0; i < all_files.size(); i++) {

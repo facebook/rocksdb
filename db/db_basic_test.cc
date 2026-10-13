@@ -1235,7 +1235,10 @@ TEST_F(DBBasicTest, EnableDirectIOWithZeroBuf) {
 
 TEST_F(DBBasicTest, UniqueSession) {
   Options options = CurrentOptions();
-  std::string sid1, sid2, sid3, sid4;
+  std::string sid1;
+  std::string sid2;
+  std::string sid3;
+  std::string sid4;
 
   ASSERT_OK(db_->GetDbSessionId(sid1));
   Reopen(options);
@@ -1686,7 +1689,8 @@ TEST_P(DBBasicGetWithParam, TimedPutBasic) {
     if (option_config_ != kRowCache) {
       std::string range_del_begin = "b";
       std::string range_del_end = "baz";
-      Slice begin_rdel = range_del_begin, end_rdel = range_del_end;
+      Slice begin_rdel = range_del_begin;
+      Slice end_rdel = range_del_end;
       ASSERT_OK(
           db_->DeleteRange(WriteOptions(), handles_[1], begin_rdel, end_rdel));
       ASSERT_EQ("NOT_FOUND", Get(1, "bar", nullptr, use_coroutine_));
@@ -2309,7 +2313,8 @@ TEST_F(DBBasicTest, IdentityAcrossRestarts) {
     for (bool with_manifest : {false, true}) {
       for (bool write_file : {false, true}) {
         std::string idfilename = IdentityFileName(dbname_);
-        std::string id1, tmp;
+        std::string id1;
+        std::string tmp;
         ASSERT_OK(db_->GetDbIdentity(id1));
         ASSERT_GE(id1.size(), kMinIdSize);
 
@@ -2411,7 +2416,8 @@ TEST_F(DBBasicTest, LockFileRecovery) {
   for (bool ber : {false, true}) {
     options.best_efforts_recovery = ber;
     DestroyAndReopen(options);
-    std::string id1, id2;
+    std::string id1;
+    std::string id2;
     ASSERT_OK(db_->GetDbIdentity(id1));
     Close();
 

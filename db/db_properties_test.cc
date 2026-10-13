@@ -125,7 +125,9 @@ TEST_F(DBPropertiesTest, Empty) {
 }
 
 TEST_F(DBPropertiesTest, CurrentVersionNumber) {
-  uint64_t v1, v2, v3;
+  uint64_t v1;
+  uint64_t v2;
+  uint64_t v3;
   ASSERT_TRUE(
       dbfull()->GetIntProperty("rocksdb.current-super-version-number", &v1));
   ASSERT_OK(Put("12345678", ""));
@@ -587,7 +589,9 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
   std::string level_tp_strings[kMaxLevel];
   std::string tp_string;
   TableProperties level_tps[kMaxLevel];
-  TableProperties tp, sum_tp, expected_tp;
+  TableProperties tp;
+  TableProperties sum_tp;
+  TableProperties expected_tp;
   for (int table = 1; table <= kTableCount; ++table) {
     for (int i = 0; i < kPutsPerTable; ++i) {
       ASSERT_OK(db_->Put(WriteOptions(), rnd.RandomString(kKeySize),

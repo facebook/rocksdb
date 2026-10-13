@@ -1189,7 +1189,8 @@ Slice LegacyBloomBitsBuilder::Finish(std::unique_ptr<const char[]>* buf) {
     return FinishAlwaysFalse(buf);
   }
 
-  uint32_t total_bits, num_lines;
+  uint32_t total_bits;
+  uint32_t num_lines;
   char* data =
       ReserveSpace(static_cast<int>(num_entries), &total_bits, &num_lines);
   assert(data);

@@ -407,8 +407,8 @@ TEST(CacheReservationHandleTest, HandleTest) {
   std::size_t mem_used = 0;
   const std::size_t incremental_mem_used_handle_1 = 1 * kSizeDummyEntry;
   const std::size_t incremental_mem_used_handle_2 = 2 * kSizeDummyEntry;
-  std::unique_ptr<CacheReservationManager::CacheReservationHandle> handle_1,
-      handle_2;
+  std::unique_ptr<CacheReservationManager::CacheReservationHandle> handle_1;
+  std::unique_ptr<CacheReservationManager::CacheReservationHandle> handle_2;
 
   // To test consecutive CacheReservationManager::MakeCacheReservation works
   // correctly in terms of returning the handle as well as updating cache

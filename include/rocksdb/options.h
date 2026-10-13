@@ -896,7 +896,7 @@ struct DBOptions {
   // and the db data dir's absolute path will be used as the log file
   // name's prefix.
   // NOTE: not for WALs
-  std::string db_log_dir = "";
+  std::string db_log_dir;
 
   // This specifies the absolute dir path for write-ahead logs (WAL).
   // If it is empty, the log files will be in the same dir as data,
@@ -904,7 +904,7 @@ struct DBOptions {
   // If it is non empty, the log files will be in kept the specified dir.
   // When destroying the db,
   //   all log files in wal_dir and the dir itself is deleted
-  std::string wal_dir = "";
+  std::string wal_dir;
 
   // The periodicity when obsolete files get deleted. The default
   // value is 6 hours. The files that get out of scope by compaction
@@ -1879,7 +1879,7 @@ struct DBOptions {
   // spans to the next day (e.g., 23:30-04:00). To make an entire day off-peak,
   // use "0:00-23:59". To make an entire day have no offpeak period, leave
   // this field blank. Default: Empty string (no offpeak).
-  std::string daily_offpeak_time_utc = "";
+  std::string daily_offpeak_time_utc;
 
   // Maximum interval in seconds between periodic compaction trigger checks.
   // The periodic trigger re-evaluates compaction scores for all column
