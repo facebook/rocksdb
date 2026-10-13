@@ -571,7 +571,9 @@ __attribute__((__no_sanitize_undefined__))
 uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
   const unsigned char* next = (const unsigned char*)buf;
   uint64_t count;
-  uint64_t crc0, crc1, crc2;
+  uint64_t crc0;
+  uint64_t crc1;
+  uint64_t crc2;
   crc0 = crc ^ 0xffffffffu;
 
 

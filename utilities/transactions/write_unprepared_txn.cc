@@ -974,7 +974,8 @@ void WriteUnpreparedTxn::MultiGet(const ReadOptions& _read_options,
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kMultiGet;
   }
-  SequenceNumber min_uncommitted, snap_seq;
+  SequenceNumber min_uncommitted;
+  SequenceNumber snap_seq;
   const SnapshotBackup backed_by_snapshot = wupt_db_->AssignMinMaxSeqs(
       read_options.snapshot, &min_uncommitted, &snap_seq);
   WriteUnpreparedTxnReadCallback callback(wupt_db_, snap_seq, min_uncommitted,
@@ -1011,7 +1012,8 @@ Status WriteUnpreparedTxn::Get(const ReadOptions& _read_options,
 Status WriteUnpreparedTxn::GetImpl(const ReadOptions& options,
                                    ColumnFamilyHandle* column_family,
                                    const Slice& key, PinnableSlice* value) {
-  SequenceNumber min_uncommitted, snap_seq;
+  SequenceNumber min_uncommitted;
+  SequenceNumber snap_seq;
   const SnapshotBackup backed_by_snapshot =
       wupt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
   WriteUnpreparedTxnReadCallback callback(wupt_db_, snap_seq, min_uncommitted,

@@ -1357,7 +1357,8 @@ TEST_F(DBTest2, DuplicateSnapshot) {
   options = CurrentOptions(options);
   std::vector<const Snapshot*> snapshots;
   DBImpl* dbi = dbfull();
-  SequenceNumber oldest_ww_snap, first_ww_snap;
+  SequenceNumber oldest_ww_snap;
+  SequenceNumber first_ww_snap;
 
   ASSERT_OK(Put("k", "v"));  // inc seq
   snapshots.push_back(db_->GetSnapshot());
@@ -2380,10 +2381,12 @@ TEST_F(DBTest2, PausingManualCompaction1) {
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  std::vector<std::string> files_before_compact, files_after_compact;
+  std::vector<std::string> files_before_compact;
+  std::vector<std::string> files_after_compact;
   // Remember file name before compaction is triggered
   std::vector<LiveFileMetaData> files_meta;
   dbfull()->GetLiveFilesMetaData(&files_meta);
+  files_before_compact.reserve(files_meta.size());
   for (const auto& file : files_meta) {
     files_before_compact.push_back(file.name);
   }
@@ -2399,6 +2402,7 @@ TEST_F(DBTest2, PausingManualCompaction1) {
   // Get file names after compaction is stopped
   files_meta.clear();
   dbfull()->GetLiveFilesMetaData(&files_meta);
+  files_after_compact.reserve(files_meta.size());
   for (const auto& file : files_meta) {
     files_after_compact.push_back(file.name);
   }

@@ -394,7 +394,9 @@ class BlockIter : public InternalIteratorBase<TValue> {
 
   void SeekToFirst() final {
 #ifndef NDEBUG
-    if (TEST_Corrupt_Callback("BlockIter::SeekToFirst")) return;
+    if (TEST_Corrupt_Callback("BlockIter::SeekToFirst")) {
+      return;
+    }
 #endif
     SeekToFirstImpl();
     UpdateKey();
@@ -867,7 +869,9 @@ class DataBlockIter final : public BlockIter<Slice> {
   // Returns if `target` may exist.
   inline bool SeekForGet(const Slice& target) {
 #ifndef NDEBUG
-    if (TEST_Corrupt_Callback("DataBlockIter::SeekForGet")) return true;
+    if (TEST_Corrupt_Callback("DataBlockIter::SeekForGet")) {
+      return true;
+    }
 #endif
     if (!data_block_hash_index_) {
       SeekImpl(target);

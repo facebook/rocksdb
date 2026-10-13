@@ -30,7 +30,8 @@ void DumpDBFileSummary(const ImmutableDBOptions& options,
   std::vector<std::string> files;
   uint64_t file_num = 0;
   uint64_t file_size;
-  std::string file_info, wal_info;
+  std::string file_info;
+  std::string wal_info;
 
   Header(options.info_log, "DB SUMMARY\n");
   {

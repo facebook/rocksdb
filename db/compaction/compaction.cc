@@ -214,7 +214,8 @@ bool Compaction::IsBottommostLevel(
   } else {
     output_l0_idx = -1;
   }
-  Slice smallest_key, largest_key;
+  Slice smallest_key;
+  Slice largest_key;
   GetBoundaryKeys(vstorage, inputs, &smallest_key, &largest_key);
   return !vstorage->RangeMightExistAfterSortedRun(smallest_key, largest_key,
                                                   output_level, output_l0_idx);

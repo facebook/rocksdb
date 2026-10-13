@@ -276,7 +276,8 @@ struct KeyGen {
       // location, so we fix hash bits starting at the bottom of that word.
       auto hi_hash = uint64_t{0x9e3779b97f4a7c13U} ^
                      (key_hash << 1 << (FLAGS_degenerate_hash_bits - 1));
-      uint64_t un_hi, un_lo;
+      uint64_t un_hi;
+      uint64_t un_lo;
       BijectiveUnhash2x64(hi_hash, key_hash, &un_hi, &un_lo);
       un_lo ^= BitwiseAnd(FLAGS_seed, INT32_MAX);
       EncodeFixed64(key_data, un_lo);

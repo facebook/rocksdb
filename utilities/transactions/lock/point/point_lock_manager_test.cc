@@ -58,7 +58,8 @@ TEST_P(SpotLockManagerTest, LockNonExistingColumnFamily) {
 }
 
 TEST_P(SpotLockManagerTest, LockStatus) {
-  MockColumnFamilyHandle cf1(1024), cf2(2048);
+  MockColumnFamilyHandle cf1(1024);
+  MockColumnFamilyHandle cf2(2048);
   locker_->AddColumnFamily(&cf1);
   locker_->AddColumnFamily(&cf2);
 
@@ -1232,7 +1233,8 @@ TEST_P(SpotLockManagerTest, Catch22) {
       [this, &txn1, &wait_count, &coordinator_mutex, &iteration_count]() {
         while (wait_count.load() < iteration_count) {
           // spin wait until the other thread enters the lock waiter queue.
-          while (wait_count.load() % 2 == 0);
+          while (wait_count.load() % 2 == 0) {
+          }
           // unlock the lock, so that the other thread can acquire the lock
           locker_->UnLock(txn1, 1, "k1", env_);
           {
@@ -1258,7 +1260,8 @@ TEST_P(SpotLockManagerTest, Catch22) {
             ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, true));
           }
           // spin wait until the other thread enters the lock waiter queue.
-          while (wait_count.load() % 2 == 1);
+          while (wait_count.load() % 2 == 1) {
+          }
           // unlock the lock, so that the other thread can acquire the lock
           locker_->UnLock(txn2, 1, "k1", env_);
         }

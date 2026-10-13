@@ -534,12 +534,13 @@ enum RepFactory { kSkipList, kHashSkipList, kVectorRep };
 inline enum RepFactory StringToRepFactory(const char* ctype) {
   assert(ctype);
 
-  if (!strcasecmp(ctype, "skip_list"))
+  if (!strcasecmp(ctype, "skip_list")) {
     return kSkipList;
-  else if (!strcasecmp(ctype, "prefix_hash"))
+  } else if (!strcasecmp(ctype, "prefix_hash")) {
     return kHashSkipList;
-  else if (!strcasecmp(ctype, "vector"))
+  } else if (!strcasecmp(ctype, "vector")) {
     return kVectorRep;
+  }
 
   fprintf(stdout, "Cannot parse memreptable %s\n", ctype);
   return kSkipList;

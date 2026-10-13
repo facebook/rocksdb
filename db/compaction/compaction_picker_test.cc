@@ -6034,7 +6034,9 @@ class FIFORatioBasedCompactionPickingTest : public CompactionPickerTest {
         /*existing_snapshots=*/{}, /*snapshot_checker=*/nullptr,
         vstorage_.get(), &log_buffer_, /*full_history_ts_low=*/""));
 
-    if (!compaction) return {};
+    if (!compaction) {
+      return {};
+    }
 
     if (out_reason) {
       *out_reason = compaction->compaction_reason();
@@ -6080,7 +6082,9 @@ class FIFORatioBasedCompactionPickingTest : public CompactionPickerTest {
 
     size_t insert_pos = oldest_input_pos;
     for (size_t idx : sorted_indices) {
-      if (idx < oldest_input_pos) insert_pos--;
+      if (idx < oldest_input_pos) {
+        insert_pos--;
+      }
     }
     insert_pos = std::min(insert_pos, files.size());
     files.insert(files.begin() + insert_pos,
@@ -6104,10 +6108,13 @@ class FIFORatioBasedCompactionPickingTest : public CompactionPickerTest {
         sizes.push_back(f.size);
       }
     }
-    if (sizes.empty()) return {0, 0, 0, 0.0, 0.0};
+    if (sizes.empty()) {
+      return {0, 0, 0, 0.0, 0.0};
+    }
 
     uint64_t sum = 0;
-    uint64_t min_s = UINT64_MAX, max_s = 0;
+    uint64_t min_s = UINT64_MAX;
+    uint64_t max_s = 0;
     for (uint64_t s : sizes) {
       sum += s;
       min_s = std::min(min_s, s);
@@ -6244,7 +6251,8 @@ class FIFORatioBasedCompactionPickingTest : public CompactionPickerTest {
     if (!inputs.empty() && reason == CompactionReason::kFIFOReduceNumFiles) {
       // Compute target from the picker's perspective: we need to estimate
       // it the same way the picker does.
-      uint64_t total_sst = 0, total_blob = 0;
+      uint64_t total_sst = 0;
+      uint64_t total_blob = 0;
       for (const auto& f : files) {
         total_sst += f.size;
         total_blob += f.blob_size;

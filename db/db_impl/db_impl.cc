@@ -89,7 +89,6 @@
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "rocksdb/lazy_wide_columns.h"
-#include "util/udt_util.h"
 #ifdef ROCKSDB_JEMALLOC
 #include "port/jemalloc_helper.h"
 #endif
@@ -6073,7 +6072,8 @@ void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
   size_t ts_sz = ucmp->timestamp_size();
 
   // Add timestamp if needed
-  std::string start_with_ts, limit_with_ts;
+  std::string start_with_ts;
+  std::string limit_with_ts;
   auto [start, limit] = MaybeAddTimestampsToRange(
       range.start, range.limit, ts_sz, &start_with_ts, &limit_with_ts);
   assert(start.has_value());
@@ -6135,7 +6135,8 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
 
   for (int i = 0; i < n; i++) {
     // Add timestamp if needed
-    std::string start_with_ts, limit_with_ts;
+    std::string start_with_ts;
+    std::string limit_with_ts;
     auto [start, limit] = MaybeAddTimestampsToRange(
         range[i].start, range[i].limit, ts_sz, &start_with_ts, &limit_with_ts);
     assert(start.has_value());
@@ -6268,7 +6269,10 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
           continue;
         }
         std::vector<FileMetaData*> level_files;
-        InternalKey begin_storage, end_storage, *begin_key, *end_key;
+        InternalKey begin_storage;
+        InternalKey end_storage;
+        InternalKey* begin_key;
+        InternalKey* end_key;
         if (begin == nullptr) {
           begin_key = nullptr;
         } else {
@@ -6507,7 +6511,8 @@ std::string DBImpl::GenerateDbSessionId(Env*) {
   // See SemiStructuredUniqueIdGen for its desirable properties.
   auto gen = DbSessionIdGen();
 
-  uint64_t lo, hi;
+  uint64_t lo;
+  uint64_t hi;
   gen->GenerateNext(&hi, &lo);
   if (lo == 0) {
     // Avoid emitting session ID with lo==0, so that SST unique

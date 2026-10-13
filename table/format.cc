@@ -487,7 +487,8 @@ Status Footer::DecodeFrom(Slice input, uint64_t input_offset,
                                 ext_magic.ToString(/*hex*/ true));
     }
     input.remove_prefix(4);
-    uint32_t stored_checksum = 0, metaindex_size = 0;
+    uint32_t stored_checksum = 0;
+    uint32_t metaindex_size = 0;
     bool success;
     success = GetFixed32(&input, &stored_checksum);
     assert(success);

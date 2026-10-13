@@ -1013,7 +1013,9 @@ Status ParseArray(const ConfigOptions& config_options,
   // Permit the caller to pass either bare `item1:item2` or wrapped
   // `{item1:item2}`. Either form parses identically.
   std::string stripped = OptionTypeInfo::StripOuterBraces(value);
-  size_t i = 0, start = 0, end = 0;
+  size_t i = 0;
+  size_t start = 0;
+  size_t end = 0;
   for (; status.ok() && i < kSize && start < stripped.size() &&
          end != std::string::npos;
        i++, start = end + 1) {

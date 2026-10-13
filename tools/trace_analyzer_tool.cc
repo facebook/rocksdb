@@ -218,7 +218,8 @@ void AnalyzerOptions::SparseCorrelationInput(const std::string& in_str) {
       fprintf(stderr, "Invalid correlation input: %s\n", in_str.c_str());
       exit(1);
     }
-    std::string opt1, opt2;
+    std::string opt1;
+    std::string opt2;
     std::size_t split = cur.find_first_of(',');
     if (split != std::string::npos) {
       opt1 = cur.substr(1, split - 1);
@@ -606,7 +607,9 @@ Status TraceAnalyzer::MakeStatistics() {
       }
 
       // output the value size distribution
-      uint64_t v_begin = 0, v_end = 0, v_count = 0;
+      uint64_t v_begin = 0;
+      uint64_t v_end = 0;
+      uint64_t v_count = 0;
       get_mid = false;
       for (auto& record : stat.second.a_value_size_stats) {
         v_begin = v_end;
@@ -1039,7 +1042,8 @@ Status TraceAnalyzer::ReProcessing() {
     if (!FLAGS_key_space_dir.empty()) {
       std::string whole_key_path =
           FLAGS_key_space_dir + "/" + std::to_string(cf_id) + ".txt";
-      std::string input_key, get_key;
+      std::string input_key;
+      std::string get_key;
       std::vector<std::string> prefix(kTaTypeNum);
       std::unique_ptr<FSSequentialFile> file;
 

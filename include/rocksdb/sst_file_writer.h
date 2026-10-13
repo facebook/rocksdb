@@ -50,14 +50,7 @@ struct SstFileWriterEmbeddedBlobOptions {
 // using SstFileWriter.
 struct ExternalSstFileInfo {
   ExternalSstFileInfo()
-      : file_path(""),
-        smallest_key(""),
-        largest_key(""),
-        smallest_range_del_key(""),
-        largest_range_del_key(""),
-        file_checksum(""),
-        file_checksum_func_name(""),
-        sequence_number(0),
+      : sequence_number(0),
         file_size(0),
         num_entries(0),
         num_range_del_entries(0),
@@ -72,10 +65,6 @@ struct ExternalSstFileInfo {
       : file_path(_file_path),
         smallest_key(_smallest_key),
         largest_key(_largest_key),
-        smallest_range_del_key(""),
-        largest_range_del_key(""),
-        file_checksum(""),
-        file_checksum_func_name(""),
         sequence_number(_sequence_number),
         file_size(_file_size),
         num_entries(_num_entries),

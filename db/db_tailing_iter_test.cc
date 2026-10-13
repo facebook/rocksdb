@@ -185,7 +185,8 @@ TEST_P(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
   if (GetParam()) {
     read_options.async_io = true;
   }
-  int num_iters, deleted_iters;
+  int num_iters;
+  int deleted_iters;
 
   char bufe[32];
   snprintf(bufe, sizeof(bufe), "00b0%016d", 0);

@@ -2065,7 +2065,8 @@ void DBIter::Seek(const Slice& target) {
 
   if (has_trace_state_) {
     // TODO: What do we do if this returns an error?
-    Slice lower_bound, upper_bound;
+    Slice lower_bound;
+    Slice upper_bound;
     if (iterate_lower_bound_ != nullptr) {
       lower_bound = *iterate_lower_bound_;
     } else {
@@ -2186,7 +2187,8 @@ void DBIter::SeekForPrev(const Slice& target) {
 
   if (has_trace_state_) {
     // TODO: What do we do if this returns an error?
-    Slice lower_bound, upper_bound;
+    Slice lower_bound;
+    Slice upper_bound;
     if (iterate_lower_bound_ != nullptr) {
       lower_bound = *iterate_lower_bound_;
     } else {

@@ -2373,7 +2373,8 @@ TEST_P(PrefetchTest1, SeekWithExtraPrefetchAsyncIO) {
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
   Close();
-  int buff_prefetch_count = 0, extra_prefetch_buff_cnt = 0;
+  int buff_prefetch_count = 0;
+  int extra_prefetch_buff_cnt = 0;
   for (size_t i = 0; i < 3; i++) {
     table_options.num_file_reads_for_auto_readahead = i;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));

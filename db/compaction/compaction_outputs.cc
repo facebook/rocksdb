@@ -512,10 +512,13 @@ Status CompactionOutputs::AddRangeDels(
   assert(!range_del_agg.IsEmpty());
   FileMetaData& meta = current_output().meta;
   const Comparator* ucmp = icmp.user_comparator();
-  InternalKey lower_bound_buf, upper_bound_buf;
-  Slice lower_bound_guard, upper_bound_guard;
+  InternalKey lower_bound_buf;
+  InternalKey upper_bound_buf;
+  Slice lower_bound_guard;
+  Slice upper_bound_guard;
   std::string smallest_user_key;
-  const Slice *lower_bound, *upper_bound;
+  const Slice* lower_bound;
+  const Slice* upper_bound;
 
   // We first determine the internal key lower_bound and upper_bound for
   // this output file. All and only range tombstones that overlap with

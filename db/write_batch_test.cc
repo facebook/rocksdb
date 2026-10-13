@@ -205,7 +205,8 @@ TEST_F(WriteBatchTest, Corruption) {
 }
 
 TEST_F(WriteBatchTest, Append) {
-  WriteBatch b1, b2;
+  WriteBatch b1;
+  WriteBatch b2;
   WriteBatchInternal::SetSequence(&b1, 200);
   WriteBatchInternal::SetSequence(&b2, 300);
   ASSERT_OK(WriteBatchInternal::Append(&b1, &b2));
@@ -879,7 +880,8 @@ class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
 
 TEST_F(WriteBatchTest, AttributeGroupTest) {
   WriteBatch batch;
-  ColumnFamilyHandleImplDummy zero(0), two(2);
+  ColumnFamilyHandleImplDummy zero(0);
+  ColumnFamilyHandleImplDummy two(2);
   AttributeGroups foo_ags;
   WideColumn zero_col_1{"0_c_1_n", "0_c_1_v"};
   WideColumn zero_col_2{"0_c_2_n", "0_c_2_v"};
@@ -908,7 +910,9 @@ TEST_F(WriteBatchTest, AttributeGroupSavePointTest) {
   WriteBatch batch;
   batch.SetSavePoint();
 
-  ColumnFamilyHandleImplDummy zero(0), two(2), three(3);
+  ColumnFamilyHandleImplDummy zero(0);
+  ColumnFamilyHandleImplDummy two(2);
+  ColumnFamilyHandleImplDummy three(3);
   AttributeGroups foo_ags;
   WideColumn zero_col_1{"0_c_1_n", "0_c_1_v"};
   WideColumn zero_col_2{"0_c_2_n", "0_c_2_v"};
@@ -992,7 +996,10 @@ TEST_F(WriteBatchTest, IterateCanRebuildSerializedV2Entity) {
 
 TEST_F(WriteBatchTest, ColumnFamiliesBatchTest) {
   WriteBatch batch;
-  ColumnFamilyHandleImplDummy zero(0), two(2), three(3), eight(8);
+  ColumnFamilyHandleImplDummy zero(0);
+  ColumnFamilyHandleImplDummy two(2);
+  ColumnFamilyHandleImplDummy three(3);
+  ColumnFamilyHandleImplDummy eight(8);
   ASSERT_OK(batch.Put(&zero, Slice("foo"), Slice("bar")));
   ASSERT_OK(batch.Put(&two, Slice("twofoo"), Slice("bar2")));
   ASSERT_OK(batch.Put(&eight, Slice("eightfoo"), Slice("bar8")));
@@ -1023,7 +1030,10 @@ TEST_F(WriteBatchTest, ColumnFamiliesBatchTest) {
 
 TEST_F(WriteBatchTest, ColumnFamiliesBatchWithIndexTest) {
   WriteBatchWithIndex batch;
-  ColumnFamilyHandleImplDummy zero(0), two(2), three(3), eight(8);
+  ColumnFamilyHandleImplDummy zero(0);
+  ColumnFamilyHandleImplDummy two(2);
+  ColumnFamilyHandleImplDummy three(3);
+  ColumnFamilyHandleImplDummy eight(8);
   ASSERT_OK(batch.Put(&zero, Slice("foo"), Slice("bar")));
   ASSERT_OK(batch.Put(&two, Slice("twofoo"), Slice("bar2")));
   ASSERT_OK(batch.Put(&eight, Slice("eightfoo"), Slice("bar8")));
@@ -1359,7 +1369,13 @@ TEST_F(WriteBatchTest, UpdateTimestamps) {
   static constexpr size_t timestamp_size = sizeof(uint64_t);
 
   {
-    WriteBatch wb1, wb2, wb3, wb4, wb5, wb6, wb7;
+    WriteBatch wb1;
+    WriteBatch wb2;
+    WriteBatch wb3;
+    WriteBatch wb4;
+    WriteBatch wb5;
+    WriteBatch wb6;
+    WriteBatch wb7;
     ASSERT_OK(wb1.Put(&cf0, "key", "value"));
     ASSERT_FALSE(WriteBatchInternal::HasKeyWithTimestamp(wb1));
     ASSERT_OK(wb2.Put(&cf4, "key", "value"));
