@@ -19,6 +19,16 @@
 namespace ROCKSDB_NAMESPACE {
 
 class CompactionOutputs;
+
+struct CompactionOutputRecord {
+  Slice key;
+  Slice value;
+  ParsedInternalKey ikey;
+  bool is_range_del = false;
+
+  Slice user_key() const { return ikey.user_key; }
+};
+
 using CompactionFileOpenFunc = std::function<Status(CompactionOutputs&)>;
 using CompactionFileCloseFunc =
     std::function<Status(const Status&, const ParsedInternalKey&, const Slice&,
@@ -243,7 +253,7 @@ class CompactionOutputs {
 
   // Returns true iff we should stop building the current output
   // before processing the current key in compaction iterator.
-  bool ShouldStopBefore(const CompactionIterator& c_iter);
+  bool ShouldStopBefore(const CompactionOutputRecord& record);
 
   void Cleanup() {
     if (builder_ != nullptr) {
@@ -271,9 +281,10 @@ class CompactionOutputs {
   uint64_t GetCurrentKeyGrandparentOverlappedBytes(
       const Slice& internal_key) const;
 
-  // Add current key from compaction_iterator to the output file. If needed
-  // close and open new compaction output with the functions provided.
-  Status AddToOutput(const CompactionIterator& c_iter,
+  // Add a compaction output record to the output file. If needed, close and
+  // open compaction output files with the functions provided.
+  Status AddToOutput(const CompactionOutputRecord& record,
+                     const CompactionIterator& source_iter,
                      const CompactionFileOpenFunc& open_file_func,
                      const CompactionFileCloseFunc& close_file_func,
                      const ParsedInternalKey& prev_iter_output_internal_key);

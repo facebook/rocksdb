@@ -26,8 +26,8 @@ class Slice;
 class SliceTransform;
 
 // Interface for lazily resolving blob values within wide-column entities.
-// This allows compaction filters to access blob column values on-demand,
-// avoiding unnecessary I/O for blob columns that the filter doesn't need.
+// This allows compaction callbacks to access blob column values on-demand,
+// avoiding unnecessary I/O for blob columns that the callback doesn't need.
 //
 // Usage in CompactionFilter::FilterV4():
 //   if (blob_resolver != nullptr) {
@@ -39,17 +39,16 @@ class SliceTransform;
 //     }
 //   }
 //
-// Thread safety: A resolver instance is used by a single thread (the
-// compaction thread). All resolved values remain valid until FilterV4
-// returns. Multiple columns can be resolved and their values compared
-// without copying.
+// Thread safety: A resolver instance is used by a single compaction thread.
+// All resolved values remain valid until the current callback returns.
+// Multiple columns can be resolved and their values compared without copying.
 class WideColumnBlobResolver {
  public:
   virtual ~WideColumnBlobResolver() = default;
 
   // Resolve the value for the column at the given index.
   // Returns OK on success, with resolved_value pointing to the data.
-  // The resolved_value remains valid until FilterV4 returns.
+  // The resolved_value remains valid until the current callback returns.
   //
   // For blob columns: fetches the blob value from the blob file.
   // For non-blob (inline) columns: returns the inline value directly.
@@ -65,7 +64,7 @@ class WideColumnBlobResolver {
   virtual Status ResolveColumn(size_t column_index, Slice* resolved_value) = 0;
 
   // Resolve multiple columns in the order provided by `column_indices`.
-  // The returned slices remain valid until FilterV4 returns.
+  // The returned slices remain valid until the current callback returns.
   //
   // The default implementation calls ResolveColumn() repeatedly. Resolver
   // implementations may override this to batch or optimize I/O in the future.

@@ -232,9 +232,8 @@ uint64_t CompactionOutputs::GetCurrentKeyGrandparentOverlappedBytes(
   return overlapped_bytes;
 }
 
-bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
-  assert(c_iter.Valid());
-  const Slice& internal_key = c_iter.key();
+bool CompactionOutputs::ShouldStopBefore(const CompactionOutputRecord& record) {
+  const Slice& internal_key = record.key;
 #ifndef NDEBUG
   bool should_stop = false;
   std::pair<bool*, const Slice> p{&should_stop, internal_key};
@@ -272,13 +271,13 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
       // Fast path: no per-key copy or virtual call. A partition is requested at
       // the first key that no longer shares the established prefix. An empty
       // prefix means no further partitions (every key "starts with" it).
-      if (UNLIKELY(!c_iter.user_key().starts_with(partitioner_prefix_))) {
+      if (UNLIKELY(!record.user_key().starts_with(partitioner_prefix_))) {
         return true;
       }
     } else {
       // Slow path: per-key callback (and copy elsewhere)
       if (UNLIKELY(partitioner_->ShouldPartition(PartitionerRequest(
-                       last_key_for_partitioner_, c_iter.user_key(),
+                       last_key_for_partitioner_, record.user_key(),
                        current_output_file_size_)) == kRequired)) {
         return true;
       }
@@ -374,22 +373,23 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
 }
 
 Status CompactionOutputs::AddToOutput(
-    const CompactionIterator& c_iter,
+    const CompactionOutputRecord& record, const CompactionIterator& source_iter,
     const CompactionFileOpenFunc& open_file_func,
     const CompactionFileCloseFunc& close_file_func,
     const ParsedInternalKey& prev_iter_output_internal_key) {
   Status s;
-  bool is_range_del = c_iter.IsDeleteRangeSentinelKey();
+  bool is_range_del = record.is_range_del;
   if (is_range_del && compaction_->bottommost_level()) {
     // We don't consider range tombstone for bottommost level since:
     // 1. there is no grandparent and hence no overlap to consider
     // 2. range tombstone may be dropped at bottommost level.
     return s;
   }
-  const Slice& key = c_iter.key();
-  if (ShouldStopBefore(c_iter) && HasBuilder()) {
-    s = close_file_func(c_iter.InputStatus(), prev_iter_output_internal_key,
-                        key, &c_iter, *this);
+  const Slice& key = record.key;
+  if (ShouldStopBefore(record) && HasBuilder()) {
+    s = close_file_func(source_iter.InputStatus(),
+                        prev_iter_output_internal_key, key, &source_iter,
+                        *this);
     if (!s.ok()) {
       return s;
     }
@@ -421,7 +421,7 @@ Status CompactionOutputs::AddToOutput(
     // just recomputes the same still-valid prefix.
     if (partitioner_) {
       OptSlice prefix =
-          partitioner_->ShouldPartitionByPrefix(c_iter.user_key());
+          partitioner_->ShouldPartitionByPrefix(record.user_key());
       partitioner_prefix_valid_ = prefix.has_value();
       if (partitioner_prefix_valid_) {
         partitioner_prefix_.assign(prefix->data(), prefix->size());
@@ -429,12 +429,12 @@ Status CompactionOutputs::AddToOutput(
     }
   }
 
-  // c_iter may emit range deletion keys, so update `last_key_for_partitioner_`
-  // here before returning below when `is_range_del` is true. Only needed in the
+  // The record may be a range deletion key, so update
+  // `last_key_for_partitioner_` before returning below. Only needed in the
   // fallback mode; the prefix fast path does not use it.
   if (partitioner_ && !partitioner_prefix_valid_) {
-    last_key_for_partitioner_.assign(c_iter.user_key().data_,
-                                     c_iter.user_key().size_);
+    last_key_for_partitioner_.assign(record.user_key().data_,
+                                     record.user_key().size_);
   }
 
   if (UNLIKELY(is_range_del)) {
@@ -442,7 +442,7 @@ Status CompactionOutputs::AddToOutput(
   }
 
   assert(builder_ != nullptr);
-  const Slice& value = c_iter.value();
+  const Slice& value = record.value;
   s = current_output().validator.Add(key, value);
   if (!s.ok()) {
     return s;
@@ -460,7 +460,7 @@ Status CompactionOutputs::AddToOutput(
     return s;
   }
 
-  const ParsedInternalKey& ikey = c_iter.ikey();
+  const ParsedInternalKey& ikey = record.ikey;
   if (ikey.type == kTypeValuePreferredSeqno) {
     SequenceNumber preferred_seqno = ParsePackedValueForSeqno(value);
     smallest_preferred_seqno_ =
