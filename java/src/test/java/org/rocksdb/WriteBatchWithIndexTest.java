@@ -899,11 +899,11 @@ public class WriteBatchWithIndexTest {
     final byte[] k2 = "k2".getBytes(UTF_8);
 
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
-         final ColumnFamilyHandle newCf =
-             db.createColumnFamily(new ColumnFamilyDescriptor("new_cf".getBytes(UTF_8)));
-         final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
-         final DBOptions dbOptions = new DBOptions()) {
+        final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
+        final ColumnFamilyHandle newCf =
+            db.createColumnFamily(new ColumnFamilyDescriptor("new_cf".getBytes(UTF_8)));
+        final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
+        final DBOptions dbOptions = new DBOptions()) {
       wbwi.put(directBuffer("k1"), directBuffer("v1"));
       wbwi.put(directBuffer("k2"), directBuffer("v2"));
       wbwi.put(newCf, directBuffer("k1"), directBuffer("v1-cf"));
@@ -928,10 +928,10 @@ public class WriteBatchWithIndexTest {
   @Test
   public void putAndDeleteDirect_overMaxBytes() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
-         final ColumnFamilyHandle newCf =
-             db.createColumnFamily(new ColumnFamilyDescriptor("new_cf".getBytes(UTF_8)));
-         final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true)) {
+        final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
+        final ColumnFamilyHandle newCf =
+            db.createColumnFamily(new ColumnFamilyDescriptor("new_cf".getBytes(UTF_8)));
+        final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true)) {
       wbwi.setMaxBytes(1);
 
       assertMemoryLimit(() -> wbwi.put(directBuffer("k1"), directBuffer("v1")));
