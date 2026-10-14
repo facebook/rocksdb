@@ -3485,7 +3485,8 @@ class DBImpl : public DB
       Status, MultiGetImpl, const ReadOptions& read_options, size_t start_key,
       size_t num_keys,
       autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
-      SuperVersion* sv, SequenceNumber snap_seqnum, ReadCallback* callback);
+      SuperVersion* sv, SequenceNumber snap_seqnum, ReadCallback* callback,
+      bool use_global_row_cache);
 
   void MultiGetWithCallbackImpl(
       const ReadOptions& read_options, ColumnFamilyHandle* column_family,

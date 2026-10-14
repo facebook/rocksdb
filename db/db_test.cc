@@ -13,6 +13,7 @@
 #include <fcntl.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <map>
 #include <mutex>
@@ -7349,6 +7350,10 @@ class TestGlobalRowCache : public GlobalRowCache {
                 GlobalRowCacheLookupResult* result) override {
     ++lookup_calls;
     std::lock_guard<std::mutex> lock(mutex_);
+    if (fail_next_lookup_.exchange(false)) {
+      entries_.clear();
+      return Status::IOError("injected row cache lookup failure");
+    }
     *result = GlobalRowCacheLookupResult();
     result->fill_token = range_generations_[{db_id, column_family_id}];
     auto it = entries_.find({db_id, column_family_id, key.ToString()});
@@ -7439,6 +7444,7 @@ class TestGlobalRowCache : public GlobalRowCache {
 
   void FailNextMutation() { fail_next_mutation_.store(true); }
   void FailNextInsert() { fail_next_insert_.store(true); }
+  void FailNextLookup() { fail_next_lookup_.store(true); }
   void ClearEntries() {
     std::lock_guard<std::mutex> lock(mutex_);
     entries_.clear();
@@ -7471,6 +7477,7 @@ class TestGlobalRowCache : public GlobalRowCache {
   };
 
   std::atomic<uint64_t> next_id_{1};
+  std::atomic<bool> fail_next_lookup_{false};
   std::atomic<bool> fail_next_mutation_{false};
   std::atomic<bool> fail_next_insert_{false};
   std::mutex mutex_;
@@ -7736,6 +7743,155 @@ TEST_F(DBTest, GlobalRowCacheReadWriteAndSnapshots) {
   db_->ReleaseSnapshot(range_snapshot);
 }
 
+TEST_F(DBTest, GlobalRowCacheMultiGetReadFillAndSnapshots) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("disk-value", "value"));
+  ASSERT_OK(Put("point-deletion", "old"));
+  ASSERT_OK(Put("range-deletion", "old"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Delete("point-deletion"));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                             "range-deletion", "range-deletion0"));
+  ASSERT_OK(Flush());
+
+  auto cache = std::make_shared<TestGlobalRowCache>();
+  options.global_row_cache = cache;
+  Reopen(options);
+
+  std::array<Slice, 4> keys{Slice("disk-value"), Slice("point-deletion"),
+                            Slice("range-deletion"), Slice("never-written")};
+  std::array<PinnableSlice, 4> values;
+  std::array<Status, 4> statuses;
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), keys.size(),
+                keys.data(), values.data(), statuses.data());
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0], "value");
+  ASSERT_TRUE(statuses[1].IsNotFound());
+  ASSERT_TRUE(statuses[2].IsNotFound());
+  ASSERT_TRUE(statuses[3].IsNotFound());
+  ASSERT_EQ(cache->lookup_misses.load(), 4);
+  ASSERT_EQ(cache->insert_calls.load(), 3);
+
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), keys.size(),
+                keys.data(), values.data(), statuses.data());
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0], "value");
+  ASSERT_TRUE(statuses[1].IsNotFound());
+  ASSERT_TRUE(statuses[2].IsNotFound());
+  ASSERT_TRUE(statuses[3].IsNotFound());
+  ASSERT_EQ(cache->lookup_hits.load(), 3);
+  ASSERT_EQ(cache->insert_calls.load(), 3);
+
+  ReadOptions custom_context_read;
+  int custom_context = 0;
+  custom_context_read.custom_context = &custom_context;
+  const int lookup_calls_before_custom_context = cache->lookup_calls.load();
+  db_->MultiGet(custom_context_read, db_->DefaultColumnFamily(), keys.size(),
+                keys.data(), values.data(), statuses.data());
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0], "value");
+  ASSERT_TRUE(statuses[1].IsNotFound());
+  ASSERT_TRUE(statuses[2].IsNotFound());
+  ASSERT_TRUE(statuses[3].IsNotFound());
+  ASSERT_EQ(cache->lookup_calls.load(), lookup_calls_before_custom_context);
+
+  ReadOptions soft_limit_read;
+  soft_limit_read.value_size_soft_limit = 1;
+  const int lookup_calls_before_soft_limit = cache->lookup_calls.load();
+  db_->MultiGet(soft_limit_read, db_->DefaultColumnFamily(), 1, keys.data(),
+                values.data(), statuses.data());
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0], "value");
+  ASSERT_EQ(cache->lookup_calls.load(), lookup_calls_before_soft_limit);
+
+  ASSERT_OK(Put("snapshot", "old"));
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_NE(snapshot, nullptr);
+  ASSERT_OK(Put("snapshot", "new"));
+  std::array<Slice, 1> snapshot_keys{Slice("snapshot")};
+  std::array<PinnableSlice, 1> snapshot_values;
+  std::array<Status, 1> snapshot_statuses;
+  ReadOptions snapshot_read;
+  snapshot_read.snapshot = snapshot;
+  db_->MultiGet(snapshot_read, db_->DefaultColumnFamily(), snapshot_keys.size(),
+                snapshot_keys.data(), snapshot_values.data(),
+                snapshot_statuses.data());
+  ASSERT_OK(snapshot_statuses[0]);
+  ASSERT_EQ(snapshot_values[0], "old");
+  db_->ReleaseSnapshot(snapshot);
+}
+
+TEST_F(DBTest, GlobalRowCacheMultiGetMixedColumnFamiliesAndDuplicates) {
+  Options options = CurrentOptions();
+  auto cache = std::make_shared<TestGlobalRowCache>();
+  options.global_row_cache = cache;
+  DestroyAndReopen(options);
+
+  ColumnFamilyHandle* second_cf = nullptr;
+  ASSERT_OK(
+      db_->CreateColumnFamily(ColumnFamilyOptions(), "second", &second_cf));
+  ASSERT_OK(Put("duplicate", "default-value"));
+  ASSERT_OK(db_->Put(WriteOptions(), second_cf, "other", "other-value"));
+
+  std::array<ColumnFamilyHandle*, 3> column_families{
+      db_->DefaultColumnFamily(), db_->DefaultColumnFamily(), second_cf};
+  std::array<Slice, 3> keys{Slice("duplicate"), Slice("duplicate"),
+                            Slice("other")};
+  std::array<PinnableSlice, 3> values;
+  std::array<Status, 3> statuses;
+  db_->MultiGet(ReadOptions(), keys.size(), column_families.data(), keys.data(),
+                values.data(), statuses.data(), /*sorted_input=*/false);
+  ASSERT_OK(statuses[0]);
+  ASSERT_OK(statuses[1]);
+  ASSERT_OK(statuses[2]);
+  ASSERT_EQ(values[0], "default-value");
+  ASSERT_EQ(values[1], "default-value");
+  ASSERT_EQ(values[2], "other-value");
+
+  db_->MultiGet(ReadOptions(), keys.size(), column_families.data(), keys.data(),
+                values.data(), statuses.data(), /*sorted_input=*/true);
+  ASSERT_OK(statuses[0]);
+  ASSERT_OK(statuses[1]);
+  ASSERT_OK(statuses[2]);
+  ASSERT_EQ(values[0], "default-value");
+  ASSERT_EQ(values[1], "default-value");
+  ASSERT_EQ(values[2], "other-value");
+  ASSERT_EQ(cache->lookup_hits.load(), 6);
+
+  ASSERT_OK(db_->DropColumnFamily(second_cf));
+  delete second_cf;
+}
+
+TEST_F(DBTest, GlobalRowCacheMultiGetLookupFailureFallsBack) {
+  Options options = CurrentOptions();
+  auto cache = std::make_shared<TestGlobalRowCache>();
+  options.global_row_cache = cache;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("a", "value-a"));
+  ASSERT_OK(Put("b", "value-b"));
+
+  cache->FailNextLookup();
+  std::array<Slice, 2> keys{Slice("a"), Slice("b")};
+  std::array<PinnableSlice, 2> values;
+  std::array<Status, 2> statuses;
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), keys.size(),
+                keys.data(), values.data(), statuses.data());
+  ASSERT_OK(statuses[0]);
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(values[0], "value-a");
+  ASSERT_EQ(values[1], "value-b");
+  ASSERT_EQ(cache->lookup_calls.load(), 1);
+
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), keys.size(),
+                keys.data(), values.data(), statuses.data());
+  ASSERT_OK(statuses[0]);
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(values[0], "value-a");
+  ASSERT_EQ(values[1], "value-b");
+  ASSERT_EQ(cache->lookup_calls.load(), 1);
+}
+
 TEST_F(DBTest, GlobalRowCacheCustomVisibility) {
   Options options = CurrentOptions();
   auto cache = std::make_shared<CustomVisibilityGlobalRowCache>();
@@ -7757,6 +7913,15 @@ TEST_F(DBTest, GlobalRowCacheCustomVisibility) {
   ASSERT_OK(db_->Get(ReadOptions(), "custom", &value));
   ASSERT_EQ(value, "value");
   ASSERT_EQ(cache->visibility_calls.load(), 2);
+
+  std::array<Slice, 1> keys{Slice("custom")};
+  std::array<PinnableSlice, 1> values;
+  std::array<Status, 1> statuses;
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), keys.size(),
+                keys.data(), values.data(), statuses.data());
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0], "value");
+  ASSERT_EQ(cache->visibility_calls.load(), 3);
 
   cache->fail_next_visibility.store(true);
   const int lookup_calls_before_failure = cache->lookup_calls.load();
@@ -7825,6 +7990,59 @@ TEST_F(DBTest, GlobalRowCacheRejectsEntryAfterFIFOMaxSizeDeletion) {
   std::string current_value;
   ASSERT_TRUE(db_->Get(ReadOptions(), "key", &current_value).IsNotFound());
   ASSERT_EQ(cache->lookup_hits.load(), hits_before_current_read + 1);
+}
+
+TEST_F(DBTest, GlobalRowCacheMultiGetRejectsEntryAfterFIFODeletion) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleFIFO;
+  options.compaction_options_fifo.max_table_files_size = 1;
+  options.disable_auto_compactions = true;
+  options.max_open_files = -1;
+  options.compression = kNoCompression;
+  auto cache = std::make_shared<TestGlobalRowCache>();
+  options.global_row_cache = cache;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("key", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+  cache->ClearEntries();
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::MultiGetImpl:BeforeGlobalRowCacheInsert",
+        "DBTest::GlobalRowCacheMultiGetFIFO:DeleteFile"},
+       {"DBTest::GlobalRowCacheMultiGetFIFO:AfterDeleteFile",
+        "DBImpl::MultiGetImpl:AllowGlobalRowCacheInsert"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::array<Slice, 1> keys{Slice("key")};
+  std::array<PinnableSlice, 1> values;
+  std::array<Status, 1> statuses;
+  std::thread reader([&]() {
+    db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), keys.size(),
+                  keys.data(), values.data(), statuses.data());
+  });
+
+  TEST_SYNC_POINT("DBTest::GlobalRowCacheMultiGetFIFO:DeleteFile");
+  const Status compaction_status =
+      db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  const int files_after_compaction = NumTableFilesAtLevel(0);
+  TEST_SYNC_POINT("DBTest::GlobalRowCacheMultiGetFIFO:AfterDeleteFile");
+  reader.join();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(compaction_status);
+  ASSERT_EQ(files_after_compaction, 0);
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0], "value");
+
+  const int hits_before_read = cache->lookup_hits.load();
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), keys.size(),
+                keys.data(), values.data(), statuses.data());
+  ASSERT_TRUE(statuses[0].IsNotFound());
+  ASSERT_EQ(cache->lookup_hits.load(), hits_before_read + 1);
 }
 
 TEST_F(DBTest, GlobalRowCacheRejectsEntryAfterFIFOTTLDeletion) {

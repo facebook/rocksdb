@@ -1922,6 +1922,10 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     size_t result_idx = 0;
     for (auto iter = temp_range.begin(); iter != temp_range.end();
          ++iter, ++result_idx) {
+      if (iter->global_row_cache_miss &&
+          savers[result_idx].seq != kMaxSequenceNumber) {
+        iter->sequence = savers[result_idx].seq;
+      }
       bool found_final_value = found_final_values[result_idx];
       bool merge_in_progress = merge_in_progresses[result_idx];
 
@@ -1997,12 +2001,13 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           }
         }
       }
-      SequenceNumber dummy_seq;
+      SequenceNumber ignored_sequence;
       GetFromTable(
           *(iter->lkey), iter->max_covering_tombstone_seq, true, callback,
           &iter->is_blob_index, iter->value ? iter->value->GetSelf() : nullptr,
           iter->columns, iter->timestamp, iter->s, &(iter->merge_context),
-          &dummy_seq, &found_final_value, &merge_in_progress, blob_fetcher,
+          iter->global_row_cache_miss ? &iter->sequence : &ignored_sequence,
+          &found_final_value, &merge_in_progress, blob_fetcher,
           callback != nullptr && callback->GetMetadataReadBounds() != nullptr
               ? &iter->newer_version_present
               : nullptr);

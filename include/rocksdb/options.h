@@ -1515,22 +1515,22 @@ struct DBOptions {
   std::shared_ptr<RowCache> row_cache = nullptr;
 
   // EXPERIMENTAL: A cache of logical rows shared across memtables and SST
-  // files. RocksDB consults this cache before the normal Get() path, updates it
-  // for successful writes before publishing their sequence numbers, and
-  // supplies exact sequence numbers when filling it after a miss.
+  // files. RocksDB consults this cache before the normal Get() and MultiGet()
+  // paths, updates it for successful writes before publishing their sequence
+  // numbers, and supplies exact sequence numbers when filling it after a miss.
   //
-  // This interface currently supports Get() with the bytewise comparator. It
-  // does not support MultiGet(), user-defined timestamps, compaction filters,
-  // merge operators, unordered writes, two write queues, or sequence-per-batch
-  // transaction write policies. FIFO compaction is supported with a
-  // conservative sequence floor that rejects entries from deleted files. A
-  // FIFO deletion whose sequence metadata cannot provide a strict floor
-  // disables the cache for that DB instance, and FIFO file rewrites run
-  // locally rather than through compaction_service. Two-phase commit
-  // (allow_2pc), read-only DBs, secondary DBs, and follower DBs are also
-  // unsupported. Read modes that change normal Get() semantics bypass the
-  // cache. Direct WriteBatchWithIndex ingestion, external file ingestion, and
-  // DeleteFilesInRanges() disable it for the rest of that DB instance. It
+  // This interface currently supports Get() and plain-value MultiGet() with
+  // the bytewise comparator. It does not support user-defined timestamps,
+  // compaction filters, merge operators, unordered writes, two write queues,
+  // or sequence-per-batch transaction write policies. FIFO compaction is
+  // supported with a conservative sequence floor that rejects entries from
+  // deleted files. A FIFO deletion whose sequence metadata cannot provide a
+  // strict floor disables the cache for that DB instance, and FIFO file
+  // rewrites run locally rather than through compaction_service. Two-phase
+  // commit (allow_2pc), read-only DBs, secondary DBs, and follower DBs are also
+  // unsupported. Read modes that change normal point-read semantics bypass
+  // the cache. Direct WriteBatchWithIndex ingestion, external file ingestion,
+  // and DeleteFilesInRanges() disable it for the rest of that DB instance. It
   // cannot be configured together with row_cache.
   //
   // Default: nullptr (disabled)
