@@ -11,6 +11,7 @@
 
 #include <stdint.h>
 
+#include <cassert>
 #include <string>
 #include <utility>
 #include <vector>
@@ -22,6 +23,7 @@
 #include "options/cf_options.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/status.h"
 #include "rocksdb/table_properties.h"
 #include "table/embedded_blob_sst.h"
 #include "table/unique_id_impl.h"
@@ -31,7 +33,6 @@
 namespace ROCKSDB_NAMESPACE {
 
 class Slice;
-class Status;
 class BlobSource;
 
 struct TableReaderOptions {
@@ -201,6 +202,50 @@ struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
   const EmbeddedBlobSstBuilderOptions* embedded_blob_options;
 };
 
+enum class TableBuilderAddResult : uint8_t {
+  // The row was consumed by this builder. The caller may advance input.
+  kAdded,
+  // The row was not consumed. The caller should finish the current table,
+  // create another table through the same TableFactory, and retry the same row.
+  kRequiresNewTable,
+  // A real error occurred. The caller should abandon the current output.
+  kError,
+};
+
+enum class TableBuilderNewTableReason : uint8_t {
+  kNone = 0,
+  kRowClassificationChanged,
+  kSchemaIdChanged,
+  kSchemaVersionIncompatible,
+  kUnsupportedEntryType,
+  kBuilderPolicy,
+};
+
+inline const char* TableBuilderNewTableReasonToString(
+    TableBuilderNewTableReason reason) {
+  switch (reason) {
+    case TableBuilderNewTableReason::kNone:
+      return "None";
+    case TableBuilderNewTableReason::kRowClassificationChanged:
+      return "RowClassificationChanged";
+    case TableBuilderNewTableReason::kSchemaIdChanged:
+      return "SchemaIdChanged";
+    case TableBuilderNewTableReason::kSchemaVersionIncompatible:
+      return "SchemaVersionIncompatible";
+    case TableBuilderNewTableReason::kUnsupportedEntryType:
+      return "UnsupportedEntryType";
+    case TableBuilderNewTableReason::kBuilderPolicy:
+      return "BuilderPolicy";
+  }
+  assert(false);
+  return "Invalid";
+}
+
+struct TableBuilderAddContext {
+  TableBuilderNewTableReason new_table_reason =
+      TableBuilderNewTableReason::kNone;
+};
+
 // TableBuilder provides the interface used to build a Table
 // (an immutable and sorted map from keys to values).
 //
@@ -217,6 +262,26 @@ class TableBuilder {
   // REQUIRES: key is after any previously added key according to comparator.
   // REQUIRES: Finish(), Abandon() have not been called
   virtual void Add(const Slice& key, const Slice& value) = 0;
+
+  // Add key,value to the table being constructed and report whether the row was
+  // accepted or whether the caller should cut the current table and retry this
+  // same row with a new table builder. A kRequiresNewTable result is not an
+  // error: the row must not have been consumed and status() must remain OK.
+  // A kError result must be reported through status().
+  //
+  // Existing table builders do not request table cuts; they inherit this
+  // default adapter around Add().
+  //
+  // REQUIRES: key is after any previously added key according to comparator.
+  // REQUIRES: Finish(), Abandon() have not been called
+  // REQUIRES: context != nullptr
+  virtual TableBuilderAddResult TryAdd(const Slice& key, const Slice& value,
+                                       TableBuilderAddContext* context) {
+    assert(context != nullptr);
+    context->new_table_reason = TableBuilderNewTableReason::kNone;
+    Add(key, value);
+    return TableBuilderAddResult::kAdded;
+  }
 
   // Return non-ok iff some error has been detected.
   virtual Status status() const = 0;
