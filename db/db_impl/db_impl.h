@@ -320,6 +320,12 @@ class DBImpl : public DB
                                   const Slice& key,
                                   PinnableAttributeGroups* result);
 
+  using DB::GetEntityWithMetadata;
+  Status GetEntityWithMetadata(const ReadOptions& _read_options,
+                               ColumnFamilyHandle* column_family,
+                               const Slice& key, PinnableWideColumns* columns,
+                               OutputMetadata* output_metadata) override;
+
   Status GetEntityLazy(const ReadOptions& options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        LazyWideColumns* result) override;
@@ -383,6 +389,20 @@ class DBImpl : public DB
   void MultiGetEntity(const ReadOptions& options, size_t num_keys,
                       const Slice* keys,
                       PinnableAttributeGroups* results) override;
+
+  using DB::MultiGetEntityWithMetadata;
+  void MultiGetEntityWithMetadata(const ReadOptions& _read_options,
+                                  size_t num_keys,
+                                  ColumnFamilyHandle* const* column_families,
+                                  const Slice* keys,
+                                  PinnableWideColumns* results,
+                                  Status* statuses,
+                                  MultiGetOutputMetadata* output_metadata,
+                                  bool sorted_input = false) override;
+  void MultiGetEntityWithMetadata(
+      const ReadOptions& _read_options, size_t num_keys, const Slice* keys,
+      PinnableAttributeGroups* results,
+      MultiGetOutputMetadata* output_metadata) override;
 
   void MultiGetEntityLazy(const ReadOptions& options,
                           ColumnFamilyHandle* column_family, size_t num_keys,

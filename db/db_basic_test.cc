@@ -1560,6 +1560,44 @@ TEST_F(DBBasicTest, CompactedDB) {
   ASSERT_FALSE((*multiget_output_metadata.newer_version_present)[0]);
   ASSERT_TRUE(metadata_statuses[1].IsNotFound());
   ASSERT_FALSE((*multiget_output_metadata.newer_version_present)[1]);
+  {
+    const std::string expected_aaa_value = DummyString(kFileSize / 2, 'a');
+    const WideColumns expected_aaa_columns{
+        {kDefaultWideColumnName, expected_aaa_value}};
+    PinnableWideColumns get_entity_result;
+    OutputMetadata get_entity_output_metadata = NewerVersionOutputMetadata();
+    ASSERT_OK(db_->GetEntityWithMetadata(metadata_read_options, "aaa",
+                                         &get_entity_result,
+                                         &get_entity_output_metadata));
+    ASSERT_EQ(get_entity_result.columns(), expected_aaa_columns);
+    ASSERT_FALSE(*get_entity_output_metadata.newer_version_present);
+
+    std::array<PinnableWideColumns, 2> entity_results;
+    std::array<Status, 2> entity_statuses;
+    MultiGetOutputMetadata entity_output_metadata =
+        NewerVersionMultiGetOutputMetadata();
+    db_->MultiGetEntityWithMetadata(
+        metadata_read_options, db_->DefaultColumnFamily(), metadata_keys.size(),
+        metadata_keys.data(), entity_results.data(), entity_statuses.data(),
+        &entity_output_metadata);
+    ASSERT_OK(entity_statuses[0]);
+    ASSERT_EQ(entity_results[0].columns(), expected_aaa_columns);
+    ASSERT_TRUE(entity_statuses[1].IsNotFound());
+    ASSERT_EQ(*entity_output_metadata.newer_version_present,
+              (std::vector<uint8_t>{0, 0}));
+
+    std::array<PinnableAttributeGroups, 2> attribute_group_results;
+    attribute_group_results[0].emplace_back(db_->DefaultColumnFamily());
+    attribute_group_results[1].emplace_back(db_->DefaultColumnFamily());
+    db_->MultiGetEntityWithMetadata(
+        metadata_read_options, metadata_keys.size(), metadata_keys.data(),
+        attribute_group_results.data(), &entity_output_metadata);
+    ASSERT_OK(attribute_group_results[0][0].status());
+    ASSERT_EQ(attribute_group_results[0][0].columns(), expected_aaa_columns);
+    ASSERT_TRUE(attribute_group_results[1][0].status().IsNotFound());
+    ASSERT_EQ(*entity_output_metadata.newer_version_present,
+              (std::vector<uint8_t>{0, 0}));
+  }
   db_->ReleaseSnapshot(metadata_snapshot);
 
   ASSERT_TRUE(db_->GetWithMetadata(ReadOptions(), db_->DefaultColumnFamily(),
@@ -2175,6 +2213,35 @@ TEST_F(DBBasicTest, ReadOnlyNewerVersionPresentReturnsFalse) {
   ASSERT_EQ("value", values[0]);
   ASSERT_EQ(1, multiget_output_metadata.newer_version_present->size());
   ASSERT_FALSE((*multiget_output_metadata.newer_version_present)[0]);
+
+  const WideColumns expected_columns{{kDefaultWideColumnName, "value"}};
+  PinnableWideColumns entity_result;
+  OutputMetadata get_entity_output_metadata = NewerVersionOutputMetadata();
+  ASSERT_OK(db_->GetEntityWithMetadata(read_options, handles_[1], "key",
+                                       &entity_result,
+                                       &get_entity_output_metadata));
+  ASSERT_EQ(entity_result.columns(), expected_columns);
+  ASSERT_FALSE(*get_entity_output_metadata.newer_version_present);
+
+  Status entity_status;
+  MultiGetOutputMetadata entity_output_metadata =
+      NewerVersionMultiGetOutputMetadata();
+  db_->MultiGetEntityWithMetadata(read_options, handles_[1], keys.size(),
+                                  keys.data(), &entity_result, &entity_status,
+                                  &entity_output_metadata);
+  ASSERT_OK(entity_status);
+  ASSERT_EQ(entity_result.columns(), expected_columns);
+  ASSERT_EQ(*entity_output_metadata.newer_version_present,
+            std::vector<uint8_t>{0});
+
+  PinnableAttributeGroups attribute_groups;
+  attribute_groups.emplace_back(handles_[1]);
+  db_->MultiGetEntityWithMetadata(read_options, keys.size(), keys.data(),
+                                  &attribute_groups, &entity_output_metadata);
+  ASSERT_OK(attribute_groups[0].status());
+  ASSERT_EQ(attribute_groups[0].columns(), expected_columns);
+  ASSERT_EQ(*entity_output_metadata.newer_version_present,
+            std::vector<uint8_t>{0});
 
   db_->ReleaseSnapshot(snapshot);
 }

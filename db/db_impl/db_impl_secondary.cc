@@ -5,6 +5,7 @@
 
 #include "db/db_impl/db_impl_secondary.h"
 
+#include <algorithm>
 #include <cinttypes>
 #include <optional>
 #include <unordered_set>
@@ -774,6 +775,48 @@ void DBImplSecondary::MultiGetWithMetadata(
   DBImpl::MultiGet(options, num_keys, mutable_column_families, keys, values,
                    timestamps != nullptr ? timestamps->data() : nullptr,
                    statuses, sorted_input);
+}
+
+void DBImplSecondary::MultiGetEntityWithMetadata(
+    const ReadOptions& options, size_t num_keys,
+    ColumnFamilyHandle* const* column_families, const Slice* keys,
+    PinnableWideColumns* results, Status* statuses,
+    MultiGetOutputMetadata* output_metadata, bool sorted_input) {
+  Status s = InitMultiGetEntityOutputMetadata(num_keys, output_metadata);
+  if (s.ok() && GetOutputNewerVersionPresent(output_metadata) != nullptr &&
+      options.snapshot != nullptr) {
+    // Catch-up can advance a secondary's view.
+    s = Status::NotSupported(
+        "MultiGetEntityWithMetadata is not supported in secondary DB mode");
+  }
+  if (!s.ok()) {
+    std::fill_n(statuses, num_keys, s);
+    return;
+  }
+  MultiGetEntityWithoutNewerVersionTracking(this, options, num_keys,
+                                            column_families, keys, results,
+                                            statuses, sorted_input);
+}
+
+void DBImplSecondary::MultiGetEntityWithMetadata(
+    const ReadOptions& options, size_t num_keys, const Slice* keys,
+    PinnableAttributeGroups* results, MultiGetOutputMetadata* output_metadata) {
+  const size_t total_count = CountAttributeGroups(num_keys, results);
+  Status s = InitMultiGetEntityOutputMetadata(total_count, output_metadata);
+  if (!results) {
+    s.PermitUncheckedError();
+    return;
+  }
+  if (s.ok() && GetOutputNewerVersionPresent(output_metadata) != nullptr &&
+      options.snapshot != nullptr) {
+    s = Status::NotSupported(
+        "MultiGetEntityWithMetadata is not supported in secondary DB mode");
+  }
+  if (!s.ok()) {
+    SetAttributeGroupsStatus(num_keys, results, s);
+    return;
+  }
+  MultiGetEntity(options, num_keys, keys, results);
 }
 
 Iterator* DBImplSecondary::NewIterator(const ReadOptions& _read_options,
