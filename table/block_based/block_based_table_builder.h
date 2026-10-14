@@ -68,6 +68,13 @@ class BlockBasedTableBuilder : public TableBuilder {
   // REQUIRES: Finish(), Abandon() have not been called
   void Add(const Slice& key, const Slice& value) override;
 
+  // Keeps block-based builders behind the retry-capable TableBuilder contract
+  // even though the current format accepts every row. Future format-specific
+  // boundary policies can then ask callers to cut the file without changing
+  // compaction's Add() assumptions.
+  TableBuilderAddResult TryAdd(const Slice& key, const Slice& value,
+                               TableBuilderAddContext* context) override;
+
   // Return non-ok iff some error has been detected.
   Status status() const override;
 
