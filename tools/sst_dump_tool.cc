@@ -602,7 +602,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   }
   bbto.block_size = 16384;  // A popular choice for default
   // Maximize compression features available
-  bbto.format_version = kLatestBbtFormatVersion;
+  bbto.format_version = BlockBasedTableOptions::kLatestSupportedFormatVersion;
 
   for (int i = 1; i < argc; i++) {
     if (strncmp(argv[i], "--env_uri=", 10) == 0) {
