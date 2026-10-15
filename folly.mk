@@ -143,7 +143,7 @@ checkout_folly:
 	@# const mismatch
 	perl -pi -e 's/: environ/: (const char**)(environ)/' third-party/folly/folly/Subprocess.cpp
 	@# Pagure was decommissioned; use Debian's mirror of the release archive.
-	perl -pi -e 's|https://pagure.io/libaio/archive/libaio-0.3.113/libaio-libaio-0.3.113.tar.gz|https://deb.debian.org/debian/pool/main/liba/libaio/libaio_0.3.113.orig.tar.gz|; s|716c7059703247344eb066b54ecbc3ca2134f0103307192e6c2b7dab5f9528ab|2c44d1c5fd0d43752287c9ae1eb9c023f04ef848ea8d4aafa46e9aedb678200b|; s|subdir = libaio-libaio-0.3.113|subdir = libaio-0.3.113|' third-party/folly/build/fbcode_builder/manifests/libaio
+	perl -pi -e 's|https://releases.pagure.org/libaio/libaio-0.3.113.tar.gz|https://deb.debian.org/debian/pool/main/liba/libaio/libaio_0.3.113.orig.tar.gz|' third-party/folly/build/fbcode_builder/manifests/libaio
 	@# Restore cached downloads and handle unreliable mirrors with fallback
 	$(restore_folly_getdeps_downloads)
 	@# NOTE: boost and fmt source will be needed for any build including `USE_FOLLY_LITE` builds as those depend on those headers
