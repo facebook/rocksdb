@@ -1802,6 +1802,24 @@ struct DBOptions {
   // under development.
   std::shared_ptr<CompactionService> compaction_service = nullptr;
 
+  // When true and compaction_service is configured, remote jobs and
+  // subcompactions use a dedicated pool that grows on demand.
+  // Remote waits do not consume LOW/BOTTOM workers or the local compaction
+  // budget. Background local choices and fallbacks use those pools and count
+  // each subcompaction against the DB's background compaction limit.
+  // CompactFiles keeps synchronous local execution on the caller thread.
+  // On first use, the pool starts with at least one worker and otherwise the
+  // sum of LOW and BOTTOM workers. It grows for outstanding remote tasks and
+  // returns to that baseline after at least 30 seconds of inactivity.
+  // When false, coordinators use LOW/BOTTOM and the existing background
+  // compaction budget; local subcompactions use the existing execution path.
+  // Dynamically changeable through SetDBOptions(). Each coordinator keeps the
+  // setting chosen when it was scheduled, including its local subcompactions.
+  // Disabling does not cancel jobs. Idle remote workers are released after
+  // the inactivity period.
+  // Default: false
+  bool use_separate_remote_compaction_pool = false;
+
   // Hardening for remote compaction (CompactionService / DB::OpenAndCompact).
   // When true (default), the primary includes in each remote compaction request
   // the MANIFEST position (file number and size) it scheduled the compaction

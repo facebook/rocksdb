@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -76,6 +77,7 @@
 #include "util/repeatable_thread.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
+#include "util/threadpool_imp.h"
 
 #if USE_COROUTINES
 #include "rocksdb/coro_db.h"
@@ -2235,6 +2237,7 @@ class DBImpl : public DB
   friend class CompactedDBImpl;
   friend class DBImplFollower;
 #ifndef NDEBUG
+  friend class DedicatedCompactionPoolTest;
   friend class DBTest_ConcurrentFlushWAL_Test;
   friend class DBTest_MixedSlowdownOptionsStop_Test;
   friend class DBCompactionTest_CompactBottomLevelFilesWithDeletions_Test;
@@ -2500,6 +2503,7 @@ class DBImpl : public DB
     // background compaction takes ownership of `prepicked_compaction`.
     PrepickedCompaction* prepicked_compaction;
     Env::Priority compaction_pri_;
+    bool separate_remote_pool = false;
   };
 
   static bool IsRecoveryFlush(FlushReason flush_reason) {
@@ -3031,6 +3035,44 @@ class DBImpl : public DB
                            bool track);
 
   void MaybeScheduleFlushOrCompaction();
+  bool UseSeparateRemoteCompactionPool() const {
+    mutex_.AssertHeld();
+    return immutable_db_options_.compaction_service != nullptr &&
+           mutable_db_options_.use_separate_remote_compaction_pool;
+  }
+  int LocalCompactionsScheduled() const {
+    mutex_.AssertHeld();
+    return bg_compaction_scheduled_ + bg_bottom_compaction_scheduled_;
+  }
+  int CompactionsScheduled() const {
+    mutex_.AssertHeld();
+    return LocalCompactionsScheduled() + remote_coordinators_scheduled_;
+  }
+  void ScheduleCompaction(CompactionArg* arg, void* tag);
+  class RemoteCompactionCompletionGuard;
+  void ScheduleRemoteCompaction(std::function<void()> work);
+  void ScheduleRemoteCompactionLocked(std::function<void()> work);
+  int RemoteCompactionPoolBaseline() const;
+  void ShrinkRemoteCompactionPool();
+  void ConfigureCompactionExecutors(CompactionJob* job, ColumnFamilyData* cfd,
+                                    const std::atomic<bool>& canceled,
+                                    bool is_manual, bool separate_remote_pool);
+  Status LocalCompactionStatus(ColumnFamilyData* cfd,
+                               const std::atomic<bool>& canceled);
+  Status RunLocalCompaction(std::function<void()> work, Env::Priority priority,
+                            ColumnFamilyData* cfd,
+                            const std::atomic<bool>& canceled, bool is_manual);
+  struct LocalCompactionTask {
+    DBImpl* db;
+    ColumnFamilyData* cfd;
+    const std::atomic<bool>* canceled;
+    std::function<void()> work;
+    Env::Priority priority;
+    Status status;
+    bool done = false;
+  };
+  static void BGWorkLocalCompaction(void* arg);
+  static void UnscheduleLocalCompaction(void* arg);
 
   BackgroundJobPressure CaptureBackgroundJobPressure() const;
   void NotifyOnBackgroundJobPressureChanged();
@@ -3098,7 +3140,8 @@ class DBImpl : public DB
   static void UnscheduleCompactionCallback(void* arg);
   static void UnscheduleFlushCallback(void* arg);
   void BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
-                                Env::Priority thread_pri);
+                                Env::Priority thread_pri,
+                                bool separate_remote_pool);
   void BackgroundCallFlush(Env::Priority thread_pri);
   void BackgroundCallPurge();
   // Recursively removes all children of the DB session temporary directory.
@@ -3107,7 +3150,8 @@ class DBImpl : public DB
   Status BackgroundCompaction(bool* madeProgress, JobContext* job_context,
                               LogBuffer* log_buffer,
                               PrepickedCompaction* prepicked_compaction,
-                              Env::Priority thread_pri);
+                              Env::Priority thread_pri,
+                              bool separate_remote_pool);
   Status BackgroundFlush(bool* madeProgress, JobContext* job_context,
                          LogBuffer* log_buffer, FlushReason* reason,
                          bool* flush_rescheduled_to_retain_udt,
@@ -3847,6 +3891,12 @@ class DBImpl : public DB
 
   // count how many background compactions are running or have been scheduled
   int bg_compaction_scheduled_ = 0;
+
+  ThreadPoolImpl remote_compaction_pool_;
+  int remote_compaction_pool_jobs_ = 0;
+  uint64_t remote_compaction_pool_last_activity_nanos_ = 0;
+  int remote_coordinators_scheduled_ = 0;
+  std::array<int, 2> local_compactions_running_by_priority_{};
 
   // stores the number of compactions are currently running
   int num_running_compactions_ = 0;
