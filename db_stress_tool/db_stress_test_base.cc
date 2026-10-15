@@ -5720,6 +5720,8 @@ void StressTest::PrintEnv() const {
           FLAGS_periodic_compaction_seconds);
   fprintf(stdout, "Daily Offpeak UTC         : %s\n",
           FLAGS_daily_offpeak_time_utc.c_str());
+  fprintf(stdout, "Periodic Compaction Policy: %s\n",
+          FLAGS_periodic_compaction_policy.c_str());
   fprintf(stdout, "Compaction TTL            : %" PRIu64 "\n",
           FLAGS_compaction_ttl);
   const char* compaction_pri = "";
@@ -6946,6 +6948,20 @@ void InitializeOptionsFromFlags(
       FLAGS_experimental_mempurge_threshold;
   options.periodic_compaction_seconds = FLAGS_periodic_compaction_seconds;
   options.daily_offpeak_time_utc = FLAGS_daily_offpeak_time_utc;
+  if (!FLAGS_periodic_compaction_policy.empty()) {
+    ConfigOptions config_options;
+    config_options.ignore_unsupported_options = false;
+    Status s = PeriodicCompactionPolicy::CreateFromString(
+        config_options, FLAGS_periodic_compaction_policy,
+        &options.periodic_compaction_policy);
+    if (!s.ok() || options.periodic_compaction_policy == nullptr) {
+      fprintf(stderr, "Invalid periodic_compaction_policy: %s status=%s\n",
+              FLAGS_periodic_compaction_policy.c_str(), s.ToString().c_str());
+      // Options are built during single-threaded startup.
+      // NOLINTNEXTLINE(concurrency-mt-unsafe)
+      exit(1);
+    }
+  }
   options.stats_dump_period_sec =
       static_cast<unsigned int>(FLAGS_stats_dump_period_sec);
   options.max_compaction_trigger_wakeup_seconds =

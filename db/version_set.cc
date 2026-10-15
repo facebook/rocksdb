@@ -2795,7 +2795,13 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       max_file_size_for_l0_meta_pin_(
           MaxFileSizeForL0MetaPin(mutable_cf_options_)),
       version_number_(version_number),
-      io_tracer_(io_tracer) {}
+      io_tracer_(io_tracer) {
+  if (cfd_ != nullptr && vset != nullptr) {
+    storage_info_.db_id_ = &vset->db_id_;
+    storage_info_.column_family_name_ = &cfd_->GetName();
+    storage_info_.column_family_id_ = cfd_->GetID();
+  }
+}
 
 Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
                         const BlobIndex& blob_index,
@@ -3972,6 +3978,25 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
           ? offpeak_time_info.seconds_till_next_offpeak_start
           : 0;
 
+  uint64_t policy_pull = 0;
+  if (ioptions.periodic_compaction_policy != nullptr) {
+    PeriodicCompactionPolicy::Context context;
+    context.current_time_seconds = current_time;
+    context.periodic_compaction_seconds = periodic_compaction_seconds;
+    if (db_id_ != nullptr) {
+      context.db_id = *db_id_;
+    }
+    context.column_family_id = column_family_id_;
+    if (column_family_name_ != nullptr) {
+      context.column_family_name = *column_family_name_;
+    }
+    const PeriodicCompactionPolicy::Decision decision =
+        ioptions.periodic_compaction_policy->GetDecision(context);
+    policy_pull = std::min(decision.deadline_lookahead_seconds,
+                           periodic_compaction_seconds);
+  }
+  const uint64_t early_compaction_pull = std::max(offpeak_pull, policy_pull);
+
   // Preferred-phase scheduling (see
   // DBOptions::periodic_compaction_phase_recovery_percent). When
   // recovery_percent == 0 this is disabled and marking matches the classic
@@ -4010,7 +4035,8 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
 
         const uint64_t trigger_time = PeriodicCompactionPhaser::TriggerTime(
             file_modification_time, periodic_compaction_seconds, phase_params);
-        if (current_time + offpeak_pull > trigger_time) {
+        if (trigger_time < current_time ||
+            early_compaction_pull > trigger_time - current_time) {
           files_marked_for_periodic_compaction_.emplace_back(level, f);
         }
       }

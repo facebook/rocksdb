@@ -46,6 +46,7 @@ LIB_SOURCES =                                                   \
   db/compaction/compaction_service_job.cc                       \
   db/compaction/compaction_state.cc                             \
   db/compaction/compaction_outputs.cc                           \
+  db/compaction/periodic_compaction_policy.cc                   \
   db/compaction/sst_partitioner.cc                              \
   db/compaction/subcompaction_state.cc                          \
   db/convenience.cc                                             \
