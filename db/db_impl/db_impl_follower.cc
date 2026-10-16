@@ -264,6 +264,12 @@ Status DB::OpenAsFollower(
     std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr) {
   dbptr->reset();
 
+  if (db_options.global_row_cache != nullptr) {
+    return Status::NotSupported(
+        "global_row_cache is not supported for follower DBs");
+  }
+  Status s;
+
   FileSystem* fs = db_options.env->GetFileSystem().get();
   {
     IOStatus io_s;
@@ -281,7 +287,6 @@ Status DB::OpenAsFollower(
                                             src_path, dbname)));
 
   DBOptions tmp_opts(db_options);
-  Status s;
   tmp_opts.env = new_env.get();
   if (nullptr == tmp_opts.info_log) {
     s = CreateLoggerFromOptions(dbname, tmp_opts, &tmp_opts.info_log);
