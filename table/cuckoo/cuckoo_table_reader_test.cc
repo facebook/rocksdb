@@ -380,6 +380,115 @@ TEST_F(CuckooReaderTest, WhenKeyNotFound) {
   ASSERT_OK(reader.status());
 }
 
+TEST_F(CuckooReaderTest, RejectsHashTableSizeInconsistentWithFile) {
+  SetUp(kNumHashFunc);
+  fname = test::PerThreadDBPath("CuckooReader_RejectsBadHashTableSize");
+  for (uint64_t i = 0; i < num_items; i++) {
+    user_keys[i] = "key" + NumToStr(i);
+    ParsedInternalKey ikey(user_keys[i], i + 1000, kTypeValue);
+    AppendInternalKey(&keys[i], ikey);
+    values[i] = "value" + NumToStr(i);
+    AddHashLookups(user_keys[i], i, kNumHashFunc);
+  }
+  auto* ucmp = BytewiseComparator();
+  CreateCuckooFileAndCheckReader(ucmp);
+
+  uint64_t real_table_size;
+  {
+    std::unique_ptr<RandomAccessFileReader> file_reader;
+    ASSERT_OK(RandomAccessFileReader::Create(
+        env->GetFileSystem(), fname, file_options, &file_reader, nullptr));
+    const ImmutableOptions ioptions(options);
+    CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucmp,
+                             GetSliceHash);
+    ASSERT_OK(reader.status());
+    const auto& user_props =
+        reader.GetTableProperties()->user_collected_properties;
+    real_table_size = *reinterpret_cast<const uint64_t*>(
+        user_props.at(CuckooTablePropertyNames::kHashTableSize).data());
+  }
+
+  // Patch the on-disk hash table size to claim far more buckets than the
+  // file actually holds, simulating a maliciously crafted file.
+  std::string raw;
+  ASSERT_OK(ReadFileToString(env, fname, &raw));
+  std::string needle(reinterpret_cast<const char*>(&real_table_size),
+                     sizeof(real_table_size));
+  size_t pos = raw.find(needle);
+  ASSERT_NE(pos, std::string::npos);
+  uint64_t bogus_table_size = real_table_size + (1ULL << 40);
+  raw.replace(pos, sizeof(bogus_table_size),
+              reinterpret_cast<const char*>(&bogus_table_size),
+              sizeof(bogus_table_size));
+
+  std::string tampered_fname = fname + "_tampered";
+  ASSERT_OK(WriteStringToFile(env, raw, tampered_fname));
+
+  std::unique_ptr<RandomAccessFileReader> tampered_file;
+  ASSERT_OK(RandomAccessFileReader::Create(env->GetFileSystem(), tampered_fname,
+                                           file_options, &tampered_file,
+                                           nullptr));
+  const ImmutableOptions ioptions(options);
+  CuckooTableReader tampered_reader(ioptions, std::move(tampered_file),
+                                    raw.size(), ucmp, GetSliceHash);
+  ASSERT_TRUE(tampered_reader.status().IsCorruption());
+}
+
+TEST_F(CuckooReaderTest, RejectsZeroHashTableSize) {
+  // Regression test: table_size_ == 0 must be rejected outright, since it
+  // otherwise causes a division by zero (module hash) or an underflowed
+  // mask (non-module hash) inside CuckooHash().
+  SetUp(kNumHashFunc);
+  fname = test::PerThreadDBPath("CuckooReader_RejectsZeroHashTableSize");
+  for (uint64_t i = 0; i < num_items; i++) {
+    user_keys[i] = "key" + NumToStr(i);
+    ParsedInternalKey ikey(user_keys[i], i + 1000, kTypeValue);
+    AppendInternalKey(&keys[i], ikey);
+    values[i] = "value" + NumToStr(i);
+    AddHashLookups(user_keys[i], i, kNumHashFunc);
+  }
+  auto* ucmp = BytewiseComparator();
+  CreateCuckooFileAndCheckReader(ucmp);
+
+  uint64_t real_table_size;
+  {
+    std::unique_ptr<RandomAccessFileReader> file_reader;
+    ASSERT_OK(RandomAccessFileReader::Create(
+        env->GetFileSystem(), fname, file_options, &file_reader, nullptr));
+    const ImmutableOptions ioptions(options);
+    CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucmp,
+                             GetSliceHash);
+    ASSERT_OK(reader.status());
+    const auto& user_props =
+        reader.GetTableProperties()->user_collected_properties;
+    real_table_size = *reinterpret_cast<const uint64_t*>(
+        user_props.at(CuckooTablePropertyNames::kHashTableSize).data());
+  }
+
+  std::string raw;
+  ASSERT_OK(ReadFileToString(env, fname, &raw));
+  std::string needle(reinterpret_cast<const char*>(&real_table_size),
+                     sizeof(real_table_size));
+  size_t pos = raw.find(needle);
+  ASSERT_NE(pos, std::string::npos);
+  uint64_t zero_table_size = 0;
+  raw.replace(pos, sizeof(zero_table_size),
+              reinterpret_cast<const char*>(&zero_table_size),
+              sizeof(zero_table_size));
+
+  std::string tampered_fname = fname + "_tampered_zero";
+  ASSERT_OK(WriteStringToFile(env, raw, tampered_fname));
+
+  std::unique_ptr<RandomAccessFileReader> tampered_file;
+  ASSERT_OK(RandomAccessFileReader::Create(env->GetFileSystem(), tampered_fname,
+                                           file_options, &tampered_file,
+                                           nullptr));
+  const ImmutableOptions ioptions(options);
+  CuckooTableReader tampered_reader(ioptions, std::move(tampered_file),
+                                    raw.size(), ucmp, GetSliceHash);
+  ASSERT_TRUE(tampered_reader.status().IsCorruption());
+}
+
 // Performance tests
 namespace {
 void GetKeys(uint64_t num, std::vector<std::string>* keys) {
