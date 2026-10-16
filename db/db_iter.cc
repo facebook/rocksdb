@@ -1929,6 +1929,15 @@ Status DBIter::ValidateScanOptions(const MultiScanArgs& multiscan_opts) const {
     return Status::InvalidArgument("Empty MultiScanArgs");
   }
 
+  if (multiscan_opts.rolling_prefetch &&
+      (!multiscan_opts.use_async_io || multiscan_opts.reverse ||
+       multiscan_opts.rolling_prefetch_window_size == 0)) {
+    ROCKS_LOG_WARN(
+        logger_,
+        "Ignoring MultiScanArgs::rolling_prefetch because its async, "
+        "forward, nonzero-window prerequisites are not satisfied");
+  }
+
   const std::vector<ScanOptions>& scan_opts = multiscan_opts.GetScanRanges();
   const bool has_limit = scan_opts.front().range.limit.has_value();
   if (multiscan_opts.reverse && !has_limit) {
@@ -1988,7 +1997,10 @@ Status DBIter::SetScanOptionsForPrepare(const MultiScanArgs& scan_opts) {
   // BlockBasedTableIterators in this scan to share a single dispatcher,
   // enabling better IO coordination and future rate limiting.
   if (!scan_opts_.value().io_dispatcher) {
-    scan_opts_->io_dispatcher.reset(NewIODispatcher());
+    IODispatcherOptions dispatcher_options;
+    dispatcher_options.async_decompression_threads =
+        scan_opts_->async_decompression_threads;
+    scan_opts_->io_dispatcher.reset(NewIODispatcher(dispatcher_options));
   }
   return Status::OK();
 }

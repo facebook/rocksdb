@@ -12,7 +12,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -46,6 +48,19 @@ static constexpr bool kIOUringPresent = false;
 #endif
 
 namespace ROCKSDB_NAMESPACE {
+
+class ScopedSyncPointCallbacks {
+ public:
+  explicit ScopedSyncPointCallbacks(SyncPoint* sync_point)
+      : sync_point_(sync_point) {}
+  ~ScopedSyncPointCallbacks() {
+    sync_point_->DisableProcessing();
+    sync_point_->ClearAllCallBacks();
+  }
+
+ private:
+  SyncPoint* sync_point_;
+};
 
 // Represents a single read operation recorded by the tracking file system
 struct ReadOp {
@@ -354,7 +369,11 @@ class ControlledAsyncFS : public ReadTrackingFS {
 
   IOStatus Poll(std::vector<void*>& io_handles,
                 size_t /*min_completions*/) override {
+    poll_thread_ = std::this_thread::get_id();
     assert(!io_handles.empty());
+    if (poll_delay_us_ > 0) {
+      Env::Default()->SleepForMicroseconds(poll_delay_us_);
+    }
     auto* requested_handle =
         static_cast<ControlledAsyncHandle*>(io_handles.front());
 
@@ -415,8 +434,19 @@ class ControlledAsyncFS : public ReadTrackingFS {
     complete_stray_first_ = complete_stray_first;
   }
 
+  void SetPollDelayMicros(int delay_us) { poll_delay_us_ = delay_us; }
+
+  void CompletePendingHandles() {
+    while (!pending_handles_.empty()) {
+      ControlledAsyncHandle* handle = pending_handles_.back();
+      pending_handles_.pop_back();
+      CompleteHandle(handle);
+    }
+  }
+
   size_t abort_count() const { return abort_count_; }
   size_t stray_completion_count() const { return stray_completion_count_; }
+  std::thread::id poll_thread() const { return poll_thread_; }
 
  private:
   void CompleteHandle(ControlledAsyncHandle* handle) {
@@ -437,8 +467,10 @@ class ControlledAsyncFS : public ReadTrackingFS {
 
   std::vector<ControlledAsyncHandle*> pending_handles_;
   bool complete_stray_first_ = true;
+  int poll_delay_us_ = 0;
   size_t abort_count_ = 0;
   size_t stray_completion_count_ = 0;
+  std::thread::id poll_thread_;
 };
 
 IOStatus ControlledAsyncRandomAccessFile::ReadAsync(
@@ -738,7 +770,8 @@ class IODispatcherTest : public DBTestBase {
       bool use_direct_reads = false,
       CompressionType compression_type = kNoCompression,
       bool allow_mmap_reads = false, Env* env_override = nullptr,
-      std::shared_ptr<Statistics> statistics = nullptr) {
+      std::shared_ptr<Statistics> statistics = nullptr,
+      bool compressible_values = false) {
     // Create options - store in member variables to avoid use-after-scope
     // The BlockBasedTable will keep references to these options
     Options options{};
@@ -789,7 +822,10 @@ class IODispatcherTest : public DBTestBase {
     // Add keys to the table
     // 10k * 1Kib = ~10MiB
     for (int i = 0; i < 10000; i++) {
-      std::string value = rnd->RandomString(2 << 10);
+      std::string value =
+          compressible_values
+              ? std::string(2 << 10, static_cast<char>('a' + i % 26))
+              : rnd->RandomString(2 << 10);
       InternalKey ikey(Key(i), i, kTypeValue);
       builder->Add(ikey.Encode(), value);
     }
@@ -848,6 +884,20 @@ class IODispatcherTest : public DBTestBase {
     }
 
     return Status::OK();
+  }
+
+  static std::shared_ptr<IOJob> MakeRollingPrefetchJob(
+      BlockBasedTable* table, const std::vector<BlockHandle>& block_handles,
+      uint64_t window_size, uint64_t max_batch_size = 0) {
+    auto job = std::make_shared<IOJob>();
+    job->block_handles = block_handles;
+    job->table = table;
+    job->job_options.read_options.async_io = true;
+    job->job_options.read_options.fill_cache = false;
+    job->job_options.block_handles_are_sorted = true;
+    job->job_options.rolling_prefetch_window_size = window_size;
+    job->job_options.rolling_prefetch_max_batch_size = max_batch_size;
+    return job;
   }
 
   static uint64_t cur_file_num_;
@@ -1049,6 +1099,167 @@ TEST_F(IODispatcherTest,
   EXPECT_EQ(statistics->getTickerCount(BLOCK_CHECKSUM_MISMATCH_COUNT), 1);
   EXPECT_EQ(read_set->GetNumAsyncReads(), 2);
   EXPECT_EQ(read_set->GetNumSyncReads(), 1);
+}
+
+TEST_F(IODispatcherTest, ReadWaitsForAsyncDecompression) {
+  auto controlled_fs = std::make_shared<ControlledAsyncFS>(base_fs_);
+  controlled_fs->SetCompleteStrayFirst(false);
+  tracking_fs_ = controlled_fs;
+  std::unique_ptr<Env> controlled_env = NewCompositeEnv(controlled_fs);
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(1, &table, &block_handles, nullptr, false,
+                             kNoCompression, false, controlled_env.get()));
+  ASSERT_EQ(block_handles.size(), 1);
+
+  std::promise<void> materialization_entered;
+  auto materialization_entered_future = materialization_entered.get_future();
+  std::promise<void> allow_materialization;
+  auto allow_materialization_future =
+      allow_materialization.get_future().share();
+  std::atomic<bool> signalled{false};
+  auto* sync_point = SyncPoint::GetInstance();
+  ScopedSyncPointCallbacks sync_point_callbacks(sync_point);
+  sync_point->SetCallBack("IODispatcherImpl::ProcessAsyncIO:BeforeMaterialize",
+                          [&](void*) {
+                            if (!signalled.exchange(true)) {
+                              materialization_entered.set_value();
+                            }
+                            allow_materialization_future.wait();
+                          });
+  sync_point->EnableProcessing();
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = true;
+
+  IODispatcherOptions options;
+  options.async_decompression_threads = 1;
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(options));
+  std::shared_ptr<ReadSet> read_set;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+
+  std::promise<void> read_started;
+  auto read_started_future = read_started.get_future();
+  std::promise<std::thread::id> reader_thread;
+  auto reader_thread_future = reader_thread.get_future();
+  auto read_result = std::async(std::launch::async, [&]() {
+    reader_thread.set_value(std::this_thread::get_id());
+    read_started.set_value();
+    CachableEntry<Block> block;
+    Status status = read_set->ReadIndex(0, &block);
+    return std::make_pair(std::move(status), block.GetValue() != nullptr);
+  });
+  const auto started_status =
+      read_started_future.wait_for(std::chrono::seconds(10));
+  if (started_status != std::future_status::ready) {
+    allow_materialization.set_value();
+  }
+  ASSERT_EQ(started_status, std::future_status::ready);
+  const auto entered_status =
+      materialization_entered_future.wait_for(std::chrono::seconds(10));
+  if (entered_status != std::future_status::ready) {
+    allow_materialization.set_value();
+  }
+  ASSERT_EQ(entered_status, std::future_status::ready);
+  EXPECT_EQ(read_result.wait_for(std::chrono::seconds(0)),
+            std::future_status::timeout);
+
+  allow_materialization.set_value();
+  auto [status, has_block] = read_result.get();
+  ASSERT_OK(status);
+  EXPECT_TRUE(has_block);
+  EXPECT_EQ(controlled_fs->poll_thread(), reader_thread_future.get());
+}
+
+TEST_F(IODispatcherTest, AsyncDecompressionUsesWorkersConcurrently) {
+  if (!CompressionTypeSupported(kZSTD)) {
+    ROCKSDB_GTEST_SKIP("ZSTD not supported");
+    return;
+  }
+
+  auto controlled_fs = std::make_shared<ControlledAsyncFS>(base_fs_);
+  controlled_fs->SetCompleteStrayFirst(false);
+  tracking_fs_ = controlled_fs;
+  std::unique_ptr<Env> controlled_env = NewCompositeEnv(controlled_fs);
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(4, &table, &block_handles, nullptr, false, kZSTD,
+                             false, controlled_env.get(), nullptr, true));
+  ASSERT_EQ(block_handles.size(), 4);
+
+  std::promise<void> all_workers_entered;
+  auto all_workers_entered_future = all_workers_entered.get_future();
+  std::promise<void> allow_materialization;
+  auto allow_materialization_future =
+      allow_materialization.get_future().share();
+  std::promise<void> processing_complete;
+  auto processing_complete_future = processing_complete.get_future();
+  std::atomic<size_t> workers_entered{0};
+  std::atomic<size_t> decompressions{0};
+  std::thread::id processing_thread;
+  auto* sync_point = SyncPoint::GetInstance();
+  ScopedSyncPointCallbacks sync_point_callbacks(sync_point);
+  sync_point->SetCallBack("IODispatcherImpl::ProcessAsyncIO:MaterializeBlock",
+                          [&](void*) {
+                            if (workers_entered.fetch_add(1) + 1 == 4) {
+                              all_workers_entered.set_value();
+                            }
+                            allow_materialization_future.wait();
+                          });
+  sync_point->SetCallBack("DecompressBlockData:TamperWithReturnValue",
+                          [&](void*) { decompressions.fetch_add(1); });
+  sync_point->SetCallBack("IODispatcherImpl::ProcessAsyncIO:Complete",
+                          [&](void*) {
+                            processing_thread = std::this_thread::get_id();
+                            processing_complete.set_value();
+                          });
+  sync_point->EnableProcessing();
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = true;
+  job->job_options.io_coalesce_threshold = 1024 * 1024;
+
+  IODispatcherOptions options;
+  options.async_decompression_threads = 4;
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(options));
+  std::shared_ptr<ReadSet> read_set;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  ASSERT_EQ(controlled_fs->GetReadAsyncCount(), 1);
+
+  std::promise<std::thread::id> reader_thread;
+  auto reader_thread_future = reader_thread.get_future();
+  auto read_result = std::async(std::launch::async, [&]() {
+    reader_thread.set_value(std::this_thread::get_id());
+    CachableEntry<Block> block;
+    Status status = read_set->ReadIndex(0, &block);
+    return std::make_pair(std::move(status), block.GetValue() != nullptr);
+  });
+  const auto entered_status =
+      all_workers_entered_future.wait_for(std::chrono::seconds(10));
+  allow_materialization.set_value();
+  ASSERT_EQ(entered_status, std::future_status::ready);
+  ASSERT_EQ(processing_complete_future.wait_for(std::chrono::seconds(10)),
+            std::future_status::ready);
+  const std::thread::id reader_thread_id = reader_thread_future.get();
+  EXPECT_EQ(controlled_fs->poll_thread(), reader_thread_id);
+  EXPECT_NE(processing_thread, reader_thread_id);
+  EXPECT_GT(decompressions.load(), 0);
+
+  auto [status, has_block] = read_result.get();
+  ASSERT_OK(status);
+  EXPECT_TRUE(has_block);
+
+  for (size_t i = 1; i < block_handles.size(); ++i) {
+    CachableEntry<Block> block;
+    ASSERT_OK(read_set->ReadIndex(i, &block));
+    EXPECT_NE(block.GetValue(), nullptr);
+  }
 }
 
 // Verifies that setting a read-scoped provider makes IODispatcher data-block
@@ -2723,6 +2934,273 @@ TEST_F(IODispatcherTest, MemoryReleasedOnReadSetDestruction) {
     ASSERT_OK(read_status);
     ASSERT_NE(block.GetValue(), nullptr);
   }
+}
+
+TEST_F(IODispatcherTest, RollingPrefetchChecksPrerequisites) {
+  if (!kIOUringPresent) {
+    ROCKSDB_GTEST_SKIP("Async IO not supported on this platform");
+    return;
+  }
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(12, &table, &block_handles));
+  ASSERT_GE(block_handles.size(), 2);
+
+  size_t rolling_dispatches = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "IODispatcherImpl::DispatchRollingPrefetch:WindowCount",
+      [&](void* /*arg*/) { ++rolling_dispatches; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const uint64_t window_size =
+      BlockBasedTable::BlockSizeWithTrailer(block_handles[0]) +
+      BlockBasedTable::BlockSizeWithTrailer(block_handles[1]);
+  std::shared_ptr<ReadSet> read_set;
+
+  auto job = MakeRollingPrefetchJob(table.get(), block_handles, window_size);
+  job->job_options.read_options.async_io = false;
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  read_set.reset();
+
+  job = MakeRollingPrefetchJob(table.get(), block_handles, window_size);
+  job->job_options.block_handles_are_sorted = false;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  read_set.reset();
+
+  IODispatcherOptions options;
+  options.max_prefetch_memory_bytes = 1 << 30;
+  dispatcher.reset(NewIODispatcher(options));
+  job = MakeRollingPrefetchJob(table.get(), block_handles, window_size);
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  read_set.reset();
+
+  EXPECT_EQ(rolling_dispatches, 0);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(IODispatcherTest, RollingPrefetchBatchesWithinByteBudget) {
+  if (!kIOUringPresent) {
+    ROCKSDB_GTEST_SKIP("Async IO not supported on this platform");
+    return;
+  }
+
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> all_block_handles;
+  ASSERT_OK(CreateAndOpenSST(32, &table, &all_block_handles));
+  ASSERT_GE(all_block_handles.size(), 16);
+
+  std::vector<BlockHandle> block_handles;
+  for (size_t i = 0; i < 16; i += 2) {
+    block_handles.push_back(all_block_handles[i]);
+  }
+  const uint64_t byte_budget =
+      BlockBasedTable::BlockSizeWithTrailer(block_handles[0]) +
+      BlockBasedTable::BlockSizeWithTrailer(block_handles[1]) +
+      BlockBasedTable::BlockSizeWithTrailer(block_handles[2]);
+
+  std::vector<size_t> dispatched_window_counts;
+  SyncPoint::GetInstance()->SetCallBack(
+      "IODispatcherImpl::DispatchRollingPrefetch:WindowCount", [&](void* arg) {
+        dispatched_window_counts.push_back(*static_cast<size_t*>(arg));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  auto job = MakeRollingPrefetchJob(table.get(), block_handles, byte_budget);
+  job->job_options.io_coalesce_threshold = 0;
+  std::shared_ptr<ReadSet> read_set;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  ASSERT_EQ(dispatched_window_counts, std::vector<size_t>({3}));
+
+  CachableEntry<Block> block;
+  ASSERT_OK(read_set->ReadIndex(0, &block));
+  ASSERT_EQ(dispatched_window_counts.size(), 2);
+  EXPECT_GT(dispatched_window_counts.back(), 1);
+  ASSERT_OK(read_set->ReadIndex(1, &block));
+  EXPECT_EQ(dispatched_window_counts.size(), 2);
+
+  for (size_t i = 2; i < block_handles.size(); ++i) {
+    ASSERT_OK(read_set->ReadIndex(i, &block));
+    ASSERT_NE(block.GetValue(), nullptr);
+  }
+  EXPECT_EQ(read_set->GetNumSyncReads(), 0);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(IODispatcherTest, RollingPrefetchDispatchesOversizedWindow) {
+  if (!kIOUringPresent) {
+    ROCKSDB_GTEST_SKIP("Async IO not supported on this platform");
+    return;
+  }
+
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(12, &table, &block_handles));
+  ASSERT_GE(block_handles.size(), 2);
+
+  std::vector<size_t> dispatched_window_counts;
+  SyncPoint::GetInstance()->SetCallBack(
+      "IODispatcherImpl::DispatchRollingPrefetch:WindowCount", [&](void* arg) {
+        dispatched_window_counts.push_back(*static_cast<size_t*>(arg));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const uint64_t byte_budget =
+      BlockBasedTable::BlockSizeWithTrailer(block_handles[0]) - 1;
+  auto job = MakeRollingPrefetchJob(table.get(), block_handles, byte_budget);
+  std::shared_ptr<ReadSet> read_set;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  ASSERT_EQ(dispatched_window_counts, std::vector<size_t>({1}));
+
+  CachableEntry<Block> block;
+  ASSERT_OK(read_set->ReadIndex(0, &block));
+  EXPECT_EQ(dispatched_window_counts, std::vector<size_t>({1, 1}));
+  EXPECT_EQ(read_set->GetNumSyncReads(), 0);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(IODispatcherTest, RollingPrefetchGrowsAfterStall) {
+  if (!kIOUringPresent) {
+    ROCKSDB_GTEST_SKIP("Async IO not supported on this platform");
+    return;
+  }
+
+  auto controlled_fs = std::make_shared<ControlledAsyncFS>(base_fs_);
+  controlled_fs->SetCompleteStrayFirst(false);
+  controlled_fs->SetPollDelayMicros(1000);
+  tracking_fs_ = controlled_fs;
+  std::unique_ptr<Env> controlled_env = NewCompositeEnv(controlled_fs);
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(
+      32, &table, &block_handles, nullptr /* table_options_override */,
+      false /* use_direct_reads */, kNoCompression,
+      false /* allow_mmap_reads */, controlled_env.get()));
+  ASSERT_GE(block_handles.size(), 8);
+
+  uint64_t window_size = 0;
+  for (const auto& block_handle : block_handles) {
+    window_size = std::max<uint64_t>(
+        window_size, BlockBasedTable::BlockSizeWithTrailer(block_handle));
+  }
+  auto job = MakeRollingPrefetchJob(table.get(), block_handles, window_size,
+                                    window_size * 4);
+  job->job_options.io_coalesce_threshold = 0;
+
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+  std::shared_ptr<ReadSet> read_set;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  EXPECT_EQ(controlled_fs->GetReadAsyncCount(), 1);
+
+  CachableEntry<Block> block;
+  ASSERT_OK(read_set->ReadIndex(0, &block));
+  EXPECT_EQ(controlled_fs->GetReadAsyncCount(), 3);
+  controlled_fs->CompletePendingHandles();
+  ASSERT_OK(read_set->ReadIndex(1, &block));
+  EXPECT_EQ(controlled_fs->GetReadAsyncCount(), 5);
+
+  for (const auto& op : controlled_fs->GetReadOps()) {
+    for (const auto& request : op.requests) {
+      EXPECT_LE(request.second, window_size);
+    }
+  }
+}
+
+TEST_F(IODispatcherTest, RollingPrefetchStopsAfterBackwardRead) {
+  if (!kIOUringPresent) {
+    ROCKSDB_GTEST_SKIP("Async IO not supported on this platform");
+    return;
+  }
+
+  auto controlled_fs = std::make_shared<ControlledAsyncFS>(base_fs_);
+  controlled_fs->SetCompleteStrayFirst(false);
+  tracking_fs_ = controlled_fs;
+  std::unique_ptr<Env> controlled_env = NewCompositeEnv(controlled_fs);
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(
+      12, &table, &block_handles, nullptr /* table_options_override */,
+      false /* use_direct_reads */, kNoCompression,
+      false /* allow_mmap_reads */, controlled_env.get()));
+  ASSERT_GE(block_handles.size(), 6);
+
+  const uint64_t window_size =
+      BlockBasedTable::BlockSizeWithTrailer(block_handles[0]) +
+      BlockBasedTable::BlockSizeWithTrailer(block_handles[1]);
+  auto job = MakeRollingPrefetchJob(table.get(), block_handles, window_size);
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+  std::shared_ptr<ReadSet> read_set;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+
+  CachableEntry<Block> block;
+  ASSERT_OK(read_set->ReadIndex(0, &block));
+  ASSERT_OK(read_set->ReadIndex(2, &block));
+  EXPECT_EQ(read_set->GetNumSyncReads(), 0);
+  ASSERT_OK(read_set->ReadIndex(1, &block));
+  ASSERT_OK(read_set->ReadIndex(block_handles.size() - 1, &block));
+  EXPECT_EQ(read_set->GetNumSyncReads(), 1);
+}
+
+TEST_F(IODispatcherTest, RollingPrefetchRetriesPartialDispatch) {
+  if (!kIOUringPresent) {
+    ROCKSDB_GTEST_SKIP("Async IO not supported on this platform");
+    return;
+  }
+
+  auto controlled_fs = std::make_shared<ControlledAsyncFS>(base_fs_);
+  controlled_fs->SetCompleteStrayFirst(false);
+  tracking_fs_ = controlled_fs;
+  std::unique_ptr<Env> controlled_env = NewCompositeEnv(controlled_fs);
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(
+      12, &table, &block_handles, nullptr /* table_options_override */,
+      false /* use_direct_reads */, kNoCompression,
+      false /* allow_mmap_reads */, controlled_env.get()));
+  ASSERT_GE(block_handles.size(), 6);
+
+  size_t submissions = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "RandomAccessFileReader::ReadAsync:InjectStatus", [&](void* arg) {
+        if (++submissions == 3) {
+          *static_cast<IOStatus*>(arg) =
+              IOStatus::Busy("injected partial dispatch failure");
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const uint64_t window_size =
+      block_handles[2].offset() +
+      BlockBasedTable::BlockSizeWithTrailer(block_handles[2]) -
+      block_handles[0].offset();
+  auto job = MakeRollingPrefetchJob(table.get(), block_handles, window_size);
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+  std::shared_ptr<ReadSet> read_set;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  read_set->ReleaseBlock(4);
+
+  CachableEntry<Block> block;
+  ASSERT_OK(read_set->ReadIndex(0, &block));
+  ASSERT_EQ(submissions, 3);
+  ASSERT_OK(read_set->ReadIndex(3, &block));
+  EXPECT_EQ(submissions, 5);
+  ASSERT_OK(read_set->ReadIndex(5, &block));
+  EXPECT_EQ(submissions, 6);
+  EXPECT_EQ(read_set->GetNumSyncReads(), 0);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 // Test that partial prefetch dispatches as many blocks as memory allows

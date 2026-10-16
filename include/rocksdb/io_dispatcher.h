@@ -20,10 +20,12 @@ namespace ROCKSDB_NAMESPACE {
 
 class FileSystem;
 class Statistics;
+class ThreadPool;
 
 // Forward declaration for internal implementation
 struct IODispatcherImplData;
 struct PendingPrefetchRequest;
+struct RollingPrefetchDispatcher;
 
 // EXPERIMENTAL
 // The interface defined in this file is experimental and the behavior and
@@ -38,6 +40,11 @@ struct IODispatcherOptions {
 
   // Optional statistics for tracking memory limiter metrics
   Statistics* statistics = nullptr;
+
+  // Number of workers that materialize asynchronously read data blocks,
+  // including decompression. Polling remains on the thread that consumes the
+  // ReadSet. Zero also leaves block materialization on that thread.
+  size_t async_decompression_threads = 0;
 };
 
 /*
@@ -151,6 +158,16 @@ class BlockBasedTable;
 
 struct JobOptions {
   uint64_t io_coalesce_threshold = 16 * 1024;
+
+  // Maximum physical span of one rolling window and the initial batch budget.
+  // Each batch contains the longest prefix of windows that fits; a single
+  // oversized window is submitted alone.
+  uint64_t rolling_prefetch_window_size = 0;
+
+  // Maximum adaptive rolling batch budget. Zero uses
+  // rolling_prefetch_window_size. A foreground wait doubles the current budget
+  // up to this limit.
+  uint64_t rolling_prefetch_max_batch_size = 0;
   ReadOptions read_options;
 
   // True when IOJob::block_handles is already sorted by file offset. Callers
@@ -240,6 +257,9 @@ class ReadSet {
   // FileSystem for calling AbortIO in destructor
   std::shared_ptr<FileSystem> fs_;
 
+  // Shared with the dispatcher so the pool outlives every ReadSet using it.
+  std::shared_ptr<ThreadPool> async_decompression_pool_;
+
   // Storage for pinned blocks (one per block handle in the job)
   std::vector<CachableEntry<Block>> pinned_blocks_;
 
@@ -257,6 +277,9 @@ class ReadSet {
   // cycles)
   std::weak_ptr<IODispatcherImplData> dispatcher_data_;
 
+  // Rolling-window dispatch callback (weak ref to avoid cycles).
+  std::weak_ptr<RollingPrefetchDispatcher> rolling_prefetch_dispatcher_;
+
   // Size of each block (parallel to pinned_blocks_) for memory accounting
   std::vector<size_t> block_sizes_;
 
@@ -273,7 +296,8 @@ class ReadSet {
 
   // Poll and process a specific async IO request. Takes ownership by value so
   // async_io_map_ entries can be erased without destroying the state mid-loop.
-  Status PollAndProcessAsyncIO(std::shared_ptr<AsyncIOState> async_state);
+  Status PollAndProcessAsyncIO(std::shared_ptr<AsyncIOState> async_state,
+                               bool* poll_stalled);
 
   // Release memory budget acquired for a prefetched block.
   void ReleasePrefetchMemory(size_t block_index);
@@ -283,14 +307,18 @@ class ReadSet {
   // async state is released.
   void ReleaseAsyncIOForBlock(size_t block_index);
 
-  // Delete a completed or aborted async IO handle exactly once.
-  void DeleteAsyncIOHandle(const std::shared_ptr<AsyncIOState>& async_state);
-
   // Perform synchronous read for a specific block
   Status SyncRead(size_t block_index);
 
   // Remove a block from pending prefetch (called by ReadIndex/ReleaseBlock)
   void RemoveFromPending(size_t block_index);
+
+  // Submit the next size-bounded rolling batch when a block from the current
+  // batch is first handed to the caller.
+  void StartNextRollingPrefetch(size_t block_index);
+
+  // Increase lookahead after the foreground reaches incomplete prefetched I/O.
+  void GrowRollingPrefetchOnStall(size_t block_index);
 
   // Atomic flags indicating if block is pending prefetch (lock-free check)
   std::unique_ptr<std::atomic<bool>[]> pending_prefetch_flags_;
@@ -298,6 +326,19 @@ class ReadSet {
 
   // Reference to pending request (for removal notification)
   std::shared_ptr<PendingPrefetchRequest> pending_request_;
+
+  std::vector<size_t> prefetch_batch_by_block_;
+  size_t next_rolling_prefetch_batch_ = 0;
+  // Byte budget for one dispatch trigger. It may cover multiple consecutive
+  // physical windows and always admits at least one window. It starts at the
+  // effective window size and doubles when foreground reads stall.
+  uint64_t rolling_prefetch_batch_size_ = 0;
+  // Growth ceiling; equal to the initial budget when adaptation is disabled.
+  uint64_t rolling_prefetch_max_batch_size_ = 0;
+  uint64_t rolling_prefetch_stalls_ = 0;
+  size_t last_rolling_read_index_ = 0;
+  // Effective state can be disabled without changing the caller's IOJob.
+  bool rolling_prefetch_enabled_ = false;
 };
 
 /*
