@@ -35,9 +35,24 @@ package org.rocksdb;
  * FIFO Compaction</a>
  */
 public enum CompactionStyle {
+  /**
+   * Level Compaction.
+   */
   LEVEL((byte) 0x0),
+
+  /**
+   * Universal Compaction.
+   */
   UNIVERSAL((byte) 0x1),
+
+  /**
+   * First-in First-out Compaction.
+   */
   FIFO((byte) 0x2),
+
+  /**
+   * No compaction.
+   */
   NONE((byte) 0x3);
 
   private final byte value;

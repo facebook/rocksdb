@@ -10,7 +10,17 @@ package org.rocksdb;
  * cache is specifically designed for persistent read cache.
  */
 public class PersistentCache extends RocksObject {
-
+  /**
+   * Constructs a persistent cache.
+   *
+   * @param env the environment.
+   * @param path the path for the cache.
+   * @param size the size of the cache.
+   * @param logger the logger to use.
+   * @param optimizedForNvm true to optimize for NVM, false otherwise.
+   *
+   * @throws RocksDBException if the cache cannot be created.
+   */
   public PersistentCache(final Env env, final String path, final long size,
       final Logger logger, final boolean optimizedForNvm)
       throws RocksDBException {

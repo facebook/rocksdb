@@ -16,10 +16,29 @@ import java.util.Objects;
  */
 public class Status implements Serializable {
   private static final long serialVersionUID = -3794191127754280439L;
+
+  /**
+   * The status code.
+   */
   private final Code code;
+
+  /**
+   * The status sub-code.
+   */
   /* @Nullable */ private final SubCode subCode;
+
+  /**
+   * The state of the status.
+   */
   /* @Nullable */ private final String state;
 
+  /**
+   * Constructs a Status.
+   *
+   * @param code the code.
+   * @param subCode the sub-code.
+   * @param state the state.
+   */
   public Status(final Code code, final SubCode subCode, final String state) {
     this.code = code;
     this.subCode = subCode;
@@ -35,18 +54,38 @@ public class Status implements Serializable {
     this.state = state;
   }
 
+  /**
+   * Get the status code.
+   *
+   * @return the status code.
+   */
   public Code getCode() {
     return code;
   }
 
+  /**
+   * Get the status sub-code.
+   *
+   * @return the status sub-code.
+   */
   public SubCode getSubCode() {
     return subCode;
   }
 
+  /**
+   * Get the state of the status.
+   *
+   * @return the status state.
+   */
   public String getState() {
     return state;
   }
 
+  /**
+   * Get a string representation of the status code.
+   *
+   * @return a string representation of the status code.
+   */
   public String getCodeString() {
     final StringBuilder builder = new StringBuilder()
         .append(code.name());
@@ -58,22 +97,86 @@ public class Status implements Serializable {
     return builder.toString();
   }
 
-  // should stay in sync with /include/rocksdb/status.h:Code and /java/rocksjni/portal.h:toJavaStatusCode
+  /**
+   * Status Code.
+   * <p>
+   * Should stay in sync with /include/rocksdb/status.h:Code and
+   * /java/rocksjni/portal.h:toJavaStatusCode
+   */
   public enum Code {
+    /**
+     * Success.
+     */
     Ok(                 (byte)0x0),
+
+    /**
+     * Not found.
+     */
     NotFound(           (byte)0x1),
+
+    /**
+     * Corruption detected.
+     */
     Corruption(         (byte)0x2),
+
+    /**
+     * Not supported.
+     */
     NotSupported(       (byte)0x3),
+
+    /**
+     * Invalid argument provided.
+     */
     InvalidArgument(    (byte)0x4),
+
+    /**
+     * I/O error.
+     */
     IOError(            (byte)0x5),
+
+    /**
+     * There is a merge in progress.
+     */
     MergeInProgress(    (byte)0x6),
+
+    /**
+     * Incomplete.
+     */
     Incomplete(         (byte)0x7),
+
+    /**
+     * There is a shutdown in progress.
+     */
     ShutdownInProgress( (byte)0x8),
+
+    /**
+     * An operation timed out.
+     */
     TimedOut(           (byte)0x9),
+
+    /**
+     * An operation was aborted.
+     */
     Aborted(            (byte)0xA),
+
+    /**
+     * The system is busy.
+     */
     Busy(               (byte)0xB),
+
+    /**
+     * The request expired.
+     */
     Expired(            (byte)0xC),
+
+    /**
+     * The operation should be reattempted.
+     */
     TryAgain(           (byte)0xD),
+
+    /**
+     * Undefined.
+     */
     Undefined(          (byte)0x7F);
 
     private final byte value;
@@ -82,6 +185,15 @@ public class Status implements Serializable {
       this.value = value;
     }
 
+    /**
+     * Get a code from its byte representation.
+     *
+     * @param value the byte representation of the code.
+     *
+     * @return the code
+     *
+     * @throws IllegalArgumentException if the {@code value} parameter does not represent a code.
+     */
     public static Code getCode(final byte value) {
       for (final Code code : Code.values()) {
         if (code.value == value){
@@ -102,16 +214,56 @@ public class Status implements Serializable {
     }
   }
 
-  // should stay in sync with /include/rocksdb/status.h:SubCode and /java/rocksjni/portal.h:toJavaStatusSubCode
+  /**
+   * Status Sub-code.
+   * <p>
+   * should stay in sync with /include/rocksdb/status.h:SubCode and
+   * /java/rocksjni/portal.h:toJavaStatusSubCode
+   */
   public enum SubCode {
+    /**
+     * None.
+     */
     None(         (byte)0x0),
+
+    /**
+     * Timeout whilst waiting on Mutex.
+     */
     MutexTimeout( (byte)0x1),
+
+    /**
+     * Timeout whilst waiting on Lock.
+     */
     LockTimeout(  (byte)0x2),
+
+    /**
+     * Maximum limit on number of locks reached.
+     */
     LockLimit(    (byte)0x3),
+
+    /**
+     * No space remaining.
+     */
     NoSpace(      (byte)0x4),
+
+    /**
+     * Deadlock detected.
+     */
     Deadlock(     (byte)0x5),
+
+    /**
+     * Stale file detected.
+     */
     StaleFile(    (byte)0x6),
+
+    /**
+     * Reached the maximum memory limit.
+     */
     MemoryLimit(  (byte)0x7),
+
+    /**
+     * Undefined.
+     */
     Undefined(    (byte)0x7F);
 
     private final byte value;
@@ -120,6 +272,16 @@ public class Status implements Serializable {
       this.value = value;
     }
 
+    /**
+     * Get a sub-code from its byte representation.
+     *
+     * @param value the byte representation of the sub-code.
+     *
+     * @return the sub-code
+     *
+     * @throws IllegalArgumentException if the {@code value} parameter does not represent a
+     *     sub-code.
+     */
     public static SubCode getSubCode(final byte value) {
       for (final SubCode subCode : SubCode.values()) {
         if (subCode.value == value){

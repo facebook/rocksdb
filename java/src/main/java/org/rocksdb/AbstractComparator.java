@@ -10,7 +10,7 @@ import java.nio.ByteBuffer;
 /**
  * Comparators are used by RocksDB to determine
  * the ordering of keys.
- *
+ * <p>
  * Implementations of Comparators in Java should extend this class.
  */
 public abstract class AbstractComparator
@@ -20,6 +20,11 @@ public abstract class AbstractComparator
     super();
   }
 
+  /**
+   * Construct an AbstractComparator.
+   *
+   * @param comparatorOptions options for the comparator.
+   */
   protected AbstractComparator(final ComparatorOptions comparatorOptions) {
     super(comparatorOptions.nativeHandle_);
   }
@@ -59,7 +64,7 @@ public abstract class AbstractComparator
    * Three-way key comparison. Implementations should provide a
    * <a href="https://en.wikipedia.org/wiki/Total_order">total order</a>
    * on keys that might be passed to it.
-   *
+   * <p>
    * The implementation may modify the {@code ByteBuffer}s passed in, though
    * it would be unconventional to modify the "limit" or any of the
    * underlying bytes. As a callback, RocksJava will ensure that {@code a}
@@ -114,6 +119,11 @@ public abstract class AbstractComparator
     // no-op
   }
 
+  /**
+   * Returns true if we are using direct byte buffers.
+   *
+   * @return true if we are using direct byte buffers, false otherwise.
+   */
   public final boolean usingDirectBuffers() {
     return usingDirectBuffers(nativeHandle_);
   }

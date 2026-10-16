@@ -41,6 +41,9 @@ public class StatisticsCollector {
     _executorService = Executors.newSingleThreadExecutor();
   }
 
+  /**
+   * Start collecting statistics.
+   */
   public void start() {
     _executorService.submit(collectStatistics());
   }

@@ -13,7 +13,9 @@ package org.rocksdb;
  */
 public abstract class AbstractCompactionFilterFactory<T extends AbstractCompactionFilter<?>>
     extends RocksCallbackObject {
-
+  /**
+   * Constructs a new Compaction Filter Factory which has no underlying C++ object.
+   */
   public AbstractCompactionFilterFactory() {
     super(0L);
   }
@@ -26,8 +28,8 @@ public abstract class AbstractCompactionFilterFactory<T extends AbstractCompacti
   /**
    * Called from JNI, see compaction_filter_factory_jnicallback.cc
    *
-   * @param fullCompaction {@link AbstractCompactionFilter.Context#fullCompaction}
-   * @param manualCompaction {@link AbstractCompactionFilter.Context#manualCompaction}
+   * @param fullCompaction {@link AbstractCompactionFilter.Context#isFullCompaction()}
+   * @param manualCompaction {@link AbstractCompactionFilter.Context#isManualCompaction()}
    *
    * @return native handle of the CompactionFilter
    */

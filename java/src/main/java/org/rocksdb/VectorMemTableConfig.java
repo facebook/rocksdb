@@ -5,6 +5,9 @@ package org.rocksdb;
  * The config for vector memtable representation.
  */
 public class VectorMemTableConfig extends MemTableConfig {
+  /**
+   * The default reserved size for the Vector Mem Table.
+   */
   public static final int DEFAULT_RESERVED_SIZE = 0;
 
   /**

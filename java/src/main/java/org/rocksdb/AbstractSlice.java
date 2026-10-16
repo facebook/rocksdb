@@ -23,13 +23,23 @@ package org.rocksdb;
  *   the Java @see org.rocksdb.AbstractComparator subclass, it disposes the
  *   C++ BaseComparatorJniCallback subclass, which in turn destroys the
  *   Java @see org.rocksdb.AbstractSlice subclass Objects.
+ *
+ * @param <T> the concrete Java type that is wrapped by the subclass of {@link AbstractSlice}.
  */
 public abstract class AbstractSlice<T> extends RocksMutableObject {
-
+  /**
+   * Constructs an AbstractSlice.
+   */
   protected AbstractSlice() {
     super();
   }
 
+  /**
+   * Constructs an AbstractSlice.
+   *
+   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native
+   *     RocksDB C++ Slice.
+   */
   protected AbstractSlice(final long nativeHandle) {
     super(nativeHandle);
   }
@@ -174,6 +184,13 @@ public abstract class AbstractSlice<T> extends RocksMutableObject {
     }
   }
 
+  /**
+   * Constructs a new Slice from a String.
+   *
+   * @param str the string.
+   *
+   * @return the handle to the native C++ Slice object.
+   */
   protected static native long createNewSliceFromString(final String str);
   private static native int size0(long handle);
   private static native boolean empty0(long handle);
@@ -186,6 +203,8 @@ public abstract class AbstractSlice<T> extends RocksMutableObject {
    * Note that this function should be called only after all
    * RocksDB instances referencing the slice are closed.
    * Otherwise, an undefined behavior will occur.
+   *
+   * @param handle the value of the C++ pointer to the underlying native C++ object.
    */
   @Override
   protected final void disposeInternal(final long handle) {

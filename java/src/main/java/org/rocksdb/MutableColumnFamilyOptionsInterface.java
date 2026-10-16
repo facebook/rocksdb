@@ -5,6 +5,11 @@
 
 package org.rocksdb;
 
+/**
+ * Interface for MutableColumnFamilyOptions.
+ *
+ * @param <T> the concrete type of the MutableColumnFamilyOptions.
+ */
 public interface MutableColumnFamilyOptionsInterface<
     T extends MutableColumnFamilyOptionsInterface<T>>
     extends AdvancedMutableColumnFamilyOptionsInterface<T> {

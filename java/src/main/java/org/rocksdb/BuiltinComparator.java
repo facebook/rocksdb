@@ -6,15 +6,16 @@
 package org.rocksdb;
 
 /**
- * Builtin RocksDB comparators
- *
- * <ol>
- *   <li>BYTEWISE_COMPARATOR - Sorts all keys in ascending bytewise
- *   order.</li>
- *   <li>REVERSE_BYTEWISE_COMPARATOR - Sorts all keys in descending bytewise
- *   order</li>
- * </ol>
+ * Builtin RocksDB comparators.
  */
 public enum BuiltinComparator {
-  BYTEWISE_COMPARATOR, REVERSE_BYTEWISE_COMPARATOR
+  /**
+   * Sorts all keys in ascending byte wise.
+   */
+  BYTEWISE_COMPARATOR,
+
+  /**
+   * Sorts all keys in descending byte wise order.
+   */
+  REVERSE_BYTEWISE_COMPARATOR
 }

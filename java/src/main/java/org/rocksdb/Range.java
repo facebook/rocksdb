@@ -12,6 +12,13 @@ public class Range {
   final Slice start;
   final Slice limit;
 
+  /**
+   * Constructs a Range.
+   *
+   *
+   * @param start the start of the range
+   * @param limit the end (start+limit) of the range
+   */
   public Range(final Slice start, final Slice limit) {
     this.start = start;
     this.limit = limit;

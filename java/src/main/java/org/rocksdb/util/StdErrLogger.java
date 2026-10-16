@@ -47,6 +47,11 @@ public class StdErrLogger extends RocksObject implements LoggerInterface {
     return LoggerType.STDERR_IMPLEMENTATION;
   }
 
+  @Override
+  public long getNativeHandle() {
+    return nativeHandle_;
+  }
+
   private static native long newStdErrLogger(
       final byte logLevel, /* @Nullable */ final String logPrefix);
   private static native void setInfoLogLevel(final long handle, final byte logLevel);

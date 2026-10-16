@@ -7,6 +7,9 @@ package org.rocksdb;
 
 import java.util.Objects;
 
+/**
+ * Information about a flush job.
+ */
 public class FlushJobInfo {
   private final long columnFamilyId;
   private final String columnFamilyName;
