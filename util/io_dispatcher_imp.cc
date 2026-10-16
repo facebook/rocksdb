@@ -31,6 +31,7 @@
 #include "rocksdb/io_status.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
+#include "rocksdb/threadpool.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/cachable_entry.h"
 #include "table/block_based/reader_common.h"
@@ -38,6 +39,7 @@
 #include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
 #include "util/mutexlock.h"
+#include "util/semaphore.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -244,8 +246,13 @@ static ReadScopedIOConfig GetReadScopedIOConfig(
 
 // State for async IO operations (implementation detail)
 struct AsyncIOState {
+  enum class CompletionState : uint8_t { kPending, kWaiting, kComplete };
+
   AsyncIOState() : offset(static_cast<uint64_t>(-1)) {}
-  ~AsyncIOState() { read_req.status.PermitUncheckedError(); }
+  ~AsyncIOState() {
+    read_req.status.PermitUncheckedError();
+    processing_status.PermitUncheckedError();
+  }
 
   AsyncIOState(const AsyncIOState&) = delete;
   AsyncIOState& operator=(const AsyncIOState&) = delete;
@@ -264,11 +271,24 @@ struct AsyncIOState {
   bool read_buffer_requires_cleanup = false;
   std::vector<size_t> block_indices;
   std::vector<BlockHandle> blocks;
+  size_t tracked_blocks = 0;
   FSReadRequest read_req;
   SystemClock* clock = nullptr;
   Statistics* statistics = nullptr;
   uint64_t submit_time_us = 0;
-  std::atomic<bool> completed{false};
+  Status processing_status;
+  std::vector<CachableEntry<Block>> materialized_blocks;
+  std::vector<uint8_t> failed_blocks;
+  SharedCleanablePtr read_buffer_cleanup;
+  std::atomic<size_t> remaining_materialization_tasks{0};
+  // ReadSet has one consumer. kWaiting avoids semaphore work unless that
+  // consumer reaches the request before processing completes.
+  BinarySemaphore completion{0};
+  std::atomic<CompletionState> completion_state{CompletionState::kPending};
+  std::atomic<bool> cancelled{false};
+  // Raw completion remains separate from materialization completion for
+  // rolling-prefetch stall detection.
+  std::atomic<bool> raw_io_completed{false};
 };
 
 static uint64_t GetIODispatcherNowMicros(SystemClock* clock) {
@@ -297,6 +317,67 @@ static void RecordIODispatcherBlockReads(size_t block_count,
   PERF_COUNTER_ADD(data_block_read_byte, block_read_bytes);
 }
 
+static void DeleteAsyncIOHandle(
+    const std::shared_ptr<AsyncIOState>& async_state) {
+  if (async_state->io_handle != nullptr && async_state->del_fn != nullptr) {
+    async_state->del_fn(async_state->io_handle);
+    async_state->io_handle = nullptr;
+  }
+}
+
+static void FinishAsyncIOProcessing(
+    const std::shared_ptr<AsyncIOState>& async_state, Status status) {
+  DeleteAsyncIOHandle(async_state);
+  async_state->processing_status = std::move(status);
+  const auto previous = async_state->completion_state.exchange(
+      AsyncIOState::CompletionState::kComplete, std::memory_order_release);
+  assert(previous != AsyncIOState::CompletionState::kComplete);
+  if (previous == AsyncIOState::CompletionState::kWaiting) {
+    async_state->completion.Release();
+  }
+  TEST_SYNC_POINT("IODispatcherImpl::ProcessAsyncIO:Complete");
+}
+
+static void WaitForAsyncIOProcessing(
+    const std::shared_ptr<AsyncIOState>& async_state) {
+  if (async_state->completion_state.load(std::memory_order_acquire) ==
+      AsyncIOState::CompletionState::kComplete) {
+    return;
+  }
+  auto expected = AsyncIOState::CompletionState::kPending;
+  if (async_state->completion_state.compare_exchange_strong(
+          expected, AsyncIOState::CompletionState::kWaiting,
+          std::memory_order_acquire, std::memory_order_acquire)) {
+    async_state->completion.Acquire();
+    assert(async_state->completion_state.load(std::memory_order_acquire) ==
+           AsyncIOState::CompletionState::kComplete);
+  } else {
+    assert(expected == AsyncIOState::CompletionState::kComplete);
+  }
+}
+
+static void CancelAsyncIO(const std::shared_ptr<FileSystem>& fs,
+                          const std::shared_ptr<AsyncIOState>& async_state,
+                          bool wait) {
+  async_state->cancelled.store(true, std::memory_order_release);
+  if (async_state->completion_state.load(std::memory_order_acquire) !=
+      AsyncIOState::CompletionState::kComplete) {
+    if (async_state->io_handle != nullptr && fs != nullptr) {
+      std::vector<void*> io_handles = {async_state->io_handle};
+      TEST_SYNC_POINT_CALLBACK("ReadSet::ReleaseAsyncIOForBlock:AbortIO",
+                               nullptr);
+      IOStatus status = fs->AbortIO(io_handles);
+      status.PermitUncheckedError();
+    }
+    FinishAsyncIOProcessing(async_state,
+                            Status::Aborted("async prefetch cancelled"));
+  }
+
+  if (wait) {
+    WaitForAsyncIOProcessing(async_state);
+  }
+}
+
 // ReadSet destructor - clean up IO handles
 // Must call AbortIO before deleting handles to avoid use-after-free when
 // io_uring completions arrive for deleted handles.
@@ -311,33 +392,12 @@ ReadSet::~ReadSet() {
     }
   }
 
-  if (async_io_map_.empty()) {
-    return;
-  }
-
-  // Collect unique pending IO handles (multiple block indices may share the
-  // same async_state due to coalescing)
-  std::vector<void*> pending_handles;
-  std::unordered_set<void*> seen_handles;
-  for (auto& pair : async_io_map_) {
-    auto& async_state = pair.second;
-    if (async_state->io_handle != nullptr &&
-        seen_handles.find(async_state->io_handle) == seen_handles.end()) {
-      pending_handles.push_back(async_state->io_handle);
-      seen_handles.insert(async_state->io_handle);
+  std::unordered_set<AsyncIOState*> seen_states;
+  for (const auto& [block_index, async_state] : async_io_map_) {
+    (void)block_index;
+    if (seen_states.insert(async_state.get()).second) {
+      CancelAsyncIO(fs_, async_state, true);
     }
-  }
-
-  // Abort all pending IO operations before deleting handles
-  if (!pending_handles.empty() && fs_) {
-    // AbortIO cancels pending requests and waits for completions
-    IOStatus s = fs_->AbortIO(pending_handles);
-    (void)s;  // Ignore errors in destructor
-  }
-
-  // Now safe to delete the handles
-  for (auto& pair : async_io_map_) {
-    DeleteAsyncIOHandle(pair.second);
   }
 }
 
@@ -550,34 +610,9 @@ void ReadSet::ReleaseAsyncIOForBlock(size_t block_index) {
   async_io_map_.erase(map_iter);
   ReleasePrefetchMemory(block_index);
 
-  auto block_iter = std::find(async_state->block_indices.begin(),
-                              async_state->block_indices.end(), block_index);
-  if (block_iter != async_state->block_indices.end()) {
-    const size_t state_index =
-        static_cast<size_t>(block_iter - async_state->block_indices.begin());
-    async_state->block_indices.erase(block_iter);
-    async_state->blocks.erase(async_state->blocks.begin() + state_index);
-  }
-
-  if (!async_state->block_indices.empty()) {
-    return;
-  }
-
-  if (async_state->io_handle != nullptr && fs_ != nullptr) {
-    std::vector<void*> io_handles = {async_state->io_handle};
-    TEST_SYNC_POINT_CALLBACK("ReadSet::ReleaseAsyncIOForBlock:AbortIO",
-                             nullptr);
-    IOStatus s = fs_->AbortIO(io_handles);
-    s.PermitUncheckedError();
-  }
-  DeleteAsyncIOHandle(async_state);
-}
-
-void ReadSet::DeleteAsyncIOHandle(
-    const std::shared_ptr<AsyncIOState>& async_state) {
-  if (async_state->io_handle != nullptr && async_state->del_fn != nullptr) {
-    async_state->del_fn(async_state->io_handle);
-    async_state->io_handle = nullptr;
+  assert(async_state->tracked_blocks > 0);
+  if (--async_state->tracked_blocks == 0) {
+    CancelAsyncIO(fs_, async_state, false);
   }
 }
 
@@ -591,15 +626,36 @@ bool ReadSet::IsBlockAvailable(size_t block_index) const {
          async_io_map_.find(block_index) != async_io_map_.end();
 }
 
-// Poll and process async IO for a specific block
-Status ReadSet::PollAndProcessAsyncIO(std::shared_ptr<AsyncIOState> async_state,
-                                      bool* poll_stalled) {
-  auto* rep = job_->table->get_rep();
+static void MaterializeAsyncIOBlocks(
+    const std::shared_ptr<IOJob>& job,
+    const std::shared_ptr<AsyncIOState>& async_state, size_t begin,
+    size_t end) {
+  const Slice& buffer_data = async_state->read_req.result;
+  for (size_t i = begin; i < end; ++i) {
+    TEST_SYNC_POINT_CALLBACK(
+        "IODispatcherImpl::ProcessAsyncIO:MaterializeBlock", &i);
+    Status status = CreateAndPinBlockFromBuffer(
+        job, async_state->blocks[i], async_state->offset, buffer_data,
+        async_state->read_buffer_cleanup,
+        async_state->read_buffer_requires_cleanup,
+        async_state->materialized_blocks[i]);
+    if (!status.ok()) {
+      async_state->materialized_blocks[i].Reset();
+      async_state->failed_blocks[i] = 1;
+    }
+  }
+}
 
-  // Poll for IO completion using FileSystem Poll API
+static void ProcessAsyncIO(const std::shared_ptr<IOJob>& job,
+                           const std::shared_ptr<AsyncIOState>& async_state,
+                           ThreadPool* materialization_pool,
+                           bool* poll_stalled) {
+  TEST_SYNC_POINT("IODispatcherImpl::ProcessAsyncIO:Start");
+
+  auto* rep = job->table->get_rep();
   std::vector<void*> io_handles = {async_state->io_handle};
   const bool completed_before_poll =
-      async_state->completed.load(std::memory_order_acquire);
+      async_state->raw_io_completed.load(std::memory_order_acquire);
   const uint64_t poll_start_time_ns =
       async_state->clock != nullptr ? async_state->clock->NowNanos() : 0;
   const uint64_t poll_start_time_us =
@@ -607,7 +663,7 @@ Status ReadSet::PollAndProcessAsyncIO(std::shared_ptr<AsyncIOState> async_state,
   RecordIODispatcherTime(async_state->statistics,
                          IO_DISPATCHER_ASYNC_READ_PREFETCH_LEAD_MICROS,
                          async_state->submit_time_us, poll_start_time_us);
-  IOStatus io_s = rep->ioptions.env->GetFileSystem()->Poll(io_handles, 1);
+  IOStatus io_status = rep->ioptions.env->GetFileSystem()->Poll(io_handles, 1);
   const uint64_t poll_end_time_ns =
       async_state->clock != nullptr ? async_state->clock->NowNanos() : 0;
   if (poll_stalled != nullptr) {
@@ -619,54 +675,78 @@ Status ReadSet::PollAndProcessAsyncIO(std::shared_ptr<AsyncIOState> async_state,
   RecordIODispatcherTime(
       async_state->statistics, IO_DISPATCHER_ASYNC_READ_POLL_WAIT_MICROS,
       poll_start_time_us, GetIODispatcherNowMicros(async_state->clock));
-  if (!io_s.ok()) {
-    return io_s;
+  if (!io_status.ok()) {
+    FinishAsyncIOProcessing(async_state, io_status);
+    return;
   }
-
-  // Check for read errors
   if (!async_state->read_req.status.ok()) {
-    return async_state->read_req.status;
+    FinishAsyncIOProcessing(async_state, async_state->read_req.status);
+    return;
   }
 
-  // Use the result slice from the callback which has been correctly set
-  // with any necessary alignment adjustments for direct IO
-  const Slice& buffer_data = async_state->read_req.result;
-  SharedCleanablePtr read_buffer_cleanup;
+  TEST_SYNC_POINT("IODispatcherImpl::ProcessAsyncIO:BeforeMaterialize");
+  if (async_state->cancelled.load(std::memory_order_acquire)) {
+    FinishAsyncIOProcessing(async_state,
+                            Status::Aborted("async prefetch cancelled"));
+    return;
+  }
   if (async_state->read_scoped_buf_lease.cleanup.get() != nullptr) {
-    read_buffer_cleanup = std::move(async_state->read_scoped_buf_lease.cleanup);
+    async_state->read_buffer_cleanup =
+        std::move(async_state->read_scoped_buf_lease.cleanup);
   }
 
-  // Process all blocks in this async request. A block-construction error is
-  // local to that block: siblings can still be served, while the failed block
-  // is retried through ReadIndex's ordinary read path.
-  std::vector<size_t> failed_block_indices;
+  async_state->materialized_blocks.resize(async_state->blocks.size());
+  async_state->failed_blocks.resize(async_state->blocks.size(), 0);
+  if (async_state->blocks.empty()) {
+    FinishAsyncIOProcessing(async_state, Status::OK());
+    return;
+  }
+
+  if (materialization_pool == nullptr) {
+    MaterializeAsyncIOBlocks(job, async_state, 0, async_state->blocks.size());
+    FinishAsyncIOProcessing(async_state, Status::OK());
+    return;
+  }
+
+  const size_t task_count = std::min(
+      async_state->blocks.size(),
+      static_cast<size_t>(materialization_pool->GetBackgroundThreads()));
+  async_state->remaining_materialization_tasks.store(task_count,
+                                                     std::memory_order_relaxed);
+  for (size_t task = 0; task < task_count; ++task) {
+    const size_t begin = async_state->blocks.size() * task / task_count;
+    const size_t end = async_state->blocks.size() * (task + 1) / task_count;
+    materialization_pool->SubmitJob([job, async_state, begin, end]() {
+      MaterializeAsyncIOBlocks(job, async_state, begin, end);
+      if (async_state->remaining_materialization_tasks.fetch_sub(
+              1, std::memory_order_acq_rel) == 1) {
+        FinishAsyncIOProcessing(async_state, Status::OK());
+      }
+    });
+  }
+}
+
+Status ReadSet::PollAndProcessAsyncIO(std::shared_ptr<AsyncIOState> async_state,
+                                      bool* poll_stalled) {
+  ProcessAsyncIO(job_, async_state, async_decompression_pool_.get(),
+                 poll_stalled);
+  WaitForAsyncIOProcessing(async_state);
+
   for (size_t i = 0; i < async_state->block_indices.size(); ++i) {
-    const size_t idx = async_state->block_indices[i];
-    const auto& block_handle = async_state->blocks[i];
-
-    Status s = CreateAndPinBlockFromBuffer(
-        job_, block_handle, async_state->offset, buffer_data,
-        read_buffer_cleanup, async_state->read_buffer_requires_cleanup,
-        pinned_blocks_[idx]);
-    if (!s.ok()) {
-      pinned_blocks_[idx].Reset();
-      failed_block_indices.push_back(idx);
+    const size_t block_index = async_state->block_indices[i];
+    auto map_iter = async_io_map_.find(block_index);
+    if (map_iter == async_io_map_.end() || map_iter->second != async_state) {
+      continue;
     }
+    async_io_map_.erase(map_iter);
+    if (!async_state->processing_status.ok() || async_state->failed_blocks[i]) {
+      ReleasePrefetchMemory(block_index);
+      continue;
+    }
+    pinned_blocks_[block_index] =
+        std::move(async_state->materialized_blocks[i]);
   }
-
-  // Clean up IO handle
-  DeleteAsyncIOHandle(async_state);
-
-  // Remove from map - all blocks in this request have been processed
-  for (const auto idx : async_state->block_indices) {
-    async_io_map_.erase(idx);
-  }
-
-  for (const size_t idx : failed_block_indices) {
-    ReleasePrefetchMemory(idx);
-  }
-
-  return Status::OK();
+  return async_state->processing_status;
 }
 
 // Perform synchronous read for a specific block
@@ -792,6 +872,7 @@ struct IODispatcherImpl::Impl : public IODispatcherImplData,
   port::Mutex memory_mutex_;  // Only for pending_prefetch_queue_ access
   std::deque<std::shared_ptr<PendingPrefetchRequest>> pending_prefetch_queue_;
   Statistics* statistics_ = nullptr;
+  std::shared_ptr<ThreadPool> async_decompression_pool_;
 
  private:
   void ReleaseFailedSyncPrefetchMemory(
@@ -880,9 +961,20 @@ struct IODispatcherImpl::Impl : public IODispatcherImplData,
 
 IODispatcherImpl::Impl::Impl(const IODispatcherOptions& options)
     : max_prefetch_memory_bytes_(options.max_prefetch_memory_bytes),
-      statistics_(options.statistics) {}
+      statistics_(options.statistics) {
+  if (options.async_decompression_threads > 0) {
+    const size_t thread_count =
+        std::min<size_t>(options.async_decompression_threads,
+                         static_cast<size_t>(std::numeric_limits<int>::max()));
+    async_decompression_pool_ = std::shared_ptr<ThreadPool>(
+        NewThreadPool(static_cast<int>(thread_count)), [](ThreadPool* pool) {
+          pool->WaitForJobsAndJoinAllThreads();
+          delete pool;
+        });
+  }
+}
 
-IODispatcherImpl::Impl::~Impl() {}
+IODispatcherImpl::Impl::~Impl() = default;
 
 bool IODispatcherImpl::Impl::TryAcquireMemory(size_t bytes) {
   if (max_prefetch_memory_bytes_ == 0) {
@@ -1268,6 +1360,7 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
   // Initialize ReadSet
   rs->job_ = job;
   rs->fs_ = job->table->get_rep()->ioptions.env->GetFileSystem();
+  rs->async_decompression_pool_ = async_decompression_pool_;
   rs->pinned_blocks_.resize(job->block_handles.size());
   rs->block_sizes_.resize(job->block_handles.size(), 0);
 
@@ -1627,6 +1720,7 @@ std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
     async_state->read_buffer_requires_cleanup =
         read_scoped_io.read_buffer_requires_cleanup;
     async_state->block_indices = coalesced_block_indices[i];
+    async_state->tracked_blocks = async_state->block_indices.size();
     async_state->read_req = std::move(read_reqs[i]);
     async_state->clock = rep->ioptions.clock;
     async_state->statistics = rep->ioptions.stats;
@@ -1673,14 +1767,13 @@ std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
       async_state->read_req.scratch = async_state->buf.get();
     }
 
-    // Callback for async read completion
-    // Store the result slice and status back into async_state so we can access
-    // them after Poll() completes.
+    // The callback only publishes raw I/O completion. Async processing is not
+    // complete until the request has also materialized every data block.
     auto cb = [](const FSReadRequest& req, void* cb_arg) {
       auto* state = static_cast<AsyncIOState*>(cb_arg);
       state->read_req.result = req.result;
       state->read_req.status = req.status;
-      state->completed.store(true, std::memory_order_release);
+      state->raw_io_completed.store(true, std::memory_order_release);
       RecordIODispatcherTime(
           state->statistics,
           IO_DISPATCHER_ASYNC_READ_OBSERVED_COMPLETION_MICROS,

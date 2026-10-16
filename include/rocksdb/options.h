@@ -2139,6 +2139,7 @@ class MultiScanArgs {
     max_prefetch_size = other.max_prefetch_size;
     rolling_prefetch = other.rolling_prefetch;
     rolling_prefetch_window_size = other.rolling_prefetch_window_size;
+    async_decompression_threads = other.async_decompression_threads;
     use_async_io = other.use_async_io;
     reverse = other.reverse;
     io_dispatcher = other.io_dispatcher;
@@ -2148,6 +2149,7 @@ class MultiScanArgs {
         max_prefetch_size(other.max_prefetch_size),
         rolling_prefetch(other.rolling_prefetch),
         rolling_prefetch_window_size(other.rolling_prefetch_window_size),
+        async_decompression_threads(other.async_decompression_threads),
         use_async_io(other.use_async_io),
         reverse(other.reverse),
         io_dispatcher(std::move(other.io_dispatcher)),
@@ -2161,6 +2163,7 @@ class MultiScanArgs {
     max_prefetch_size = other.max_prefetch_size;
     rolling_prefetch = other.rolling_prefetch;
     rolling_prefetch_window_size = other.rolling_prefetch_window_size;
+    async_decompression_threads = other.async_decompression_threads;
     use_async_io = other.use_async_io;
     reverse = other.reverse;
     io_dispatcher = other.io_dispatcher;
@@ -2175,6 +2178,7 @@ class MultiScanArgs {
       max_prefetch_size = other.max_prefetch_size;
       rolling_prefetch = other.rolling_prefetch;
       rolling_prefetch_window_size = other.rolling_prefetch_window_size;
+      async_decompression_threads = other.async_decompression_threads;
       use_async_io = other.use_async_io;
       reverse = other.reverse;
       io_dispatcher = std::move(other.io_dispatcher);
@@ -2241,6 +2245,7 @@ class MultiScanArgs {
     max_prefetch_size = other.max_prefetch_size;
     rolling_prefetch = other.rolling_prefetch;
     rolling_prefetch_window_size = other.rolling_prefetch_window_size;
+    async_decompression_threads = other.async_decompression_threads;
     use_async_io = other.use_async_io;
     reverse = other.reverse;
     io_dispatcher = other.io_dispatcher;
@@ -2274,6 +2279,11 @@ class MultiScanArgs {
   // wait may grow the batch up to max_prefetch_size. Otherwise the batch stays
   // fixed at this size.
   uint64_t rolling_prefetch_window_size = 0;
+
+  // Number of workers used to finish async reads and materialize their data
+  // blocks. This includes decompression. Zero performs that work when the
+  // iterator first consumes a block from the request.
+  size_t async_decompression_threads = 0;
 
   // Enable async I/O for multi-scan operations
   // When true, BlockBasedTableIterator will use ReadAsync() for reading blocks

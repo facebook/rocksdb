@@ -1997,7 +1997,10 @@ Status DBIter::SetScanOptionsForPrepare(const MultiScanArgs& scan_opts) {
   // BlockBasedTableIterators in this scan to share a single dispatcher,
   // enabling better IO coordination and future rate limiting.
   if (!scan_opts_.value().io_dispatcher) {
-    scan_opts_->io_dispatcher.reset(NewIODispatcher());
+    IODispatcherOptions dispatcher_options;
+    dispatcher_options.async_decompression_threads =
+        scan_opts_->async_decompression_threads;
+    scan_opts_->io_dispatcher.reset(NewIODispatcher(dispatcher_options));
   }
   return Status::OK();
 }

@@ -20,6 +20,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class FileSystem;
 class Statistics;
+class ThreadPool;
 
 // Forward declaration for internal implementation
 struct IODispatcherImplData;
@@ -39,6 +40,11 @@ struct IODispatcherOptions {
 
   // Optional statistics for tracking memory limiter metrics
   Statistics* statistics = nullptr;
+
+  // Number of workers that materialize asynchronously read data blocks,
+  // including decompression. Polling remains on the thread that consumes the
+  // ReadSet. Zero also leaves block materialization on that thread.
+  size_t async_decompression_threads = 0;
 };
 
 /*
@@ -251,6 +257,9 @@ class ReadSet {
   // FileSystem for calling AbortIO in destructor
   std::shared_ptr<FileSystem> fs_;
 
+  // Shared with the dispatcher so the pool outlives every ReadSet using it.
+  std::shared_ptr<ThreadPool> async_decompression_pool_;
+
   // Storage for pinned blocks (one per block handle in the job)
   std::vector<CachableEntry<Block>> pinned_blocks_;
 
@@ -297,9 +306,6 @@ class ReadSet {
   // the last block using the request, abort and delete the IO handle before the
   // async state is released.
   void ReleaseAsyncIOForBlock(size_t block_index);
-
-  // Delete a completed or aborted async IO handle exactly once.
-  void DeleteAsyncIOHandle(const std::shared_ptr<AsyncIOState>& async_state);
 
   // Perform synchronous read for a specific block
   Status SyncRead(size_t block_index);
