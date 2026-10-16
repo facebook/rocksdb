@@ -23,6 +23,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/memtablerep.h"
+#include "rocksdb/periodic_compaction_policy.h"
 #include "rocksdb/utilities/leveldb_options.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
@@ -2416,6 +2417,52 @@ TEST_F(OptionsTest, SstPartitionerTest) {
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(cfg_opts, cf_opts, new_opt));
   ASSERT_TRUE(cf_opts.sst_partitioner_factory->AreEquivalent(
       cfg_opts, new_opt.sst_partitioner_factory.get(), &mismatch));
+}
+
+TEST_F(OptionsTest, PeriodicCompactionPolicyTest) {
+  ConfigOptions cfg_opts;
+  ColumnFamilyOptions cf_opts;
+  ColumnFamilyOptions new_opt;
+  std::string opts_str;
+  std::string mismatch;
+  const std::string policy_id =
+      FixedLookaheadPeriodicCompactionPolicy::kClassName();
+
+  ASSERT_OK(PeriodicCompactionPolicy::CreateFromString(
+      cfg_opts, policy_id, &cf_opts.periodic_compaction_policy));
+  ASSERT_NE(cf_opts.periodic_compaction_policy, nullptr);
+  ASSERT_STREQ(cf_opts.periodic_compaction_policy->Name(), policy_id.c_str());
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      cfg_opts, ColumnFamilyOptions(),
+      "periodic_compaction_policy={id=" + policy_id + "; unknown=10;}",
+      &cf_opts));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      cfg_opts, ColumnFamilyOptions(),
+      "periodic_compaction_policy={id=" + policy_id +
+          "; lookahead_seconds=3600;}",
+      &cf_opts));
+  ASSERT_NE(cf_opts.periodic_compaction_policy, nullptr);
+  ASSERT_EQ(cf_opts.periodic_compaction_policy
+                ->GetDecision(PeriodicCompactionPolicy::Context())
+                .deadline_lookahead_seconds,
+            3600U);
+
+  ASSERT_OK(GetStringFromColumnFamilyOptions(cfg_opts, cf_opts, &opts_str));
+  ASSERT_OK(
+      GetColumnFamilyOptionsFromString(cfg_opts, cf_opts, opts_str, &new_opt));
+  ASSERT_NE(new_opt.periodic_compaction_policy, nullptr);
+  ASSERT_STREQ(new_opt.periodic_compaction_policy->Name(), policy_id.c_str());
+  ASSERT_EQ(new_opt.periodic_compaction_policy
+                ->GetDecision(PeriodicCompactionPolicy::Context())
+                .deadline_lookahead_seconds,
+            3600U);
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(cfg_opts, cf_opts, new_opt));
+  ASSERT_TRUE(cf_opts.periodic_compaction_policy->AreEquivalent(
+      cfg_opts, new_opt.periodic_compaction_policy.get(), &mismatch));
+
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      cfg_opts, cf_opts, "periodic_compaction_policy=nullptr", &new_opt));
+  ASSERT_EQ(new_opt.periodic_compaction_policy, nullptr);
 }
 
 TEST_F(OptionsTest, FileChecksumGenFactoryTest) {

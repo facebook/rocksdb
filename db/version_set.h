@@ -886,6 +886,12 @@ class VersionStorageInfo {
 
   PeriodicCompactionPhaseParams periodic_compaction_phase_params_;
 
+  // Reported to ImmutableOptions::periodic_compaction_policy. Set by Version;
+  // null for a standalone VersionStorageInfo.
+  const std::string* db_id_ = nullptr;
+  const std::string* column_family_name_ = nullptr;
+  uint32_t column_family_id_ = 0;
+
   friend class Version;
   friend class VersionSet;
 };

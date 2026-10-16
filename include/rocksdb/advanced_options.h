@@ -14,6 +14,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/memtablerep.h"
+#include "rocksdb/periodic_compaction_policy.h"
 #include "rocksdb/universal_compaction.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -940,6 +941,30 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   uint64_t periodic_compaction_seconds = 0xfffffffffffffffe;
+
+  // Optional policy for making periodic compactions eligible early in
+  // response to application-defined signals, such as learned traffic
+  // patterns, real-time load, or remote-compaction capacity.
+  //
+  // A file becomes eligible when its periodic-compaction trigger time is
+  // within the policy's deadline lookahead. The trigger time already includes
+  // phasing (see DBOptions::periodic_compaction_phase_recovery_percent). When
+  // DBOptions::daily_offpeak_time_utc is also set, the larger of the two
+  // lookaheads applies. The policy can only make files eligible earlier,
+  // never later. Eligibility is recomputed whenever compaction scores are
+  // computed, so lowering the lookahead unmarks files that have not been
+  // picked yet. A lookahead close to periodic_compaction_seconds marks nearly
+  // every file in the column family.
+  //
+  // The policy is evaluated when RocksDB checks for periodic compaction, so
+  // DBOptions::max_compaction_trigger_wakeup_seconds bounds how quickly a
+  // signal change is observed on an otherwise idle DB. The policy object
+  // cannot be replaced through SetOptions(), but its thread-safe internal
+  // state may change at runtime.
+  //
+  // Default: nullptr (normal periodic-compaction timing)
+  std::shared_ptr<PeriodicCompactionPolicy> periodic_compaction_policy =
+      nullptr;
 
   // When set to a positive value, enables read-triggered compaction. An SST
   // file is marked for compaction when its estimated read frequency

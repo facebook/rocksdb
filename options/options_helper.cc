@@ -372,6 +372,7 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->cf_paths = ioptions.cf_paths;
   cf_opts->compaction_thread_limiter = ioptions.compaction_thread_limiter;
   cf_opts->sst_partitioner_factory = ioptions.sst_partitioner_factory;
+  cf_opts->periodic_compaction_policy = ioptions.periodic_compaction_policy;
   cf_opts->blob_cache = ioptions.blob_cache;
   cf_opts->enable_blob_direct_write = ioptions.enable_blob_direct_write;
   cf_opts->blob_direct_write_partitions = ioptions.blob_direct_write_partitions;

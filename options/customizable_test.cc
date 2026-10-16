@@ -27,6 +27,7 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/memory_allocator.h"
+#include "rocksdb/periodic_compaction_policy.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/sst_partitioner.h"
@@ -1363,6 +1364,15 @@ class MockTablePropertiesCollectorFactory
   const char* Name() const override { return kClassName(); }
 };
 
+class MockPeriodicCompactionPolicy : public PeriodicCompactionPolicy {
+ public:
+  static const char* kClassName() { return "Mock"; }
+  const char* Name() const override { return kClassName(); }
+  Decision GetDecision(const Context& /* context */) const override {
+    return Decision();
+  }
+};
+
 class MockSstPartitionerFactory : public SstPartitionerFactory {
  public:
   static const char* kClassName() { return "Mock"; }
@@ -1496,6 +1506,15 @@ static int RegisterLocalObjects(ObjectLibrary& library,
       [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
          std::string* /* errmsg */) {
         guard->reset(new DummyFileSystem(nullptr));
+        return guard->get();
+      });
+
+  library.AddFactory<PeriodicCompactionPolicy>(
+      MockPeriodicCompactionPolicy::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<PeriodicCompactionPolicy>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockPeriodicCompactionPolicy());
         return guard->get();
       });
 
@@ -1781,6 +1800,14 @@ TEST_F(LoadCustomizableTest, LoadSstPartitionerFactoryTest) {
       "Mock", SstPartitionerFixedPrefixFactory::kClassName()));
   if (RegisterTests("Test")) {
     ExpectCreateShared<SstPartitionerFactory>("Mock");
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadPeriodicCompactionPolicyTest) {
+  ASSERT_OK(TestSharedBuiltins<PeriodicCompactionPolicy>(
+      "Mock", FixedLookaheadPeriodicCompactionPolicy::kClassName()));
+  if (RegisterTests("Test")) {
+    ExpectCreateShared<PeriodicCompactionPolicy>("Mock");
   }
 }
 

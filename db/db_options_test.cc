@@ -898,6 +898,29 @@ TEST_F(DBOptionsTest, SetOptionsAndFileRace) {
   ASSERT_EQ(setting_in_mem, cf_descs[0].options.ttl);
 }
 
+TEST_F(DBOptionsTest, PeriodicCompactionPolicyPersistsInOptionsFile) {
+  Options options;
+  options.create_if_missing = true;
+  options.env = env_;
+  options.periodic_compaction_policy =
+      std::make_shared<FixedLookaheadPeriodicCompactionPolicy>(3600);
+  Reopen(options);
+
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  DBOptions db_options;
+  ConfigOptions cfg;
+  cfg.env = env_;
+  ASSERT_OK(LoadLatestOptions(cfg, dbname_, &db_options, &cf_descs, nullptr));
+  ASSERT_EQ(cf_descs.size(), 1);
+  const std::shared_ptr<PeriodicCompactionPolicy>& policy =
+      cf_descs[0].options.periodic_compaction_policy;
+  ASSERT_NE(policy, nullptr);
+  ASSERT_STREQ(policy->Name(),
+               FixedLookaheadPeriodicCompactionPolicy::kClassName());
+  ASSERT_EQ(3600U, policy->GetDecision(PeriodicCompactionPolicy::Context())
+                       .deadline_lookahead_seconds);
+}
+
 TEST_F(DBOptionsTest, SetOptionsStatsPersistPeriodSec) {
   Options options;
   options.create_if_missing = true;
