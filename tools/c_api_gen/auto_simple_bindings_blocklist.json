@@ -115,6 +115,11 @@
           "reason": "Stores external objects, callback collections, or nested aggregates that need explicit C ownership and lifetime policy."
         },
         {
+          "field": "global_row_cache",
+          "policy": "manual",
+          "reason": "The C API needs an explicit callback and ownership contract for custom global row cache implementations."
+        },
+        {
           "field": "wal_filter",
           "policy": "manual",
           "reason": "Stores external objects, callback collections, or nested aggregates that need explicit C ownership and lifetime policy."
