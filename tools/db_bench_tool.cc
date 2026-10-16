@@ -4558,7 +4558,7 @@ class Benchmark {
     fprintf(stderr, "...Verified\n");
   }
 
-  void ErrorExit() {
+  [[noreturn]] void ErrorExit() {
     if (holds_db_use_guard_ || is_secondary_update_thread_) {
       // Neither kind of DB-user context can safely run the mutation cleanup
       // path:
