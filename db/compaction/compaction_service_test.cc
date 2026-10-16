@@ -796,6 +796,47 @@ TEST_F(CompactionServiceTest, ManualCompaction) {
   ASSERT_EQ(handles_[1]->GetName(), info.cf_name);
 }
 
+TEST_F(CompactionServiceTest, BlobDirectWriteColumnFamilyCompactsLocally) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.allow_concurrent_memtable_write = false;
+  ReopenWithCompactionService(&options);
+
+  ColumnFamilyOptions bdwOptions(options);
+  bdwOptions.enable_blob_files = true;
+  bdwOptions.enable_blob_direct_write = true;
+  bdwOptions.min_blob_size = 16;
+  ColumnFamilyHandle* bdwHandle = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(bdwOptions, "bdw_cf", &bdwHandle));
+
+  WriteOptions writeOptions;
+  writeOptions.disableWAL = true;
+  FlushOptions flushOptions;
+  for (int i = 0; i < 2; ++i) {
+    ASSERT_OK(db_->Put(writeOptions, bdwHandle, "key",
+                       std::string(1024, static_cast<char>('a' + i))));
+    ASSERT_OK(db_->Flush(flushOptions, bdwHandle));
+  }
+
+  ColumnFamilyMetaData beforeCompaction;
+  db_->GetColumnFamilyMetaData(bdwHandle, &beforeCompaction);
+  ASSERT_GE(beforeCompaction.file_count, 2);
+
+  const auto remoteCompactionsBefore =
+      GetCompactionService()->GetCompactionNum();
+  const auto compactWriteBytesBefore =
+      GetPrimaryStatistics()->getTickerCount(COMPACT_WRITE_BYTES);
+  CompactRangeOptions compactOptions;
+  compactOptions.bottommost_level_compaction =
+      BottommostLevelCompaction::kForceOptimized;
+  ASSERT_OK(db_->CompactRange(compactOptions, bdwHandle, nullptr, nullptr));
+  EXPECT_EQ(remoteCompactionsBefore,
+            GetCompactionService()->GetCompactionNum());
+  EXPECT_GT(GetPrimaryStatistics()->getTickerCount(COMPACT_WRITE_BYTES),
+            compactWriteBytesBefore);
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(bdwHandle));
+}
+
 TEST_F(CompactionServiceTest, StandaloneDeleteRangeTombstoneOptimization) {
   Options options = CurrentOptions();
 
