@@ -476,6 +476,53 @@ struct HyperClockCacheOptions : public ShardedCacheOptions {
   std::shared_ptr<Cache> MakeSharedCache() const;
 };
 
+// FIFOCache - A cache using segmented FIFO eviction to stay at or below a
+// set capacity. The cache is sharded to 2^num_shard_bits shards, by hash of
+// the key. The total capacity is divided and evenly assigned to each shard,
+// and each shard has two FIFO queues for evictions: new entries enter
+// probation, and probation victims with enough access frequency are promoted
+// to resident (second-chance) instead of being evicted. Keys (not values)
+// recently evicted from probation are remembered, and re-inserting one goes
+// directly to resident. Placement is inferred
+// from access frequency: Cache::Priority is ignored. Each shard has a mutex
+// for exclusive access during operations. Pinned entries are never evicted;
+// eviction scans past them and a fully-pinned shard evicts nothing.
+// The memory that remembers recently evicted keys (a few bytes plus one
+// hash-map entry per remembered key, at most one remembered key per
+// cached entry) is not charged against capacity.
+// Under kFullChargeCacheMetadata (the default) the hash table's bucket
+// array also counts against capacity: 128 bytes per shard at
+// construction, growing as the table resizes, and never shrinking.
+// A shard needs well over that much capacity to hold any entry.
+//
+// This is an opt-in implementation and not the default block cache. Besides
+// MakeSharedCache, Cache::CreateFromString accepts
+// "fifo_cache://capacity=<n>;..." with the scalar fields below (e.g.
+// block_cache={fifo_cache://capacity=1G;num_shard_bits=6}); memory_allocator
+// and secondary_cache can only be set in C++.
+struct FIFOCacheOptions : public ShardedCacheOptions {
+  // Whether to use adaptive mutexes for cache shards. Note that adaptive
+  // mutexes need to be supported by the platform in order for this to have any
+  // effect. The default value is true if RocksDB is compiled with
+  // -DROCKSDB_DEFAULT_TO_ADAPTIVE_MUTEX, false otherwise.
+  bool use_adaptive_mutex = kDefaultToAdaptiveMutex;
+
+  FIFOCacheOptions() {}
+  FIFOCacheOptions(size_t _capacity, int _num_shard_bits,
+                   bool _strict_capacity_limit,
+                   std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
+                   bool _use_adaptive_mutex = kDefaultToAdaptiveMutex,
+                   CacheMetadataChargePolicy _metadata_charge_policy =
+                       kDefaultCacheMetadataChargePolicy)
+      : ShardedCacheOptions(_capacity, _num_shard_bits, _strict_capacity_limit,
+                            std::move(_memory_allocator),
+                            _metadata_charge_policy),
+        use_adaptive_mutex(_use_adaptive_mutex) {}
+
+  // Construct an instance of FIFOCache using these options
+  std::shared_ptr<Cache> MakeSharedCache() const;
+};
+
 // DEPRECATED - The old Clock Cache implementation had an unresolved bug and
 // has been removed. The new HyperClockCache requires an additional
 // configuration parameter that is not provided by this API. This function
