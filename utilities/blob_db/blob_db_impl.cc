@@ -1791,15 +1791,8 @@ bool BlobDBImpl::VisibleToActiveSnapshot(
   // [earliest_sequence, obsolete_sequence). But doing so will make the
   // implementation more complicated.
   SequenceNumber obsolete_sequence = bfile->GetObsoleteSequence();
-  SequenceNumber oldest_snapshot = kMaxSequenceNumber;
-  {
-    // Need to lock DBImpl mutex before access snapshot list.
-    InstrumentedMutexLock l(db_impl_->mutex());
-    auto& snapshots = db_impl_->snapshots();
-    if (!snapshots.empty()) {
-      oldest_snapshot = snapshots.oldest()->GetSequenceNumber();
-    }
-  }
+  const SequenceNumber oldest_snapshot =
+      db_impl_->snapshots().OldestOr([]() { return kMaxSequenceNumber; });
   bool visible = oldest_snapshot < obsolete_sequence;
   if (visible) {
     ROCKS_LOG_INFO(db_options_.info_log,

@@ -2191,8 +2191,9 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       mutex_.Unlock();
 
       SequenceNumber earliest_write_conflict_snapshot;
-      std::vector<SequenceNumber> snapshot_seqs =
-          snapshots_.GetAll(&earliest_write_conflict_snapshot);
+      std::vector<SequenceNumber> snapshot_seqs;
+      LoadSnapshots(&snapshot_seqs, &earliest_write_conflict_snapshot,
+                    kMaxSequenceNumber);
       SequenceNumber earliest_snapshot =
           (snapshot_seqs.empty() ? kMaxSequenceNumber : snapshot_seqs.at(0));
       auto snapshot_checker = snapshot_checker_.get();

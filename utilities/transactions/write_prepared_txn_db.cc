@@ -853,9 +853,17 @@ void WritePreparedTxnDB::AdvanceSeqByOne() {
 const std::vector<SequenceNumber> WritePreparedTxnDB::GetSnapshotListFromDB(
     SequenceNumber max) {
   ROCKS_LOG_DETAILS(info_log_, "GetSnapshotListFromDB with max %" PRIu64, max);
+  // Snapshots from GetSnapshotImpl() read their sequence number under a
+  // snapshot shard lock, but timestamped snapshots read it under the DB mutex.
+  // Hold the DB mutex so that neither kind can be missed.
   InstrumentedMutexLock dblock(db_impl_->mutex());
   db_impl_->mutex()->AssertHeld();
-  return db_impl_->snapshots().GetAll(nullptr, max);
+  std::vector<SequenceNumber> snapshots;
+  const ShardedSnapshotList::OldestSnapshotInfo oldest_snapshot =
+      db_impl_->LoadSnapshots(&snapshots, nullptr, max);
+  db_impl_->UpdateOldestSnapshotAndScheduleWork(oldest_snapshot,
+                                                /*installed_cfd=*/nullptr);
+  return snapshots;
 }
 
 void WritePreparedTxnDB::ReleaseSnapshotInternal(
