@@ -878,6 +878,13 @@ class DB {
     return Status::NotSupported("GetEntity not supported");
   }
 
+  Status GetEntityWithMetadata(const ReadOptions& options, const Slice& key,
+                               PinnableWideColumns* columns,
+                               OutputMetadata* output_metadata) {
+    return GetEntityWithMetadata(options, DefaultColumnFamily(), key, columns,
+                                 output_metadata);
+  }
+
   // Returns logically grouped wide-column entities per column family (a.k.a.
   // attribute groups) for a single key. PinnableAttributeGroups is a vector of
   // PinnableAttributeGroup. Each PinnableAttributeGroup will have
@@ -1239,6 +1246,16 @@ class DB {
       statuses[i] = Status::NotSupported("MultiGetEntity not supported");
     }
   }
+
+  // MultiGetEntity for a single column family with optional output metadata.
+  // See the multiple column family MultiGetEntityWithMetadata() below.
+  void MultiGetEntityWithMetadata(const ReadOptions& options,
+                                  ColumnFamilyHandle* column_family,
+                                  size_t num_keys, const Slice* keys,
+                                  PinnableWideColumns* results,
+                                  Status* statuses,
+                                  MultiGetOutputMetadata* output_metadata,
+                                  bool sorted_input = false);
 
   // Batched MultiGet-like API that returns attribute groups.
   // An "attribute group" refers to a logical grouping of wide-column entities
@@ -2904,6 +2921,16 @@ class DB {
                                  OutputMetadata* output_metadata);
 
   // EXPERIMENTAL, subject to change.
+  // GetEntity equivalent of GetWithMetadata(), with the same newer-version
+  // semantics and support. Entity reads do not return timestamps: requesting a
+  // timestamp returns NotSupported.
+  virtual Status GetEntityWithMetadata(const ReadOptions& options,
+                                       ColumnFamilyHandle* column_family,
+                                       const Slice& key,
+                                       PinnableWideColumns* columns,
+                                       OutputMetadata* output_metadata);
+
+  // EXPERIMENTAL, subject to change.
   // MultiGet equivalent of GetWithMetadata(). For each requested metadata
   // field, the corresponding output vector is resized to num_keys entries.
   virtual void MultiGetWithMetadata(const ReadOptions& options,
@@ -2913,6 +2940,30 @@ class DB {
                                     Status* statuses,
                                     MultiGetOutputMetadata* output_metadata,
                                     const bool sorted_input = false);
+
+  // EXPERIMENTAL, subject to change.
+  // MultiGetEntity equivalent of MultiGetWithMetadata(), with the same
+  // newer-version semantics and support. Entity reads do not return
+  // timestamps: requesting them returns NotSupported for every key. For each
+  // requested metadata field, the corresponding output vector is resized to
+  // num_keys entries.
+  virtual void MultiGetEntityWithMetadata(
+      const ReadOptions& options, size_t num_keys,
+      ColumnFamilyHandle* const* column_families, const Slice* keys,
+      PinnableWideColumns* results, Status* statuses,
+      MultiGetOutputMetadata* output_metadata, bool sorted_input = false);
+
+  // EXPERIMENTAL, subject to change.
+  // Attribute-group MultiGetEntity equivalent of MultiGetWithMetadata(), with
+  // the same newer-version semantics and support. For each requested metadata
+  // field, the corresponding output vector is resized to the total number of
+  // attribute groups across results[0..num_keys-1] in (key, attribute_group)
+  // order. Entity reads do not return timestamps: requesting them sets
+  // NotSupported on every attribute group.
+  virtual void MultiGetEntityWithMetadata(
+      const ReadOptions& options, size_t num_keys, const Slice* keys,
+      PinnableAttributeGroups* results,
+      MultiGetOutputMetadata* output_metadata);
 };
 
 struct WriteStallStatsMapKeys {
