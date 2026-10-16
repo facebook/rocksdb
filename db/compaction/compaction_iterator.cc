@@ -1907,7 +1907,15 @@ void CompactionIterator::PrepareOutput() {
     //
     // Can we do the same for levels above bottom level as long as
     // KeyNotExistsBeyondOutputLevel() return true?
+    const Compaction* const real_compaction =
+        compaction_ == nullptr ? nullptr : compaction_->real_compaction();
+    const bool preserve_seqno_for_fifo_global_row_cache =
+        real_compaction != nullptr &&
+        real_compaction->immutable_options().global_row_cache != nullptr &&
+        real_compaction->immutable_options().compaction_style ==
+            kCompactionStyleFIFO;
     if (Valid() && bottommost_level_ &&
+        !preserve_seqno_for_fifo_global_row_cache &&
         DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
         ikey_.type != kTypeMerge && current_key_committed_ && !is_range_del_) {
       assert(compaction_ != nullptr && !compaction_->allow_ingest_behind());

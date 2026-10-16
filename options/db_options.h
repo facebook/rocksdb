@@ -78,6 +78,7 @@ struct ImmutableDBOptions {
   WALRecoveryMode wal_recovery_mode;
   bool allow_2pc;
   std::shared_ptr<Cache> row_cache;
+  std::shared_ptr<GlobalRowCache> global_row_cache;
   WalFilter* wal_filter;
   bool dump_malloc_stats;
   bool avoid_flush_during_recovery;
