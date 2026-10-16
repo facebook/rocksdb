@@ -19,7 +19,10 @@ namespace ROCKSDB_NAMESPACE {
 AllocTracker::AllocTracker(WriteBufferManager* write_buffer_manager,
                            FlushInitiator* flush_initiator)
     : write_buffer_manager_(write_buffer_manager),
-      flush_initiator_(flush_initiator),
+      flush_initiator_(flush_initiator != nullptr &&
+                               !flush_initiator->UsesOnDemandAccounting()
+                           ? flush_initiator
+                           : nullptr),
       bytes_allocated_(0),
       bytes_reported_(0),
       flush_initiator_active_(false),
