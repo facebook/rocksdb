@@ -864,6 +864,16 @@ class FileSystem : public Customizable {
     supported_ops |= (1 << FSSupportedOps::kFSPrefetch);
   }
 
+  // Returns false if this FileSystem never allocates space beyond a file's
+  // logical size (for example, via FSWritableFile::Allocate() or
+  // PrepareWrite()). RocksDB may then skip work whose only purpose is to
+  // release preallocated space, such as reopening and truncating the last
+  // WAL file during DB open. This should reflect the capability of the
+  // FileSystem rather than any per-file options or build configuration,
+  // since files may have been created by a prior process with different
+  // options or a different build. Defaults to true.
+  virtual bool IsPreallocationSupported() { return true; }
+
   // If you're adding methods here, remember to add them to EnvWrapper too.
 
  private:
@@ -1857,6 +1867,10 @@ class FileSystemWrapper : public FileSystem {
 
   void SupportedOps(int64_t& supported_ops) override {
     return target_->SupportedOps(supported_ops);
+  }
+
+  bool IsPreallocationSupported() override {
+    return target_->IsPreallocationSupported();
   }
 
  protected:
