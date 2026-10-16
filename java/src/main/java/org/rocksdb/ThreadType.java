@@ -55,7 +55,7 @@ public enum ThreadType {
    */
   static ThreadType fromValue(final byte value)
       throws IllegalArgumentException {
-    for (final ThreadType threadType : ThreadType.values()) {
+    for (final ThreadType threadType : values()) {
       if (threadType.value == value) {
         return threadType;
       }
