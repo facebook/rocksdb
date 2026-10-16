@@ -881,6 +881,27 @@ TEST_F(DBSecondaryTest, OpenAsSecondary) {
   verify_db_func("new_foo_value", "new_bar_value");
 }
 
+TEST_F(DBSecondaryTest, WaitForCompactAfterSnapshotRelease) {
+  Options options;
+  options.env = env_;
+  options.level0_file_num_compaction_trigger = 100;
+  Reopen(options);
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key2", "value2"));
+  ASSERT_OK(Flush());
+
+  options.max_open_files = -1;
+  OpenSecondary(options);
+  const Snapshot* snapshot = db_secondary_->GetSnapshot();
+  ASSERT_NE(snapshot, nullptr);
+  db_secondary_->ReleaseSnapshot(snapshot);
+
+  WaitForCompactOptions wait_options;
+  wait_options.timeout = std::chrono::seconds(1);
+  ASSERT_OK(db_secondary_->WaitForCompact(wait_options));
+}
+
 TEST_F(DBSecondaryTest, OpenFilesAsync) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;

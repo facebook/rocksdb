@@ -1115,17 +1115,24 @@ class DBImpl : public DB
   // Schedule a background job to actually delete obsolete files.
   void SchedulePurge();
 
-  const SnapshotList& snapshots() const { return snapshots_; }
+  // Thread-safe; does not require any DB lock.
+  const ShardedSnapshotList& snapshots() const { return snapshots_; }
 
   // load list of snapshots to `snap_vector` that is no newer than `max_seq`
   // in ascending order.
   // `oldest_write_conflict_snapshot` is filled with the oldest snapshot
   // which satisfies SnapshotImpl.is_write_conflict_boundary_ = true.
-  void LoadSnapshots(std::vector<SequenceNumber>* snap_vector,
-                     SequenceNumber* oldest_write_conflict_snapshot,
-                     const SequenceNumber& max_seq) const {
-    InstrumentedMutexLock l(mutex());
-    snapshots().GetAll(snap_vector, oldest_write_conflict_snapshot, max_seq);
+  ShardedSnapshotList::OldestSnapshotInfo LoadSnapshots(
+      std::vector<SequenceNumber>* snap_vector,
+      SequenceNumber* oldest_write_conflict_snapshot,
+      const SequenceNumber& max_seq) const {
+    const SequenceNumber snapshot_creation_lower_bound =
+        GetLastPublishedSequence();
+    ShardedSnapshotList::OldestSnapshotInfo oldest_snapshot{
+        snapshot_creation_lower_bound, 0, snapshot_creation_lower_bound};
+    snapshots().GetAll(snap_vector, oldest_write_conflict_snapshot, max_seq,
+                       snapshot_creation_lower_bound, &oldest_snapshot);
+    return oldest_snapshot;
   }
 
   const ImmutableDBOptions& immutable_db_options() const {
@@ -2238,6 +2245,8 @@ class DBImpl : public DB
   friend class DBTest_ConcurrentFlushWAL_Test;
   friend class DBTest_MixedSlowdownOptionsStop_Test;
   friend class DBCompactionTest_CompactBottomLevelFilesWithDeletions_Test;
+  friend class
+      DBCompactionTest_StandaloneRangeTombstoneSnapshotAdvanceRetriesScheduling_Test;
   friend class DBCompactionTest_CompactionDuringShutdown_Test;
   friend class DBCompactionTest_DelayCompactBottomLevelFilesWithDeletions_Test;
   friend class DBCompactionTest_DisableCompactBottomLevelFiles_Test;
@@ -3201,6 +3210,16 @@ class DBImpl : public DB
   SnapshotImpl* GetSnapshotImpl(bool is_write_conflict_boundary,
                                 bool lock = true);
 
+  // Updates compaction state after the oldest snapshot advances and also
+  // reconciles `installed_cfd`, when non-null, if its Version has not processed
+  // the current oldest snapshot yet. Returns whether a pending release had a
+  // stable scan-start published sequence. Requires mutex_.
+  bool UpdateOldestSnapshotAndScheduleWork(
+      const ShardedSnapshotList::OldestSnapshotInfo& oldest_snapshot,
+      ColumnFamilyData* installed_cfd);
+  bool ReconcileOldestSnapshotForColumnFamily(ColumnFamilyData* cfd,
+                                              SequenceNumber oldest_snapshot);
+
   // If snapshot_seq != kMaxSequenceNumber, then this function can only be
   // called from the write thread that publishes sequence numbers to readers.
   // For 1) write-committed, or 2) write-prepared + one-write-queue, this will
@@ -3736,7 +3755,8 @@ class DBImpl : public DB
   // threads. Protected by wal_write_mutex_.
   autovector<log::Writer*> wals_to_free_;
 
-  bool is_snapshot_supported_ = true;
+  // Written with mutex_ held. Read without mutex_ when creating a snapshot.
+  std::atomic<bool> is_snapshot_supported_{true};
 
   std::map<uint64_t, std::map<std::string, uint64_t>> stats_history_;
 
@@ -3766,7 +3786,13 @@ class DBImpl : public DB
 
   TrimHistoryScheduler trim_history_scheduler_;
 
-  SnapshotList snapshots_;
+  // Shard locks inside snapshots_ are leaf locks: they may be acquired while
+  // holding mutex_, but mutex_ must never be acquired while holding one.
+  // GetSnapshotImpl() reads a snapshot's sequence number inside the shard lock
+  // that adds it. So a flush or compaction that reads snapshots_ after picking
+  // its input either sees the snapshot, or the snapshot's sequence number is no
+  // smaller than any sequence number in that input.
+  ShardedSnapshotList snapshots_;
 
   TimestampedSnapshotList timestamped_snapshots_;
 
@@ -3972,14 +3998,12 @@ class DBImpl : public DB
   // Guard against multiple concurrent refitting
   bool refitting_level_ = false;
 
-  // The min threshold to triggere bottommost compaction for removing
-  // garbages, among all column families.
-  SequenceNumber bottommost_files_mark_threshold_ = kMaxSequenceNumber;
-
-  // The min threshold to trigger compactions for standalone range deletion
-  // files that are marked for compaction.
-  SequenceNumber standalone_range_deletion_files_mark_threshold_ =
-      kMaxSequenceNumber;
+  // Largest conservative oldest-snapshot bound processed by all current
+  // column families. Protected by mutex_.
+  SequenceNumber last_processed_oldest_snapshot_ = 0;
+  // Sum of per-shard release counters included in the last processed bound.
+  // Protected by mutex_.
+  uint64_t last_processed_snapshot_release_count_ = 0;
 
   LogsWithPrepTracker logs_with_prep_tracker_;
 

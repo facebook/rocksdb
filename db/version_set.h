@@ -692,6 +692,10 @@ class VersionStorageInfo {
     return bottommost_files_mark_threshold_;
   }
 
+  SequenceNumber oldest_snapshot_seqnum() const {
+    return oldest_snapshot_seqnum_;
+  }
+
   SequenceNumber standalone_range_tombstone_files_mark_threshold() const {
     return standalone_range_tombstone_files_mark_threshold_;
   }

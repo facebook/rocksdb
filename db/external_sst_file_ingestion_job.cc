@@ -693,10 +693,10 @@ Status ExternalSstFileIngestionJob::Run() {
 
   bool force_global_seqno = false;
 
-  if (ingestion_options_.snapshot_consistency && !db_snapshots_->empty()) {
+  if (ingestion_options_.snapshot_consistency) {
     // We need to assign a global sequence number to all the files even
     // if the don't overlap with any ranges since we have snapshots
-    force_global_seqno = true;
+    force_global_seqno = !db_snapshots_->empty();
   }
   // It is safe to use this instead of LastAllocatedSequence since we are
   // the only active writer, and hence they are equal

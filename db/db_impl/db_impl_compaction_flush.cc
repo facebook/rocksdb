@@ -10,6 +10,7 @@
 #include <cinttypes>
 #include <deque>
 #include <memory>
+#include <thread>
 #include <unordered_map>
 
 #include "db/blob/blob_file_partition_manager.h"
@@ -5886,24 +5887,14 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   // is not marked for a compaction that cannot zero it out (infinite loop).
   MaybeUpdatePreserveTimeMinSeqno(cfd);
 
-  // There may be a small data race here. The snapshot tricking bottommost
-  // compaction may already be released here. But assuming there will always be
-  // newer snapshot created and released frequently, the compaction will be
-  // triggered soon anyway.
-  bottommost_files_mark_threshold_ = kMaxSequenceNumber;
-  standalone_range_deletion_files_mark_threshold_ = kMaxSequenceNumber;
-  for (auto* my_cfd : *versions_->GetColumnFamilySet()) {
-    if (!my_cfd->AllowIngestBehind()) {
-      bottommost_files_mark_threshold_ = std::min(
-          bottommost_files_mark_threshold_,
-          my_cfd->current()->storage_info()->bottommost_files_mark_threshold());
-    }
-    standalone_range_deletion_files_mark_threshold_ =
-        std::min(standalone_range_deletion_files_mark_threshold_,
-                 cfd->current()
-                     ->storage_info()
-                     ->standalone_range_tombstone_files_mark_threshold());
-  }
+  const SequenceNumber snapshot_creation_lower_bound =
+      GetLastPublishedSequence();
+  TEST_SYNC_POINT(
+      "DBImpl::InstallSuperVersionAndScheduleWork:BeforeSnapshotRefresh");
+  const ShardedSnapshotList::OldestSnapshotInfo oldest_snapshot =
+      snapshots_.GetOldestSnapshotSequenceLowerBound(
+          snapshot_creation_lower_bound);
+  UpdateOldestSnapshotAndScheduleWork(oldest_snapshot, cfd);
 
   // Whenever we install new SuperVersion, we might need to issue new flushes or
   // compactions.
@@ -5969,19 +5960,30 @@ void DBImpl::InitSnapshotContext(JobContext* job_context) {
         GetSnapshotImpl(/*is_write_conflict_boundary=*/false, /*lock=*/false);
     managed_snapshot.reset(new ManagedSnapshot(this, snapshot));
   }
-  SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber;
-  std::vector<SequenceNumber> snapshot_seqs =
-      snapshots_.GetAll(&earliest_write_conflict_snapshot);
-
   // The SnapshotChecker path above already adds a managed snapshot to
   // snapshot_seqs.
-  if (track_published_seq_in_snapshot_context_ && !snapshot_checker) {
+  const bool pin_published_seq =
+      track_published_seq_in_snapshot_context_ && !snapshot_checker;
+  // Read the published sequence number before loading the snapshots.
+  // GetSnapshot() does not take mutex_, so a snapshot that the load below
+  // misses reads its sequence number later and is no smaller than this pin.
+  const SequenceNumber published_seq =
+      pin_published_seq ? GetLastPublishedSequence() : 0;
+  SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber;
+  std::vector<SequenceNumber> snapshot_seqs;
+  const ShardedSnapshotList::OldestSnapshotInfo oldest_snapshot = LoadSnapshots(
+      &snapshot_seqs, &earliest_write_conflict_snapshot, kMaxSequenceNumber);
+  UpdateOldestSnapshotAndScheduleWork(oldest_snapshot,
+                                      /*installed_cfd=*/nullptr);
+
+  if (pin_published_seq) {
     // Pin the published-sequence boundary into snapshot_seqs without taking
     // a real snapshot. This prevents flush/compaction from collapsing a version
     // visible at the published boundary into a newer unpublished seqno.
-    const SequenceNumber published_seq = GetLastPublishedSequence();
-    if (snapshot_seqs.empty() || snapshot_seqs.back() < published_seq) {
-      snapshot_seqs.push_back(published_seq);
+    auto it = std::lower_bound(snapshot_seqs.begin(), snapshot_seqs.end(),
+                               published_seq);
+    if (it == snapshot_seqs.end() || *it != published_seq) {
+      snapshot_seqs.insert(it, published_seq);
     }
   }
   TEST_SYNC_POINT("DBImpl::InitSnapshotContext:BeforeInit");
@@ -6013,9 +6015,9 @@ Status DBImpl::WaitForCompact(
       return s;
     }
   }
-  TEST_SYNC_POINT("DBImpl::WaitForCompact:StartWaiting");
   const auto deadline = immutable_db_options_.clock->NowMicros() +
                         wait_for_compact_options.timeout.count();
+  bool started_waiting = false;
   for (;;) {
     // The coordinator reserves this DB before invoking its non-blocking
     // scheduling callback. Drain that DB-specific reservation without holding
@@ -6053,6 +6055,26 @@ Status DBImpl::WaitForCompact(
     }
     if (bg_work_paused_ && wait_for_compact_options.abort_on_pause) {
       return Status::Aborted();
+    }
+    const SequenceNumber snapshot_creation_lower_bound =
+        GetLastPublishedSequence();
+    TEST_SYNC_POINT("DBImpl::WaitForCompact:BeforeSnapshotRefresh");
+    const bool snapshot_refresh_stable = UpdateOldestSnapshotAndScheduleWork(
+        snapshots_.GetOldestSnapshotSequenceLowerBound(
+            snapshot_creation_lower_bound),
+        /*installed_cfd=*/nullptr);
+    if (!snapshot_refresh_stable && error_handler_.GetBGError().ok()) {
+      if (wait_for_compact_options.timeout.count() &&
+          immutable_db_options_.clock->NowMicros() >= deadline) {
+        return Status::TimedOut();
+      }
+      InstrumentedMutexUnlock u(&mutex_);
+      std::this_thread::yield();
+      continue;
+    }
+    if (!started_waiting) {
+      TEST_SYNC_POINT("DBImpl::WaitForCompact:StartWaiting");
+      started_waiting = true;
     }
     // A WBM job can enqueue a regular flush, so wait for both to quiesce.
     if ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
