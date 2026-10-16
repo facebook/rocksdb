@@ -1992,6 +1992,12 @@ TEST_F(EnvPosixTest, SupportedOpsNoAsyncIOOnIOUringInitFailure) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
+
+// The Posix FileSystem must report preallocation support regardless of build
+// configuration, so that space preallocated by another build is still freed.
+TEST_F(EnvPosixTest, PosixFileSystemReportsPreallocationSupported) {
+  ASSERT_TRUE(FileSystem::Default()->IsPreallocationSupported());
+}
 #ifdef OS_LINUX
 TEST_F(EnvPosixTest, IOUringAddressReuseNoTsanFalsePositive) {
   struct io_uring* probe = CreateIOUring();

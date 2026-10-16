@@ -2024,12 +2024,12 @@ Status DBImpl::MaybeFlushFinalMemtableOrRestoreActiveLogFiles(
   if (status.ok()) {
     if (data_seen && !flushed) {
       status = RestoreAliveLogFiles(wal_numbers);
-    } else if (!wal_numbers.empty()) {  // If there's no data in the WAL, or we
-                                        // flushed all the data, still
+    } else if (!wal_numbers.empty() && !read_only &&
+               fs_->IsPreallocationSupported()) {
+      // If there's no data in the WAL, or we flushed all the data, still
       // truncate the log file. If the process goes into a crash loop before
       // the file is deleted, the preallocated space will never get freed.
-      const bool truncate = !read_only;
-      GetLogSizeAndMaybeTruncate(wal_numbers.back(), truncate, nullptr)
+      GetLogSizeAndMaybeTruncate(wal_numbers.back(), /*truncate=*/true, nullptr)
           .PermitUncheckedError();
     }
   }
@@ -2105,6 +2105,7 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
   wal_empty_ = false;
   uint64_t min_wal_with_unflushed_data =
       versions_->MinLogNumberWithUnflushedData();
+  const bool preallocation_supported = fs_->IsPreallocationSupported();
   for (auto wal_number : wal_numbers) {
     if (!allow_2pc() && wal_number < min_wal_with_unflushed_data) {
       // In non-2pc mode, the WAL files not backing unflushed data are not
@@ -2115,8 +2116,10 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
     // preallocated space are not needed anymore. It is likely only the last
     // log has such preallocated space, so we only truncate for the last log.
     WalFileNumberSize log;
-    s = GetLogSizeAndMaybeTruncate(
-        wal_number, /*truncate=*/(wal_number == wal_numbers.back()), &log);
+    s = GetLogSizeAndMaybeTruncate(wal_number,
+                                   /*truncate=*/preallocation_supported &&
+                                       (wal_number == wal_numbers.back()),
+                                   &log);
     if (!s.ok()) {
       break;
     }
