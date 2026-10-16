@@ -283,11 +283,15 @@ class ExternalSstFileIngestionJob {
   Status Run();
 
   // Register key range involved in this ingestion job
-  // to prevent key range conflict with other ongoing compaction/file ingestion
+  // to prevent key range conflict with other ongoing compaction/file ingestion.
+  // Also marks the existing files this job deletes (atomic replace) as being
+  // compacted, so that no compaction picks them while LogAndApply() releases
+  // the DB mutex to write the MANIFEST.
   // REQUIRES: Mutex held
   void RegisterRange();
 
-  // Unregister key range registered for this ingestion job
+  // Unregister key range registered for this ingestion job, and clear the
+  // being-compacted mark set by RegisterRange() on replaced files.
   // REQUIRES: Mutex held
   void UnregisterRange();
 
@@ -456,6 +460,11 @@ class ExternalSstFileIngestionJob {
   // compactions.
   void CreateEquivalentFileIngestingCompactions();
 
+  // Add `file` at `level` to the files deleted by this job's atomic replace.
+  // Fails if `file` is already being compacted.
+  // REQUIRES: Mutex held
+  Status AddFileToReplace(int level, FileMetaData* file);
+
   // Remove all the internal files created, called when ingestion job fails.
   void DeleteInternalFiles();
 
@@ -496,6 +505,12 @@ class ExternalSstFileIngestionJob {
   std::vector<FileMetaData*> compaction_input_metdatas_;
   // Compactions equivalent to this ingestion job
   std::vector<Compaction*> file_ingesting_compactions_;
+
+  // Existing files deleted by atomic replace. These belong to the version
+  // that is current while the DB mutex is held from Run() through
+  // UnregisterRange().
+  std::vector<FileMetaData*> files_to_replace_;
+  bool files_to_replace_marked_{false};
 };
 
 }  // namespace ROCKSDB_NAMESPACE
