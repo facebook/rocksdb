@@ -6,7 +6,7 @@ import heapq
 import random
 import sys
 import time
-from collections import OrderedDict
+from collections import deque, OrderedDict
 from os import path
 
 import numpy as np
@@ -1343,6 +1343,175 @@ class Deque:
         return "Deque({!r})".format(list(self))
 
 
+class S3FIFOCache(Cache):
+    """
+    An implementation of S3-FIFO with a small probationary queue, a main
+    queue, and a ghost queue of recently evicted probation entries.
+
+    This follows the C++ FIFOCache (cache/fifo_cache.cc):
+    - new entries enter the small queue unless their key is remembered in the
+      ghost queue, in which case they go directly to the main queue;
+    - hits increment a per-entry frequency counter, saturating at max_freq
+      (3), but do not reorder entries;
+    - small-queue evictions promote entries whose frequency reached the
+      promotion threshold, otherwise they are evicted and remembered in ghost;
+    - main-queue eviction is CLOCK-like: entries with non-zero frequency are
+      demoted by one and rotated, otherwise they are evicted;
+    - the small queue's budget is 12% of the cache by size, and the queue
+      that pays for an insert is chosen from the small queue's size plus the
+      incoming size, which is 0 for a key that the ghost readmits to main;
+    - the ghost is a ring of victim slots, oldest dropped first while their
+      total size exceeds the cache size or they outnumber the cached
+      entries; readmitting (or re-recording) a key leaves its old slot
+      behind as a stale slot that still counts toward both bounds until it
+      ages out, as GhostTake and GhostRecord do in C++.
+    """
+
+    def __init__(
+        self,
+        cache_size,
+        enable_cache_row_key,
+        small_size_ratio=0.12,
+        ghost_size_ratio=1.0,
+        move_to_main_threshold=2,
+        max_freq=3,
+    ):
+        super().__init__(cache_size, enable_cache_row_key)
+        self.table = {}
+        self.small = Deque()
+        self.main = Deque()
+        self.small_size_ratio = small_size_ratio
+        self.ghost_size_ratio = ghost_size_ratio
+        self.move_to_main_threshold = move_to_main_threshold
+        self.max_freq = max_freq
+        self.small_used_size = 0
+        # Ghost ring, oldest first: one (key, size, seq) slot per probation
+        # victim. self.ghost maps each remembered key to the seq of its live
+        # slot, and self.ghost_sizes to that slot's size. ghost_used_size
+        # sums every slot in the ring, stale ones included.
+        self.ghost_ring = deque()
+        self.ghost = {}
+        self.ghost_sizes = {}
+        self.ghost_used_size = 0
+        self.ghost_next_seq = 0
+
+    def cache_name(self):
+        if self.enable_cache_row_key:
+            return "Hybrid S3-FIFO (s3fifo_hybrid)"
+        return "S3-FIFO (s3fifo)"
+
+    def _in_small(self, key):
+        return key in self.small
+
+    def _in_main(self, key):
+        return key in self.main
+
+    def _small_budget(self):
+        return self.cache_size * self.small_size_ratio
+
+    def _forget_ghost(self, key):
+        # Readmission drops only the key's index entry; its slot stays in the
+        # ring as a stale slot, as GhostTake leaves it in C++.
+        del self.ghost[key]
+        del self.ghost_sizes[key]
+
+    def _remember_ghost(self, key, value_size):
+        # Called while the victim is still in the table, as GhostRecord is in
+        # C++, so a full cache of N entries keeps N ghost slots. A key that
+        # is already remembered gets a new slot; the old one turns stale.
+        seq = self.ghost_next_seq
+        self.ghost_next_seq += 1
+        self.ghost_ring.append((key, value_size, seq))
+        self.ghost[key] = seq
+        self.ghost_sizes[key] = value_size
+        self.ghost_used_size += value_size
+        while len(self.ghost_ring) > 0 and (
+            self.ghost_used_size > self.cache_size * self.ghost_size_ratio
+            or len(self.ghost_ring) > len(self.table)
+        ):
+            oldest_key, oldest_size, oldest_seq = self.ghost_ring.popleft()
+            if self.ghost.get(oldest_key) == oldest_seq:
+                del self.ghost[oldest_key]
+                del self.ghost_sizes[oldest_key]
+            self.ghost_used_size -= oldest_size
+
+    def _lookup(self, trace_record, key, hash):
+        if key not in self.table:
+            return False
+        entry = self.table[key]
+        entry.num_hits = min(entry.num_hits + 1, self.max_freq)
+        return True
+
+    def _evict_from_small(self, value_size):
+        while self.used_size + value_size > self.cache_size and len(self.small) > 0:
+            victim = self.small.pop()
+            entry = self.table[victim]
+            if entry.num_hits >= self.move_to_main_threshold:
+                entry.num_hits = 0
+                self.main.appendleft(victim)
+                self.small_used_size -= entry.value_size
+                continue
+            self._remember_ghost(victim, entry.value_size)
+            self.small_used_size -= entry.value_size
+            self.used_size -= entry.value_size
+            del self.table[victim]
+
+    def _evict_from_main(self, value_size):
+        while self.used_size + value_size > self.cache_size and len(self.main) > 0:
+            victim = self.main.pop()
+            entry = self.table[victim]
+            if entry.num_hits > 0:
+                entry.num_hits -= 1
+                self.main.appendleft(victim)
+                continue
+            self.used_size -= entry.value_size
+            del self.table[victim]
+
+    def _evict(self, trace_record, key, hash, value_size):
+        # A key the ghost readmits lands in main, so it does not count
+        # against the small queue's budget.
+        incoming_small = 0 if key in self.ghost else value_size
+        while self.used_size + value_size > self.cache_size:
+            small_first = (
+                self.small_used_size + incoming_small > self._small_budget()
+                or len(self.main) == 0
+            )
+            before = self.used_size
+            if small_first:
+                self._evict_from_small(value_size)
+                if self.used_size + value_size > self.cache_size:
+                    self._evict_from_main(value_size)
+            else:
+                self._evict_from_main(value_size)
+                if self.used_size + value_size > self.cache_size:
+                    self._evict_from_small(value_size)
+                    if self.used_size == before and self.used_size + value_size > self.cache_size:
+                        self._evict_from_main(value_size)
+            if self.used_size == before:
+                break
+
+    def _insert(self, trace_record, key, hash, value_size):
+        entry = CacheEntry(
+            value_size,
+            trace_record.cf_id,
+            trace_record.level,
+            trace_record.block_type,
+            trace_record.table_id,
+            0,
+            trace_record.access_time,
+        )
+        self.table[key] = entry
+        if key in self.ghost:
+            self._forget_ghost(key)
+            self.main.appendleft(key)
+        else:
+            self.small.appendleft(key)
+            self.small_used_size += value_size
+
+    def _should_admit(self, trace_record, key, hash, value_size):
+        return True
+
+
 class ARCCache(Cache):
     """
     An implementation of ARC. ARC assumes that all blocks are having the
@@ -1626,6 +1795,8 @@ def create_cache(cache_type, cache_size, downsample_size):
         return LRUCache(cache_size, enable_cache_row_key)
     elif cache_type == "arc":
         return ARCCache(cache_size, enable_cache_row_key)
+    elif cache_type == "s3fifo":
+        return S3FIFOCache(cache_size, enable_cache_row_key)
     elif cache_type == "gdsize":
         return GDSizeCache(cache_size, enable_cache_row_key)
     else:
