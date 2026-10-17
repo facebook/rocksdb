@@ -1053,6 +1053,90 @@ class DBCrashTestTest(unittest.TestCase):
         self.assertEqual("other stdout\n", filtered_stdout)
         self.assertEqual(stderr, filtered_stderr)
 
+    def test_sanitize_known_stderr_suppresses_only_cachelib_info(self):
+        db_crashtest = self.load_db_crashtest()
+        stdout = "Crash-recovery verification passed :)\n"
+        cachelib_params = {
+            "secondary_cache_uri": (
+                "cachelibwrapper://cacheName=fbcode_stress_crash;"
+                "fileName=/tmp/fbcode_stress_crash_cache;size=104857600"
+            )
+        }
+        cachelib_info = (
+            "I1005 18:03:25.419455 26069 SlabAllocator.cpp:110] "
+            "CacheLib slab ASAN poisoning is DISABLED\n"
+            "I1005 18:03:25.437886 26069 Device.cpp:1153] Cache file: "
+            "/tmp/fbcode_stress_crash_cache size: 104857600 truncate: 1\n"
+            "I1005 18:03:25.438145 26069 Device.cpp:1220] Cache file "
+            "/tmp/fbcode_stress_crash_cache is fallocated from 0 bytes to "
+            "104857600 bytes\n"
+            "I1005 18:03:25.438421 26069 Device.cpp:1038] Created device with "
+            "num_devices 1 size 104857600 block_size 4096,stripe_size 0 "
+            "max_write_size 0 max_io_size 0 io_engine sync qdepth 0,"
+            "num_fdp_devices 0\n"
+            "I1005 18:03:25.488981 26069 RejectRandomAP.cpp:38] "
+            "RejectRandomAP: probability 1\n"
+            "I1005 18:03:25.489110 26069 NavySetup.cpp:286] "
+            "metadataSize: 524288\n"
+            "I1005 18:03:25.489446 26069 LruPolicy.cpp:32] "
+            "LRU policy: expected 6 regions\n"
+            "I1005 18:03:25.498560 26069 SparseMapIndex.cpp:99] "
+            "SparseMapIndex was created with numBucketMaps_ = 65536, "
+            "totalMutexes_ = 1024\n"
+            "I1005 18:03:25.498678 26069 RegionManager.cpp:60] 6 regions, "
+            "16777216 bytes each, allowReadDuringReclaim true, directFlush false\n"
+            "I1005 18:03:25.500776 26069 Allocator.cpp:41] Enable "
+            "priority-based allocation for Allocator. Number of priorities: 1\n"
+            "I1005 18:03:25.501036 26069 BlockCache.cpp:257] "
+            "Block cache created\n"
+            "I1005 18:03:25.501143 26069 EnginePair.cpp:341] "
+            "Small item cache is noop.\n"
+            "I1005 18:03:25.501237 26069 Driver.cpp:80] "
+            "Max concurrent inserts: 1000000\n"
+        )
+        cachelib_error = (
+            "E1005 18:03:25.501335 26069 Driver.cpp:256] Reset Navy failed\n"
+        )
+        unrelated_info = (
+            "I1005 18:03:25.501380 26069 OtherComponent.cpp:10] "
+            "Unrelated information\n"
+        )
+        cases = (
+            (
+                "cachelib info",
+                cachelib_params,
+                cachelib_info,
+                stdout + "Ignored known stderr:\n" + cachelib_info,
+                "",
+            ),
+            ("no cachelib uri", {}, cachelib_info, stdout, cachelib_info),
+            (
+                "cachelib error",
+                cachelib_params,
+                cachelib_error,
+                stdout,
+                cachelib_error,
+            ),
+            (
+                "unrelated info",
+                cachelib_params,
+                unrelated_info,
+                stdout,
+                unrelated_info,
+            ),
+        )
+
+        for name, params, stderr, expected_stdout, expected_stderr in cases:
+            with self.subTest(name=name):
+                filtered_stdout, filtered_stderr = (
+                    db_crashtest.sanitize_known_stderr(
+                        stdout, stderr, False, params
+                    )
+                )
+
+                self.assertEqual(expected_stdout, filtered_stdout)
+                self.assertEqual(expected_stderr, filtered_stderr)
+
     def test_print_run_output_tolerates_read_executor_io_uring_init_failure(self):
         db_crashtest = self.load_db_crashtest()
         args = self.build_mode_args()
