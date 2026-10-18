@@ -1508,6 +1508,14 @@ Status DBImpl::StartPeriodicTaskScheduler() {
   return s;
 }
 
+Status DBImpl::RegisterTriggerCompactionTask() {
+  options_mutex_.AssertHeld();
+  return periodic_task_scheduler_.Register(
+      PeriodicTaskType::kTriggerCompaction,
+      periodic_task_functions_.at(PeriodicTaskType::kTriggerCompaction),
+      ComputeTriggerCompactionPeriod(), /*run_immediately=*/false);
+}
+
 Status DBImpl::RegisterRecordSeqnoTimeWorker() {
   options_mutex_.AssertHeld();
 
@@ -2005,6 +2013,8 @@ Status DBImpl::SetOptions(
       s = RegisterRecordSeqnoTimeWorker();
     }
   }
+  // Earlier CFs can have changed even if a later CF's SetOptions failed.
+  s.UpdateIfOk(RegisterTriggerCompactionTask());
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "SetOptions() on [%zu] column families, inputs:",
@@ -2208,6 +2218,9 @@ Status DBImpl::SetDBOptions(
       // persist the options, which means the status is "OK/Uninitialized.
       persist_options_status.PermitUncheckedError();
     }
+  }
+  if (s.ok()) {
+    s = RegisterTriggerCompactionTask();
   }
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "SetDBOptions(), inputs:");
   for (const auto& o : options_map) {
@@ -4508,6 +4521,7 @@ Status DBImpl::WrapUpCreateColumnFamilies(
   if (register_worker) {
     s.UpdateIfOk(RegisterRecordSeqnoTimeWorker());
   }
+  s.UpdateIfOk(RegisterTriggerCompactionTask());
   return s;
 }
 
@@ -4967,6 +4981,9 @@ Status DBImpl::DropColumnFamilyWithOptionsFile(
 
   if (preserve_info.IsEnabled()) {
     s = RegisterRecordSeqnoTimeWorker();
+  }
+  if (cfd->IsDropped()) {
+    s.UpdateIfOk(RegisterTriggerCompactionTask());
   }
 
   if (s.ok()) {
