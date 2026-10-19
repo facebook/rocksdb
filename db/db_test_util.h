@@ -319,7 +319,8 @@ class SpecialEnv : public EnvWrapper {
 // SyncPoint is not supported in Released Windows Mode.
 #if !(defined NDEBUG) || !defined(OS_WIN)
         // Check preallocation size
-        size_t block_size, last_allocated_block;
+        size_t block_size;
+        size_t last_allocated_block;
         base_->GetPreallocationStatus(&block_size, &last_allocated_block);
         TEST_SYNC_POINT_CALLBACK("DBTestWalFile.GetPreallocationStatus",
                                  &block_size);
@@ -891,7 +892,7 @@ class FileTemperatureTestFS : public FileSystemWrapper {
 
 class OnFileDeletionListener : public EventListener {
  public:
-  OnFileDeletionListener() : matched_count_(0), expected_file_name_("") {}
+  OnFileDeletionListener() : matched_count_(0) {}
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "OnFileDeletionListener"; }
 

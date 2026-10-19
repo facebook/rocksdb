@@ -231,7 +231,8 @@ TEST_P(OptimisticTransactionTest, WriteConflict4) {
 
 TEST_P(OptimisticTransactionTest, ReadConflictTest) {
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
+  ReadOptions snapshot_read_options;
   OptimisticTransactionOptions txn_options;
   std::string value;
 
@@ -286,7 +287,8 @@ TEST_P(OptimisticTransactionTest, TxnOnlyTest) {
 
 TEST_P(OptimisticTransactionTest, FlushTest) {
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
+  ReadOptions snapshot_read_options;
   std::string value;
 
   ASSERT_OK(txn_db->Put(write_options, Slice("foo"), Slice("bar")));
@@ -536,7 +538,8 @@ TEST_P(OptimisticTransactionTest, NoSnapshotTest) {
 
 TEST_P(OptimisticTransactionTest, MultipleSnapshotTest) {
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
+  ReadOptions snapshot_read_options;
   std::string value;
 
   ASSERT_OK(txn_db->Put(write_options, "AAA", "bar"));
@@ -631,11 +634,13 @@ TEST_P(OptimisticTransactionTest, MultipleSnapshotTest) {
 
 TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
+  ReadOptions snapshot_read_options;
   OptimisticTransactionOptions txn_options;
   std::string value;
 
-  ColumnFamilyHandle *cfa, *cfb;
+  ColumnFamilyHandle* cfa;
+  ColumnFamilyHandle* cfb;
   ColumnFamilyOptions cf_options;
 
   // Create 2 new column families
@@ -974,7 +979,8 @@ TEST_P(OptimisticTransactionTest, EmptyTest) {
 
 TEST_P(OptimisticTransactionTest, PredicateManyPreceders) {
   WriteOptions write_options;
-  ReadOptions read_options1, read_options2;
+  ReadOptions read_options1;
+  ReadOptions read_options2;
   OptimisticTransactionOptions txn_options;
   std::string value;
 
@@ -1039,7 +1045,9 @@ TEST_P(OptimisticTransactionTest, PredicateManyPreceders) {
 
 TEST_P(OptimisticTransactionTest, LostUpdate) {
   WriteOptions write_options;
-  ReadOptions read_options, read_options1, read_options2;
+  ReadOptions read_options;
+  ReadOptions read_options1;
+  ReadOptions read_options2;
   OptimisticTransactionOptions txn_options;
   std::string value;
 
@@ -1185,7 +1193,8 @@ TEST_P(OptimisticTransactionTest, UntrackedWrites) {
 
 TEST_P(OptimisticTransactionTest, IteratorTest) {
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
+  ReadOptions snapshot_read_options;
   OptimisticTransactionOptions txn_options;
   std::string value;
 
@@ -1291,7 +1300,8 @@ TEST_P(OptimisticTransactionTest, DeleteRangeSupportTest) {
 
 TEST_P(OptimisticTransactionTest, SavepointTest) {
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
+  ReadOptions snapshot_read_options;
   OptimisticTransactionOptions txn_options;
   std::string value;
 
@@ -1413,7 +1423,8 @@ TEST_P(OptimisticTransactionTest, SavepointTest) {
 
 TEST_P(OptimisticTransactionTest, UndoGetForUpdateTest) {
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
+  ReadOptions snapshot_read_options;
   OptimisticTransactionOptions txn_options;
   std::string value;
 

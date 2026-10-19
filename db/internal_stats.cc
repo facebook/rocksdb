@@ -232,7 +232,8 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
 // Assumes that trailing numbers represent an optional argument. This requires
 // property names to not end with numbers.
 std::pair<Slice, Slice> GetPropertyNameAndArg(const Slice& property) {
-  Slice name = property, arg = property;
+  Slice name = property;
+  Slice arg = property;
   size_t sfx_len = 0;
   while (sfx_len < property.size() &&
          isdigit(property[property.size() - sfx_len - 1])) {

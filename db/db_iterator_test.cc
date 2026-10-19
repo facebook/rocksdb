@@ -703,7 +703,8 @@ TEST_P(DBIteratorTest, PersistedTierOnIterator) {
 
 TEST_P(DBIteratorTest, NonBlockingIteration) {
   do {
-    ReadOptions non_blocking_opts, regular_opts;
+    ReadOptions non_blocking_opts;
+    ReadOptions regular_opts;
     anon::OptionsOverride options_override;
     options_override.full_block_cache = true;
     Options options = CurrentOptions(options_override);
@@ -4269,7 +4270,9 @@ TEST_F(DBIteratorTest, ErrorWhenReadFile) {
   db_->GetLiveFilesMetaData(&files);
   // Get file names for F1, F2 and F3.
   // These are file names, not full paths.
-  std::string f1, f2, f3;
+  std::string f1;
+  std::string f2;
+  std::string f3;
   for (auto& file_meta : files) {
     if (file_meta.level == 6) {
       f3 = file_meta.name;

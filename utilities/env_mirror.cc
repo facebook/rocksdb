@@ -96,7 +96,8 @@ class RandomAccessFileMirror : public RandomAccessFile {
   }
 
   Status GetFileSize(uint64_t* file_size) override {
-    uint64_t asize = 0, bsize = 0;
+    uint64_t asize = 0;
+    uint64_t bsize = 0;
     Status as = a_->GetFileSize(&asize);
     Status bs = b_->GetFileSize(&bsize);
     assert(as == bs);

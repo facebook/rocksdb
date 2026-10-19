@@ -873,7 +873,8 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
 
   // Exactly wake all idling threads (for an end state)
   void WakeAllIdle() {
-    State old_state, new_state;
+    State old_state;
+    State new_state;
     auto transform =
         IdleEmitFlag::ClearTransform() + IdleWorkerCount::ClearTransform();
     atomic_state.Apply(transform, &old_state, &new_state);
@@ -3527,7 +3528,8 @@ void BlockBasedTableBuilder::MaybeEnterUnbuffered(
     return std::unique_ptr<DataBlockIter>(iter);
   };
 
-  std::unique_ptr<DataBlockIter> iter = nullptr, next_block_iter = nullptr;
+  std::unique_ptr<DataBlockIter> iter = nullptr;
+  std::unique_ptr<DataBlockIter> next_block_iter = nullptr;
 
   for (size_t i = 0; ok() && i < r->data_block_buffers.size(); ++i) {
     if (iter == nullptr) {
@@ -3623,7 +3625,8 @@ Status BlockBasedTableBuilder::Finish() {
   //    5. [meta block: properties]
   //    6. [metaindex block]
   //    7. Footer
-  BlockHandle metaindex_block_handle, index_block_handle;
+  BlockHandle metaindex_block_handle;
+  BlockHandle index_block_handle;
   MetaIndexBuilder meta_index_builder;
   WriteFilterBlock(&meta_index_builder);
   WriteIndexBlock(&meta_index_builder, &index_block_handle);

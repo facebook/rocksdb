@@ -1889,7 +1889,8 @@ TEST_F(GeneralTableTest, OptimizeKeyCommonPrefix) {
   const Comparator* ucmp = BytewiseComparator();
   const InternalKeyComparator& icmp = GetPlainInternalComparator(ucmp);
 
-  BlockBasedTableOptions tbo_on, tbo_off;
+  BlockBasedTableOptions tbo_on;
+  BlockBasedTableOptions tbo_off;
   Options options_on = MakeCommonPrefixOptions(
       ucmp, BlockBasedTableOptions::OptimizeKeyCommonPrefix::kIfFastSeek,
       &tbo_on);
@@ -1903,7 +1904,8 @@ TEST_F(GeneralTableTest, OptimizeKeyCommonPrefix) {
 
   TableConstructor c_on(ucmp, true /* convert_to_internal_key */);
   TableConstructor c_off(ucmp, true /* convert_to_internal_key */);
-  stl_wrappers::KVMap kv_on, kv_off;
+  stl_wrappers::KVMap kv_on;
+  stl_wrappers::KVMap kv_off;
   uint64_t size_on =
       FinishCommonPrefixTable(&c_on, kPrefix, kNumKeys, options_on, ioptions_on,
                               moptions_on, tbo_on, icmp, &kv_on);
@@ -1983,7 +1985,8 @@ TEST_F(GeneralTableTest, OptimizeKeyCommonPrefixNonBytewise) {
   const Comparator* ucmp = ForwardingBytewise();
   const InternalKeyComparator& icmp = GetPlainInternalComparator(ucmp);
 
-  BlockBasedTableOptions tbo_on, tbo_off;
+  BlockBasedTableOptions tbo_on;
+  BlockBasedTableOptions tbo_off;
   Options options_on = MakeCommonPrefixOptions(
       ucmp, BlockBasedTableOptions::OptimizeKeyCommonPrefix::kEnabled, &tbo_on);
   Options options_off = MakeCommonPrefixOptions(
@@ -1996,7 +1999,8 @@ TEST_F(GeneralTableTest, OptimizeKeyCommonPrefixNonBytewise) {
 
   TableConstructor c_on(ucmp, true /* convert_to_internal_key */);
   TableConstructor c_off(ucmp, true /* convert_to_internal_key */);
-  stl_wrappers::KVMap kv_on, kv_off;
+  stl_wrappers::KVMap kv_on;
+  stl_wrappers::KVMap kv_off;
   uint64_t size_on =
       FinishCommonPrefixTable(&c_on, kPrefix, kNumKeys, options_on, ioptions_on,
                               moptions_on, tbo_on, icmp, &kv_on);
@@ -2302,8 +2306,10 @@ void PrefetchRange(TableConstructor* c, Options* opt,
   // prefetch
   auto* table_reader = dynamic_cast<BlockBasedTable*>(c->GetTableReader());
   Status s;
-  std::unique_ptr<Slice> begin, end;
-  std::unique_ptr<InternalKey> i_begin, i_end;
+  std::unique_ptr<Slice> begin;
+  std::unique_ptr<Slice> end;
+  std::unique_ptr<InternalKey> i_begin;
+  std::unique_ptr<InternalKey> i_end;
   if (key_begin != nullptr) {
     if (c->ConvertToInternalKey()) {
       i_begin.reset(new InternalKey(key_begin, kMaxSequenceNumber, kTypeValue));

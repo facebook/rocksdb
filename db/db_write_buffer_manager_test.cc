@@ -388,7 +388,8 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB1) {
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  bool s1 = true, s2 = true;
+  bool s1 = true;
+  bool s2 = true;
   // Write to multiple columns of db_.
   std::function<void(int)> write_cf = [&](int cf) {
     Status tmp = Put(cf, Key(3), DummyString(1), wo);
@@ -530,7 +531,8 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsSingleDB) {
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  bool s1 = true, s2 = true;
+  bool s1 = true;
+  bool s2 = true;
 
   std::function<void(int)> write_slow_down = [&](int cf) {
     int a = thread_num.fetch_add(1);
@@ -694,7 +696,8 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  bool s1 = true, s2 = true;
+  bool s1 = true;
+  bool s2 = true;
   std::function<void(DB*)> write_slow_down = [&](DB* db) {
     int a = thread_num.fetch_add(1);
     std::string key = "foo" + std::to_string(a);

@@ -1437,7 +1437,8 @@ static bool AreOptionsEqual(OptionType type, const void* this_offset,
     case OptionType::kInt32T:
       return IsOptionEqual<int32_t>(this_offset, that_offset);
     case OptionType::kInt64T: {
-      int64_t v1, v2;
+      int64_t v1;
+      int64_t v2;
       GetUnaligned(static_cast<const int64_t*>(this_offset), &v1);
       GetUnaligned(static_cast<const int64_t*>(that_offset), &v2);
       return (v1 == v2);
@@ -1447,13 +1448,15 @@ static bool AreOptionsEqual(OptionType type, const void* this_offset,
     case OptionType::kUInt32T:
       return IsOptionEqual<uint32_t>(this_offset, that_offset);
     case OptionType::kUInt64T: {
-      uint64_t v1, v2;
+      uint64_t v1;
+      uint64_t v2;
       GetUnaligned(static_cast<const uint64_t*>(this_offset), &v1);
       GetUnaligned(static_cast<const uint64_t*>(that_offset), &v2);
       return (v1 == v2);
     }
     case OptionType::kSizeT: {
-      size_t v1, v2;
+      size_t v1;
+      size_t v2;
       GetUnaligned(static_cast<const size_t*>(this_offset), &v1);
       GetUnaligned(static_cast<const size_t*>(that_offset), &v2);
       return (v1 == v2);

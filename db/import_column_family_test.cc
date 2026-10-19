@@ -390,7 +390,8 @@ TEST_F(ImportColumnFamilyTest, ImportExportedSSTFromAnotherCF) {
   delete metadata_ptr_;
   metadata_ptr_ = nullptr;
 
-  std::string value1, value2;
+  std::string value1;
+  std::string value2;
 
   for (int i = 0; i < 100; ++i) {
     ASSERT_OK(db_->Get(ReadOptions(), import_cfh_, Key(i), &value1));
@@ -548,7 +549,8 @@ TEST_F(ImportColumnFamilyTest,
   delete metadata_ptr_;
   metadata_ptr_ = nullptr;
 
-  std::string value1, value2;
+  std::string value1;
+  std::string value2;
   ReadOptions ro_latest;
   ReadOptions ro_snapshot;
   ro_snapshot.snapshot = snapshot;
@@ -812,7 +814,8 @@ TEST_F(ImportColumnFamilyTest, ImportMultiColumnFamilyTest) {
   ASSERT_OK(db_->CreateColumnFamilyWithImport(options, "toto", import_options,
                                               metadatas, &import_cfh_));
 
-  std::string value1, value2;
+  std::string value1;
+  std::string value2;
   for (int i = 0; i < 100; ++i) {
     ASSERT_OK(db_->Get(ReadOptions(), import_cfh_, Key(i), &value1));
     ASSERT_EQ(Get(1, Key(i)), value1);
@@ -920,7 +923,8 @@ TEST_F(ImportColumnFamilyTest, ImportMultiColumnFamilySeveralFilesWithOverlap) {
   ASSERT_OK(sfw_cf4.Put("K5", "V5"));
   ASSERT_OK(sfw_cf4.Finish());
 
-  ExportImportFilesMetaData metadata1, metadata2;
+  ExportImportFilesMetaData metadata1;
+  ExportImportFilesMetaData metadata2;
   metadata1.files.push_back(
       LiveFileMetaDataInit(file1_sst_name, sst_files_dir_, 1, 1, 2));
   metadata1.files.push_back(

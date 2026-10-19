@@ -3065,7 +3065,8 @@ class NonBatchedOpsStressTest : public StressTest {
       // GetIntVal().
       ro.iterate_upper_bound = &max_key_slice;
     }
-    std::string ub_str, lb_str;
+    std::string ub_str;
+    std::string lb_str;
     std::function<bool(const TableProperties&)> table_filter;
     if (FLAGS_use_sqfc_for_range_queries) {
       ub_str = Key(ub);

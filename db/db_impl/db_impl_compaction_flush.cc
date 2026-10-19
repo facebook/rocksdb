@@ -1221,7 +1221,8 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
                                 end_without_ts, "" /*trim_ts*/);
   }
 
-  std::string begin_str, end_str;
+  std::string begin_str;
+  std::string end_str;
   auto [begin, end] =
       MaybeAddTimestampsToRange(OptSlice::CopyFromPtr(begin_without_ts),
                                 OptSlice::CopyFromPtr(end_without_ts), ts_sz,
@@ -1484,7 +1485,8 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
         // at L1 (or LBase), if applicable.
         int level = first_overlapped_level;
         final_output_level = level;
-        int output_level = 0, base_level = 0;
+        int output_level = 0;
+        int base_level = 0;
         for (;;) {
           // Always allow L0 -> L1 compaction
           if (level > 0) {
@@ -2446,7 +2448,8 @@ Status DBImpl::RunManualCompaction(
   assert(input_level == ColumnFamilyData::kCompactAllLevels ||
          input_level >= 0);
 
-  InternalKey begin_storage, end_storage;
+  InternalKey begin_storage;
+  InternalKey end_storage;
   CompactionArg* ca = nullptr;
 
   bool scheduled = false;

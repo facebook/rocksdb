@@ -2259,10 +2259,14 @@ void InternalDumpCommand::DoCommand() {
     exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
     return;
   }
-  std::string rtype1, rtype2, row, val;
+  std::string rtype1;
+  std::string rtype2;
+  std::string row;
+  std::string val;
   rtype2 = "";
   uint64_t c = 0;
-  uint64_t s1 = 0, s2 = 0;
+  uint64_t s1 = 0;
+  uint64_t s2 = 0;
 
   long long count = 0;
   for (auto& key_version : key_versions) {
@@ -2569,10 +2573,14 @@ void DBDumperCommand::DoDumpCommand() {
     bucket_size = time_range;  // Will have just 1 bucket by default
   }
   // cretaing variables for row count of each type
-  std::string rtype1, rtype2, row, val;
+  std::string rtype1;
+  std::string rtype2;
+  std::string row;
+  std::string val;
   rtype2 = "";
   uint64_t c = 0;
-  uint64_t s1 = 0, s2 = 0;
+  uint64_t s1 = 0;
+  uint64_t s2 = 0;
 
   // At this point, bucket_size=0 => time_range=0
   int num_buckets = (bucket_size >= time_range)

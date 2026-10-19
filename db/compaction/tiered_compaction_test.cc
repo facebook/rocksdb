@@ -389,7 +389,8 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
   // the range dels in both cold and hot SSTs
   auto snap = db_->GetSnapshot();
   latest_cold_seq = seq_history[2];
-  std::string start = Key(25), end = Key(35);
+  std::string start = Key(25);
+  std::string end = Key(35);
   ASSERT_OK(
       db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), start, end));
   ASSERT_OK(Flush());
@@ -620,7 +621,8 @@ TEST_F(TieredCompactionTest, DISABLED_RangeBasedTieredStorageUniversal) {
     hot_start = Key(50);
     hot_end = Key(100);
   }
-  std::string start = Key(1), end = Key(70);
+  std::string start = Key(1);
+  std::string end = Key(70);
   ASSERT_OK(
       db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), start, end));
   ASSERT_OK(Flush());
@@ -1268,7 +1270,8 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   // the range dels in bottommost
   auto snap = db_->GetSnapshot();
 
-  std::string start = Key(25), end = Key(35);
+  std::string start = Key(25);
+  std::string end = Key(35);
   ASSERT_OK(
       db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), start, end));
   // add one small key and large key in the input level, to make sure it's able
@@ -3045,9 +3048,10 @@ TEST_P(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
   verify_db();
 
   // Rewrite the middle file only. File endpoints should not change.
-  std::string begin_key_buf = Key(kNumKeysPerFile + 1),
-              end_key_buf = Key(kNumKeysPerFile + 2);
-  Slice begin_key(begin_key_buf), end_key(end_key_buf);
+  std::string begin_key_buf = Key(kNumKeysPerFile + 1);
+  std::string end_key_buf = Key(kNumKeysPerFile + 2);
+  Slice begin_key(begin_key_buf);
+  Slice end_key(end_key_buf);
   ASSERT_OK(db_->SuggestCompactRange(db_->DefaultColumnFamily(), &begin_key,
                                      &end_key));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());

@@ -1275,7 +1275,8 @@ inline int InternalKeyComparator::Compare(const Slice& a,
                                           SequenceNumber b_global_seqno) const {
   int r = user_comparator_.Compare(ExtractUserKey(a), ExtractUserKey(b));
   if (r == 0) {
-    uint64_t a_footer, b_footer;
+    uint64_t a_footer;
+    uint64_t b_footer;
     if (a_global_seqno == kDisableGlobalSequenceNumber) {
       a_footer = ExtractInternalKeyFooter(a);
     } else {

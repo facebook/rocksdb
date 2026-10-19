@@ -2504,7 +2504,7 @@ void BackupEngineImpl::InferDBFilesToRetainInRestore(
         continue;
       }
 
-      const std::string checksum_hex = "";
+      const std::string checksum_hex;
       std::string shared_file_name = GenerateSharedFileWithDbSessionIdAndSize(
           f, size_bytes, db_session_id);
       bool found = false;

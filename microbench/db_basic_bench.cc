@@ -147,7 +147,8 @@ static void SetupDB(benchmark::State& state, Options& options,
 
 static void TeardownDB(benchmark::State& state, const std::unique_ptr<DB>& db,
                        const Options& options, KeyGenerator& kg) {
-  char min_buff[256], max_buff[256];
+  char min_buff[256];
+  char max_buff[256];
   const Range r(kg.MinKey(min_buff), kg.MaxKey(max_buff));
   uint64_t size;
   Status s = db->GetApproximateSizes(&r, 1, &size);

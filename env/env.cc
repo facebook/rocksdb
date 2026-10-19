@@ -870,7 +870,8 @@ std::string Env::GenerateUniqueId() {
     // We already tried GenerateRfcUuid so no need to try it again in
     // GenerateRawUniqueId
     constexpr bool exclude_port_uuid = true;
-    uint64_t upper, lower;
+    uint64_t upper;
+    uint64_t lower;
     GenerateRawUniqueId(&upper, &lower, exclude_port_uuid);
 
     // Set 4-bit version to 4

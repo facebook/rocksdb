@@ -520,7 +520,8 @@ void AppendBaselineJson(
 }  // namespace
 
 int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
-  std::string env_uri, fs_uri;
+  std::string env_uri;
+  std::string fs_uri;
   enum DirVsFile {
     kUnknownDirVsFile,
     kDir,

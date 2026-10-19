@@ -64,7 +64,9 @@ class LookupKey {
 };
 
 inline LookupKey::~LookupKey() {
-  if (start_ != space_) delete[] start_;
+  if (start_ != space_) {
+    delete[] start_;
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

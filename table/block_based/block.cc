@@ -639,7 +639,9 @@ bool BlockIter<TValue>::ParseNextKey(bool* is_shared) {
   }
 
   // Decode next entry
-  uint32_t shared, non_shared, value_length;
+  uint32_t shared;
+  uint32_t non_shared;
+  uint32_t value_length;
   uint32_t value_offset = 0;
 
   assert(cur_entry_idx_ >= 0);
@@ -881,7 +883,9 @@ template <class TValue>
 template <typename DecodeKeyFunc>
 bool BlockIter<TValue>::GetRestartKey(uint32_t index, Slice* key) {
   uint32_t region_offset = GetRestartPoint(index);
-  uint32_t shared, non_shared, value_offset;
+  uint32_t shared;
+  uint32_t non_shared;
+  uint32_t value_offset;
   const char* key_limit = data_ + GetKeysEndOffset();
   const char* key_ptr =
       DecodeKeyFunc()(data_ + region_offset, key_limit, &shared, &non_shared,

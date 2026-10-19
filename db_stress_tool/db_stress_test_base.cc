@@ -4717,7 +4717,8 @@ Status StressTest::TestApproximateSize(
   Range range{Slice(key1_str), Slice(key2_str)};
   if (thread->rand.OneIn(3)) {
     // Call GetApproximateMemTableStats instead
-    uint64_t count, size;
+    uint64_t count;
+    uint64_t size;
     db_->GetApproximateMemTableStats(column_families_[rand_column_families[0]],
                                      range, &count, &size);
     return Status::OK();

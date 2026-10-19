@@ -279,7 +279,8 @@ TEST_F(AutoRollLoggerTest, OpenLogFilesMultipleTimesWithOptionLog_max_size) {
 }
 
 TEST_F(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
-  size_t time = 2, log_max_size = 1024 * 5;
+  size_t time = 2;
+  size_t log_max_size = 1024 * 5;
   size_t keep_log_file_num = 10;
 
   InitTestDb();

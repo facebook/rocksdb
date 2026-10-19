@@ -115,7 +115,8 @@ class ColumnFamilyTestBase : public testing::Test {
   }
 
   void Build(int base, int n, int flush_every = 0) {
-    std::string key_space, value_space;
+    std::string key_space;
+    std::string value_space;
     WriteBatch batch;
 
     for (int i = 0; i < n; i++) {
@@ -952,7 +953,9 @@ TEST_P(ColumnFamilyTest, IgnoreRecoveredLog) {
   CreateColumnFamilies({"cf1", "cf2"});
 
   // fill up the DB
-  std::string one, two, three;
+  std::string one;
+  std::string two;
+  std::string three;
   PutFixed64(&one, 1);
   PutFixed64(&two, 2);
   PutFixed64(&three, 3);
@@ -1160,7 +1163,10 @@ TEST_P(ColumnFamilyTest, DifferentWriteBufferSizes) {
   db_options_.max_total_wal_size = std::numeric_limits<uint64_t>::max();
   Open();
   CreateColumnFamilies({"one", "two", "three"});
-  ColumnFamilyOptions default_cf, one, two, three;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
+  ColumnFamilyOptions two;
+  ColumnFamilyOptions three;
   // setup options. all column families have max_write_buffer_number setup to 10
   // "default" -> 100KB memtable, start flushing immediately
   // "one" -> 200KB memtable, start flushing with two immutable memtables
@@ -1312,7 +1318,9 @@ TEST_P(ColumnFamilyTest, GetComparator) {
 
   // Add three column families - one with no comparator and two
   // with comparators specified
-  ColumnFamilyOptions second, third, fourth;
+  ColumnFamilyOptions second;
+  ColumnFamilyOptions third;
+  ColumnFamilyOptions fourth;
   second.comparator = &third_comparator;
   third.comparator = &fourth_comparator;
   CreateColumnFamilies({"second", "third", "fourth"}, {second, third, fourth});
@@ -1325,12 +1333,16 @@ TEST_P(ColumnFamilyTest, GetComparator) {
 TEST_P(ColumnFamilyTest, DifferentMergeOperators) {
   Open();
   CreateColumnFamilies({"first", "second"});
-  ColumnFamilyOptions default_cf, first, second;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions first;
+  ColumnFamilyOptions second;
   first.merge_operator = MergeOperators::CreateUInt64AddOperator();
   second.merge_operator = MergeOperators::CreateStringAppendOperator();
   Reopen({default_cf, first, second});
 
-  std::string one, two, three;
+  std::string one;
+  std::string two;
+  std::string three;
   PutFixed64(&one, 1);
   PutFixed64(&two, 2);
   PutFixed64(&three, 3);
@@ -1355,7 +1367,9 @@ TEST_P(ColumnFamilyTest, DifferentMergeOperators) {
 TEST_P(ColumnFamilyTest, DifferentCompactionStyles) {
   Open();
   CreateColumnFamilies({"one", "two"});
-  ColumnFamilyOptions default_cf, one, two;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
+  ColumnFamilyOptions two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
 
   default_cf.level_compaction_dynamic_level_bytes = false;
@@ -1427,7 +1441,9 @@ TEST_P(ColumnFamilyTest, DifferentCompactionStyles) {
 TEST_P(ColumnFamilyTest, MultipleManualCompactions) {
   Open();
   CreateColumnFamilies({"one", "two"});
-  ColumnFamilyOptions default_cf, one, two;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
+  ColumnFamilyOptions two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
@@ -1527,7 +1543,9 @@ TEST_P(ColumnFamilyTest, MultipleManualCompactions) {
 TEST_P(ColumnFamilyTest, AutomaticAndManualCompactions) {
   Open();
   CreateColumnFamilies({"one", "two"});
-  ColumnFamilyOptions default_cf, one, two;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
+  ColumnFamilyOptions two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
@@ -1624,7 +1642,9 @@ TEST_P(ColumnFamilyTest, AutomaticAndManualCompactions) {
 TEST_P(ColumnFamilyTest, ManualAndAutomaticCompactions) {
   Open();
   CreateColumnFamilies({"one", "two"});
-  ColumnFamilyOptions default_cf, one, two;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
+  ColumnFamilyOptions two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
@@ -1723,7 +1743,8 @@ TEST_P(ColumnFamilyTest, ManualAndAutomaticCompactions) {
 TEST_P(ColumnFamilyTest, SameCFManualManualCompactions) {
   Open();
   CreateColumnFamilies({"one"});
-  ColumnFamilyOptions default_cf, one;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
@@ -1823,7 +1844,8 @@ TEST_P(ColumnFamilyTest, SameCFManualManualCompactions) {
 TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
   Open();
   CreateColumnFamilies({"one"});
-  ColumnFamilyOptions default_cf, one;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
@@ -1914,7 +1936,8 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
 TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
   Open();
   CreateColumnFamilies({"one"});
-  ColumnFamilyOptions default_cf, one;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
@@ -2011,7 +2034,8 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
 TEST_P(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
   Open();
   CreateColumnFamilies({"one"});
-  ColumnFamilyOptions default_cf, one;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
@@ -2224,7 +2248,9 @@ TEST_P(ColumnFamilyTest, DontRollEmptyLogs) {
 TEST_P(ColumnFamilyTest, FlushStaleColumnFamilies) {
   Open();
   CreateColumnFamilies({"one", "two"});
-  ColumnFamilyOptions default_cf, one, two;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
+  ColumnFamilyOptions two;
   default_cf.write_buffer_size = 100000;  // small write buffer size
   default_cf.arena_block_size = 4096;
   default_cf.disable_auto_compactions = true;
@@ -4005,7 +4031,8 @@ TEST_P(ColumnFamilyTest, DefaultCfPathsTest) {
   // Leave cf_paths for one column families to be empty.
   // Files should be generated according to db_paths for that
   // column family.
-  ColumnFamilyOptions cf_opt1, cf_opt2;
+  ColumnFamilyOptions cf_opt1;
+  ColumnFamilyOptions cf_opt2;
   cf_opt1.cf_paths.emplace_back(dbname_ + "_one_1",
                                 std::numeric_limits<uint64_t>::max());
   CreateColumnFamilies({"one", "two"}, {cf_opt1, cf_opt2});
@@ -4030,7 +4057,8 @@ TEST_P(ColumnFamilyTest, DefaultCfPathsTest) {
 TEST_P(ColumnFamilyTest, MultipleCFPathsTest) {
   Open();
   // Configure Column family specific paths.
-  ColumnFamilyOptions cf_opt1, cf_opt2;
+  ColumnFamilyOptions cf_opt1;
+  ColumnFamilyOptions cf_opt2;
   cf_opt1.cf_paths.emplace_back(dbname_ + "_one_1",
                                 std::numeric_limits<uint64_t>::max());
   cf_opt2.cf_paths.emplace_back(dbname_ + "_two_1",

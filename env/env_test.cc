@@ -590,7 +590,8 @@ TEST_P(EnvPosixTestWithParam, UnSchedule) {
   env_->SetBackgroundThreads(1, Env::LOW);
 
   /* Block the low priority queue */
-  test::SleepingBackgroundTask sleeping_task, sleeping_task1;
+  test::SleepingBackgroundTask sleeping_task;
+  test::SleepingBackgroundTask sleeping_task1;
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
                  Env::Priority::LOW);
 
@@ -2324,7 +2325,8 @@ TEST_P(EnvPosixTestWithParam, Preallocation) {
   srcfile->SetPreallocationBlockSize(1024 * 1024);
 
   // No writes should mean no preallocation
-  size_t block_size, last_allocated_block;
+  size_t block_size;
+  size_t last_allocated_block;
   srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
   ASSERT_EQ(last_allocated_block, 0UL);
 
@@ -3084,7 +3086,8 @@ TEST_F(CreateEnvTest, LoadROT13Cipher) {
 }
 
 TEST_F(CreateEnvTest, CreateDefaultSystemClock) {
-  std::shared_ptr<SystemClock> clock, copy;
+  std::shared_ptr<SystemClock> clock;
+  std::shared_ptr<SystemClock> copy;
   ASSERT_OK(SystemClock::CreateFromString(config_options_,
                                           SystemClock::kDefaultName(), &clock));
   ASSERT_NE(clock, nullptr);
@@ -3096,7 +3099,8 @@ TEST_F(CreateEnvTest, CreateDefaultSystemClock) {
 }
 
 TEST_F(CreateEnvTest, CreateMockSystemClock) {
-  std::shared_ptr<SystemClock> mock, copy;
+  std::shared_ptr<SystemClock> mock;
+  std::shared_ptr<SystemClock> copy;
 
   config_options_.registry->AddLibrary("test")->AddFactory<SystemClock>(
       MockSystemClock::kClassName(),
@@ -3132,7 +3136,8 @@ TEST_F(CreateEnvTest, CreateMockSystemClock) {
 }
 
 TEST_F(CreateEnvTest, CreateReadOnlyFileSystem) {
-  std::shared_ptr<FileSystem> fs, copy;
+  std::shared_ptr<FileSystem> fs;
+  std::shared_ptr<FileSystem> copy;
 
   ASSERT_OK(FileSystem::CreateFromString(
       config_options_, ReadOnlyFileSystem::kClassName(), &fs));
@@ -3162,7 +3167,8 @@ TEST_F(CreateEnvTest, CreateReadOnlyFileSystem) {
 }
 
 TEST_F(CreateEnvTest, CreateTimedFileSystem) {
-  std::shared_ptr<FileSystem> fs, copy;
+  std::shared_ptr<FileSystem> fs;
+  std::shared_ptr<FileSystem> copy;
 
   ASSERT_OK(FileSystem::CreateFromString(config_options_,
                                          TimedFileSystem::kClassName(), &fs));
@@ -3192,7 +3198,8 @@ TEST_F(CreateEnvTest, CreateTimedFileSystem) {
 }
 
 TEST_F(CreateEnvTest, CreateCountedFileSystem) {
-  std::shared_ptr<FileSystem> fs, copy;
+  std::shared_ptr<FileSystem> fs;
+  std::shared_ptr<FileSystem> copy;
 
   ASSERT_OK(FileSystem::CreateFromString(config_options_,
                                          CountedFileSystem::kClassName(), &fs));
@@ -3223,7 +3230,8 @@ TEST_F(CreateEnvTest, CreateCountedFileSystem) {
 
 #ifndef OS_WIN
 TEST_F(CreateEnvTest, CreateChrootFileSystem) {
-  std::shared_ptr<FileSystem> fs, copy;
+  std::shared_ptr<FileSystem> fs;
+  std::shared_ptr<FileSystem> copy;
   auto tmp_dir = test::TmpDir(Env::Default());
   // The Chroot FileSystem has a required "chroot_dir" option.
   ASSERT_NOK(FileSystem::CreateFromString(config_options_,
@@ -3279,7 +3287,8 @@ TEST_F(CreateEnvTest, CreateChrootFileSystem) {
 #endif  // OS_WIN
 
 TEST_F(CreateEnvTest, CreateEncryptedFileSystem) {
-  std::shared_ptr<FileSystem> fs, copy;
+  std::shared_ptr<FileSystem> fs;
+  std::shared_ptr<FileSystem> copy;
 
   std::string base_opts =
       std::string("provider=1://test; id=") + EncryptedFileSystem::kClassName();
@@ -3690,7 +3699,8 @@ TEST_F(CreateEnvTest, CreateMockEnv) {
   ConfigOptions options;
   options.ignore_unsupported_options = false;
   WrappedEnv::Register(*(options.registry->AddLibrary("test")), "");
-  std::shared_ptr<Env> guard, copy;
+  std::shared_ptr<Env> guard;
+  std::shared_ptr<Env> copy;
   std::string opt_str;
 
   Env* env = nullptr;
@@ -3719,7 +3729,8 @@ TEST_F(CreateEnvTest, CreateWrappedEnv) {
   options.ignore_unsupported_options = false;
   WrappedEnv::Register(*(options.registry->AddLibrary("test")), "");
   Env* env = nullptr;
-  std::shared_ptr<Env> guard, copy;
+  std::shared_ptr<Env> guard;
+  std::shared_ptr<Env> copy;
   std::string opt_str;
   std::string mismatch;
 
@@ -3754,9 +3765,11 @@ TEST_F(CreateEnvTest, CreateWrappedEnv) {
 TEST_F(CreateEnvTest, CreateCompositeEnv) {
   ConfigOptions options;
   options.ignore_unsupported_options = false;
-  std::shared_ptr<Env> guard, copy;
+  std::shared_ptr<Env> guard;
+  std::shared_ptr<Env> copy;
   Env* env = nullptr;
-  std::string mismatch, opt_str;
+  std::string mismatch;
+  std::string opt_str;
 
   WrappedEnv::Register(*(options.registry->AddLibrary("test")), "");
   std::unique_ptr<Env> base(NewCompositeEnv(FileSystem::Default()));
@@ -4532,7 +4545,9 @@ TEST_F(TestAsyncRead, AbortIOPartialHandlesBug) {
     std::thread watchdog([&]() {
       for (int i = 0; i < 500; i++) {  // 5 seconds timeout
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        if (poll_completed) return;
+        if (poll_completed) {
+          return;
+        }
       }
       // Bug regression: Poll hung
       _exit(1);

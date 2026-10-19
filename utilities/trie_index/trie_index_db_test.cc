@@ -4147,7 +4147,8 @@ TEST_P(TrieIndexDBTest, SeekForPrevVariableLengthKeys) {
 
   // SeekForPrev for every key -- trie must match standard index.
   for (const auto& key : keys) {
-    std::string std_result, trie_result;
+    std::string std_result;
+    std::string trie_result;
     {
       std::unique_ptr<Iterator> iter(
           db_->NewIterator(StandardIndexReadOptions()));
@@ -4172,7 +4173,8 @@ TEST_P(TrieIndexDBTest, SeekForPrevVariableLengthKeys) {
     int len = snprintf(buf, sizeof(buf), "k%04da", i);
     std::string target(buf, len);
 
-    std::string std_result, trie_result;
+    std::string std_result;
+    std::string trie_result;
     {
       std::unique_ptr<Iterator> iter(
           db_->NewIterator(StandardIndexReadOptions()));

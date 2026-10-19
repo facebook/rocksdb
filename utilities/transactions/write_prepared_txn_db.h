@@ -212,7 +212,8 @@ class WritePreparedTxnDB : public WritePreparedTxnDBBase {
     // commit cache, ii) delayed prepared, commit cache again. In this way if
     // the first query to commit cache missed the commit, the 2nd will catch it.
     bool was_empty;
-    SequenceNumber max_evicted_seq_lb, max_evicted_seq_ub;
+    SequenceNumber max_evicted_seq_lb;
+    SequenceNumber max_evicted_seq_ub;
     CommitEntry64b dont_care;
     auto indexed_seq = prep_seq % COMMIT_CACHE_SIZE;
     size_t repeats = 0;

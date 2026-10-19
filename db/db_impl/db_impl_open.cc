@@ -307,7 +307,8 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
   }
 
   if (db_options.daily_offpeak_time_utc != "") {
-    int start_time, end_time;
+    int start_time;
+    int end_time;
     if (!TryParseTimeRangeString(db_options.daily_offpeak_time_utc, start_time,
                                  end_time)) {
       return Status::InvalidArgument(
@@ -2812,7 +2813,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       if (recovered_seq != kMaxSequenceNumber) {
         WriteBatch empty_batch;
         WriteBatchInternal::SetSequence(&empty_batch, recovered_seq);
-        uint64_t wal_used, log_size;
+        uint64_t wal_used;
+        uint64_t log_size;
         log::Writer* log_writer = impl->logs_.back().writer;
         WalFileNumberSize& wal_file_number_size = impl->alive_wal_files_.back();
 

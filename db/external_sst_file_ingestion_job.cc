@@ -220,7 +220,8 @@ Status ExternalSstFileIngestionJob::Prepare(
       }
       // User keys to internal keys (with timestamps)
       const size_t ts_sz = ucmp_->timestamp_size();
-      std::string start_with_ts, limit_with_ts;
+      std::string start_with_ts;
+      std::string limit_with_ts;
       auto [start, limit] = MaybeAddTimestampsToRange(
           atomic_replace_range->start, atomic_replace_range->limit, ts_sz,
           &start_with_ts, &limit_with_ts);
@@ -806,7 +807,8 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
     // that we just learned. Only overwrite sequence number zero. There could
     // be a nonzero sequence number already to indicate a range tombstone's
     // exclusive endpoint.
-    ParsedInternalKey smallest_parsed, largest_parsed;
+    ParsedInternalKey smallest_parsed;
+    ParsedInternalKey largest_parsed;
     if (status.ok()) {
       status = ParseInternalKey(*(file->smallest_internal_key.rep()),
                                 &smallest_parsed, false /* log_err_key */);

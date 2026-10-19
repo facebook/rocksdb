@@ -268,7 +268,9 @@ void DBSecondaryTestBase::CheckFileTypeCounts(const std::string& dir,
   std::vector<std::string> filenames;
   ASSERT_OK(env_->GetChildren(dir, &filenames));
 
-  int log_cnt = 0, sst_cnt = 0, manifest_cnt = 0;
+  int log_cnt = 0;
+  int sst_cnt = 0;
+  int manifest_cnt = 0;
   for (const auto& file : filenames) {
     uint64_t number;
     FileType type;
@@ -417,7 +419,8 @@ TEST_F(DBSecondaryTest, SimpleInternalCompaction) {
       OpenAndCompactOptions(), cfh, input, &result));
 
   ASSERT_EQ(result.output_files.size(), 1);
-  InternalKey smallest, largest;
+  InternalKey smallest;
+  InternalKey largest;
   smallest.DecodeFrom(result.output_files[0].smallest_internal_key);
   largest.DecodeFrom(result.output_files[0].largest_internal_key);
   ASSERT_EQ(smallest.user_key().ToString(), "bar");
