@@ -3517,6 +3517,40 @@ TEST_F(DBTest2, LiveFilesOmitObsoleteFiles) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBTest2, LiveFilesStorageInfoWithConcurrentSetOptions) {
+  // SetOptions() writes a new OPTIONS file and deletes all but the newest
+  // two. Without file deletions disabled by the caller, the OPTIONS file
+  // chosen by GetLiveFilesStorageInfo must still survive until its size is
+  // read.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::GetLiveFilesStorageInfo:BeforeOptionsFileSize",
+      [&](void* /*arg*/) {
+        ASSERT_OK(db_->SetOptions({{"disable_auto_compactions", "true"}}));
+        ASSERT_OK(db_->SetOptions({{"disable_auto_compactions", "false"}}));
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<LiveFileStorageInfo> infos;
+  ASSERT_OK(
+      db_->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(), &infos));
+  ASSERT_TRUE(dbfull()->IsFileDeletionsEnabled());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(DBTest2, LiveFilesStorageInfoReadOnlyKeepsDeletionsEnabled) {
+  ASSERT_OK(Put("key", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(ReadOnlyReopen(CurrentOptions()));
+
+  LiveFilesStorageInfoOptions opts;
+  opts.wal_size_for_flush = std::numeric_limits<uint64_t>::max();
+  std::vector<LiveFileStorageInfo> infos;
+  ASSERT_OK(db_->GetLiveFilesStorageInfo(opts, &infos));
+  ASSERT_TRUE(dbfull()->IsFileDeletionsEnabled());
+}
+
 TEST_F(DBTest2, TestNumPread) {
   Options options = CurrentOptions();
   bool prefetch_supported =
