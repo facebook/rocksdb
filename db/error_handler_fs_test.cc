@@ -2877,6 +2877,75 @@ TEST_F(DBErrorHandlingFSTest, FileScopedWALWriteErrorReplacesFailedWAL) {
   ASSERT_EQ("value2-one", Get(1, "accepted-after-recovery"));
 }
 
+// LockWAL() freezes the latest sequence number and current WAL. Automatic
+// recovery from a file-scoped WAL write error reserves the failed write's
+// sequence numbers and replaces the WAL, so it must wait for UnlockWAL().
+TEST_F(DBErrorHandlingFSTest, FileScopedWALWriteErrorRecoveryWaitsForLockWAL) {
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.paranoid_checks = true;
+  options.max_bgerror_resume_count = 2;
+  options.bgerror_resume_retry_interval = 1000;
+  options.avoid_flush_during_shutdown = true;
+  options.track_and_verify_wals_in_manifest = false;
+  options.background_close_inactive_wals = false;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("accepted-before-error", "value"));
+
+  std::atomic<bool> injected{false};
+  std::atomic<bool> recovery_waiting_for_unlock{false};
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"FileScopedWALWriteErrorLockWAL:Locked",
+        "RecoverFromRetryableBGIOError:BeforeStart"},
+       {"RecoverFromRetryableBGIOError:RecoverSuccess",
+        "FileScopedWALWriteErrorLockWAL:RecoveryDone"}});
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteToWAL:AfterAddRecord", [&](void* arg) {
+        if (!injected.exchange(true)) {
+          IOStatus error = IOStatus::IOError("injected file-scoped WAL error");
+          error.SetScope(IOStatus::IOErrorScope::kIOErrorScopeFile);
+          error.SetRetryable(true);
+          *static_cast<IOStatus*>(arg) = error;
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::ResumeImpl:WaitForUnlockWAL",
+      [&](void*) { recovery_waiting_for_unlock.store(true); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_TRUE(Put("failed", "value").IsIOError());
+  ASSERT_TRUE(dbfull()->TEST_IsRecoveryInProgress());
+
+  ASSERT_OK(db_->LockWAL());
+  const SequenceNumber locked_seqno = db_->GetLatestSequenceNumber();
+  const uint64_t locked_wal = dbfull()->TEST_GetCurrentLogNumber();
+  TEST_SYNC_POINT("FileScopedWALWriteErrorLockWAL:Locked");
+
+  // Without the fix, recovery bumps the latest sequence number right away.
+  for (int i = 0; i < 1000 && !recovery_waiting_for_unlock.load() &&
+                  db_->GetLatestSequenceNumber() == locked_seqno;
+       ++i) {
+    env_->SleepForMicroseconds(1000);
+  }
+  EXPECT_EQ(locked_seqno, db_->GetLatestSequenceNumber());
+  EXPECT_EQ(locked_wal, dbfull()->TEST_GetCurrentLogNumber());
+  EXPECT_TRUE(recovery_waiting_for_unlock.load());
+  ASSERT_OK(db_->UnlockWAL());
+
+  TEST_SYNC_POINT("FileScopedWALWriteErrorLockWAL:RecoveryDone");
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_GT(db_->GetLatestSequenceNumber(), locked_seqno);
+  ASSERT_NE(locked_wal, dbfull()->TEST_GetCurrentLogNumber());
+  ASSERT_OK(Put("accepted-after-recovery", "value2"));
+  ASSERT_EQ("value", Get("accepted-before-error"));
+  ASSERT_EQ("NOT_FOUND", Get("failed"));
+  ASSERT_EQ("value2", Get("accepted-after-recovery"));
+}
+
 TEST_F(DBErrorHandlingFSTest,
        FileScopedWALRecoveryUsesAndReplenishesAsyncPrecreatedWAL) {
   Options options = GetDefaultOptions();
