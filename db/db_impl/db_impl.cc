@@ -365,6 +365,20 @@ Status DBImpl::ResumeImpl(DBRecoverContext context,
   const ReadOptions read_options(io_activity);
   const WriteOptions write_options(io_activity);
 
+  if (lock_wal_owner_thread_id_counts_.count(env_->GetThreadID()) > 0) {
+    return Status::Aborted(
+        "Likely deadlock as the same thread called LockWAL()");
+  }
+  // Recovery replaces WALs, flushes memtables, and can reserve the sequence
+  // numbers of an indeterminate WAL write. Defer it while any LockWAL() is held
+  // so the frozen DB state (latest sequence number and current WAL) promised by
+  // LockWAL() stays intact. UnlockWAL() and shutdown signal bg_cv_.
+  while (!lock_wal_owner_thread_id_counts_.empty() && !shutdown_initiated_ &&
+         !shutting_down_.load(std::memory_order_acquire)) {
+    TEST_SYNC_POINT("DBImpl::ResumeImpl:WaitForUnlockWAL");
+    bg_cv_.Wait();
+  }
+
   assert(static_cast<size_t>(unscheduled_flushes_) <= flush_queue_.size());
   // Recovery rebuilds flush requests for every column family with pending
   // immutable data after scheduled workers exit, so every existing request is
@@ -1053,6 +1067,8 @@ Status DBImpl::CloseHelper() {
   // continuing with the shutdown
   mutex_.Lock();
   shutdown_initiated_ = true;
+  // Wake a recovery waiting in ResumeImpl() for UnlockWAL().
+  bg_cv_.SignalAll();
   error_handler_.CancelErrorRecoveryForShutDown();
   while (!error_handler_.ReadyForShutdown()) {
     bg_cv_.Wait();
