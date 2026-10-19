@@ -832,6 +832,35 @@ TEST_P(CompactionIteratorTest, ConvertToPutAtBottom) {
           true /*bottomost_level*/);
 }
 
+TEST_P(CompactionIteratorTest, MergeAcrossZeroSnapshot) {
+  AddSnapshot(0, 0);
+  std::shared_ptr<MergeOperator> merge_op =
+      MergeOperators::CreateStringAppendOperator();
+  const std::vector<std::string> keys = {test::KeyStr("a", 1, kTypeMerge),
+                                         test::KeyStr("a", 0, kTypeValue)};
+  const std::vector<std::string> values = {"operand", "base"};
+  for (bool bottommost : {false, true}) {
+    SCOPED_TRACE(bottommost);
+    RunTest(keys, values, keys, values,
+            kMaxSequenceNumber /*last_committed_seq*/, merge_op.get(),
+            nullptr /*compaction_filter*/, bottommost);
+  }
+}
+
+TEST_P(CompactionIteratorTest, SingleDeleteAcrossZeroSnapshot) {
+  AddSnapshot(0, 0);
+  const std::vector<std::string> keys = {
+      test::KeyStr("a", 1, kTypeSingleDeletion),
+      test::KeyStr("a", 0, kTypeValue)};
+  const std::vector<std::string> values = {"", "base"};
+  for (bool bottommost : {false, true}) {
+    SCOPED_TRACE(bottommost);
+    RunTest(
+        keys, values, keys, values, kMaxSequenceNumber /*last_committed_seq*/,
+        nullptr /*merge_operator*/, nullptr /*compaction_filter*/, bottommost);
+  }
+}
+
 TEST_P(CompactionIteratorTest, ZeroSeqOfKeyAndSnapshot) {
   AddSnapshot(0);
   const std::vector<std::string> input_keys = {
