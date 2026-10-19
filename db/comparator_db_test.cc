@@ -315,8 +315,9 @@ class ComparatorDBTest
 
 INSTANTIATE_TEST_CASE_P(FormatDef, ComparatorDBTest,
                         testing::Values(test::kDefaultFormatVersion));
-INSTANTIATE_TEST_CASE_P(FormatLatest, ComparatorDBTest,
-                        testing::Values(kLatestBbtFormatVersion));
+INSTANTIATE_TEST_CASE_P(
+    FormatLatest, ComparatorDBTest,
+    testing::Values(BlockBasedTableOptions::kLatestSupportedFormatVersion));
 
 TEST_P(ComparatorDBTest, Bytewise) {
   for (int rand_seed = 301; rand_seed < 306; rand_seed++) {

@@ -180,13 +180,6 @@ inline uint32_t ChecksumModifierForContext(uint32_t base_context_checksum,
   return modifier & all_or_nothing;
 }
 
-// Latest format_version supported for both reading and writing new SST files in
-// block-based format. Newer "draft" format_versions that are still in
-// development are not published: they are exercised only in tests, gated behind
-// the TEST-only TEST_AllowUnsupportedFormatVersion() hook, and are neither
-// readable nor writable in production until finalized by bumping this constant.
-constexpr uint32_t kLatestBbtFormatVersion = 8;
-
 // Sentinel for "no format_version known yet," e.g. a Footer that has not been
 // populated by DecodeFrom. Deliberately larger than any real version so that
 // accidentally treating it as one is caught by the FormatVersionUses*
@@ -213,7 +206,7 @@ static_assert(kMinSupportedBbtFormatVersionForWrite >=
 inline bool IsSupportedFormatVersionForRead(uint64_t magic, uint32_t version) {
   if (magic == kBlockBasedTableMagicNumber) {
     return version >= kMinSupportedBbtFormatVersionForRead &&
-           version <= kLatestBbtFormatVersion;
+           version <= BlockBasedTableOptions::kLatestSupportedFormatVersion;
   } else if (magic == kPlainTableMagicNumber) {
     return version == 0;
   } else if (magic == kCuckooTableMagicNumber) {
@@ -226,7 +219,7 @@ inline bool IsSupportedFormatVersionForRead(uint64_t magic, uint32_t version) {
 inline bool IsSupportedFormatVersionForWrite(uint64_t magic, uint32_t version) {
   if (magic == kBlockBasedTableMagicNumber) {
     return version >= kMinSupportedBbtFormatVersionForWrite &&
-           version <= kLatestBbtFormatVersion;
+           version <= BlockBasedTableOptions::kLatestSupportedFormatVersion;
   } else if (magic == kPlainTableMagicNumber) {
     return version == 0;
   } else if (magic == kCuckooTableMagicNumber) {

@@ -763,8 +763,9 @@ static std::vector<TestArgs> GenerateArgList() {
           for (auto num_threads : compression_parallel_threads) {
             // format_version = 7 changes some compression handling; 8 adds the
             // index value-delta escape and the common-key-prefix feature.
-            for (uint32_t fv : {kMinSupportedBbtFormatVersionForRead, 7U,
-                                kLatestBbtFormatVersion}) {
+            for (uint32_t fv :
+                 {kMinSupportedBbtFormatVersionForRead, 7U,
+                  BlockBasedTableOptions::kLatestSupportedFormatVersion}) {
               TestArgs one_arg;
               one_arg.type = test_type;
               one_arg.reverse_compare = reverse_compare;
@@ -5868,12 +5869,13 @@ TEST(TableTest, UnsupportedFormatVersionConfigTest) {
     ASSERT_OK(s) << "format_version=" << fv << ": " << s.ToString();
   }
 
-  // Test that format_version > kLatestBbtFormatVersion is rejected by
+  // Test that format_version > kLatestSupportedFormatVersion is rejected by
   // ValidateOptions (not sanitized, since it could be a future version that
   // requires newer code)
   {
     BlockBasedTableOptions table_options;
-    table_options.format_version = kLatestBbtFormatVersion + 1;
+    table_options.format_version =
+        BlockBasedTableOptions::kLatestSupportedFormatVersion + 1;
     BlockBasedTableFactory factory(table_options);
 
     ColumnFamilyOptions cf_opts;

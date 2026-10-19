@@ -766,6 +766,11 @@ struct BlockBasedTableOptions {
   // who might only upgrade a few times per year.
   uint32_t format_version = 7;
 
+  // Latest format_version supported by this version of RocksDB for both
+  // reading and writing SST files. Setting format_version higher than this is
+  // rejected as InvalidArgument (e.g. by DB::Open() or SetOptions()).
+  static constexpr uint32_t kLatestSupportedFormatVersion = 8;
+
   // When true, data blocks store keys and values separately. Keys are stored
   // at the beginning of the block, followed by values at the end. This can
   // improve read performance at a cost of a varint per restart interval (~1 bit

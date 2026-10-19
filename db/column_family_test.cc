@@ -546,8 +546,9 @@ class ColumnFamilyTest
 
 INSTANTIATE_TEST_CASE_P(FormatDef, ColumnFamilyTest,
                         testing::Values(test::kDefaultFormatVersion));
-INSTANTIATE_TEST_CASE_P(FormatLatest, ColumnFamilyTest,
-                        testing::Values(kLatestBbtFormatVersion));
+INSTANTIATE_TEST_CASE_P(
+    FormatLatest, ColumnFamilyTest,
+    testing::Values(BlockBasedTableOptions::kLatestSupportedFormatVersion));
 
 TEST_P(ColumnFamilyTest, DontReuseColumnFamilyID) {
   for (int iter = 0; iter < 3; ++iter) {
@@ -737,8 +738,11 @@ INSTANTIATE_TEST_CASE_P(
                     std::make_tuple(test::kDefaultFormatVersion, false)));
 INSTANTIATE_TEST_CASE_P(
     FormatLatest, FlushEmptyCFTestWithParam,
-    testing::Values(std::make_tuple(kLatestBbtFormatVersion, true),
-                    std::make_tuple(kLatestBbtFormatVersion, false)));
+    testing::Values(
+        std::make_tuple(BlockBasedTableOptions::kLatestSupportedFormatVersion,
+                        true),
+        std::make_tuple(BlockBasedTableOptions::kLatestSupportedFormatVersion,
+                        false)));
 
 TEST_P(ColumnFamilyTest, AddDrop) {
   Open();
@@ -4170,7 +4174,9 @@ TEST(ColumnFamilyTest, ValidateMemtableKVChecksumOption) {
 // the behavior of manual flush is that it skips retaining UDTs.
 class ColumnFamilyRetainUDTTest : public ColumnFamilyTestBase {
  public:
-  ColumnFamilyRetainUDTTest() : ColumnFamilyTestBase(kLatestBbtFormatVersion) {}
+  ColumnFamilyRetainUDTTest()
+      : ColumnFamilyTestBase(
+            BlockBasedTableOptions::kLatestSupportedFormatVersion) {}
 
   void SetUp() override {
     db_options_.allow_concurrent_memtable_write = false;
