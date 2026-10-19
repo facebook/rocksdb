@@ -38,6 +38,7 @@
 #include "db/blob/blob_fetcher.h"
 #include "db/blob/blob_file_partition_manager.h"
 #include "db/blob/blob_index.h"
+#include "db/blob/blob_log_writer.h"
 #include "db/builder.h"
 #include "db/coalescing_iterator.h"
 #include "db/compaction/compaction_job.h"
@@ -4781,106 +4782,158 @@ Status DBImpl::CreateColumnFamilyWithPreparedOptions(
 
 Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
   assert(column_family != nullptr);
-  InstrumentedMutexLock ol(&options_mutex_);
-  Status s = DropColumnFamilyImpl(column_family);
-  if (s.ok()) {
-    if (immutable_db_options_.track_options_file_number_in_manifest) {
-      MaybeDeleteObsoleteOptionsFiles();
-    } else {
-      // TODO: plumb Env::IOActivity, Env::IOPriority
-      s = WriteOptionsFile(WriteOptions(), false /*db_mutex_already_held*/);
+  std::vector<DroppedBlobManager> dropped_blob_managers;
+  Status s;
+  {
+    InstrumentedMutexLock ol(&options_mutex_);
+    s = DropColumnFamilyImpl(column_family, &dropped_blob_managers);
+    if (s.ok()) {
+      if (immutable_db_options_.track_options_file_number_in_manifest) {
+        MaybeDeleteObsoleteOptionsFiles();
+      } else {
+        // TODO: plumb Env::IOActivity, Env::IOPriority
+        s = WriteOptionsFile(WriteOptions(), false /*db_mutex_already_held*/);
+      }
     }
   }
+  DetachDroppedBlobManagers(&dropped_blob_managers);
   return s;
 }
 
 Status DBImpl::DropColumnFamilies(
     const std::vector<ColumnFamilyHandle*>& column_families) {
-  InstrumentedMutexLock ol(&options_mutex_);
+  std::vector<DroppedBlobManager> dropped_blob_managers;
   Status s;
-  bool success_once = false;
-  std::vector<ColumnFamilyHandle*> validated_column_families;
-  std::vector<uint32_t> excluded_cf_ids;
-  std::unordered_set<uint32_t> seen_cf_ids;
-  for (auto* handle : column_families) {
-    auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(handle)->cfd();
-    assert(cfd != nullptr);
-    if (cfd->GetID() == 0) {
-      s = Status::InvalidArgument("Can't drop default column family");
-      break;
+  {
+    InstrumentedMutexLock ol(&options_mutex_);
+    bool success_once = false;
+    std::vector<ColumnFamilyHandle*> validated_column_families;
+    std::vector<uint32_t> excluded_cf_ids;
+    std::unordered_set<uint32_t> seen_cf_ids;
+    for (auto* handle : column_families) {
+      auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(handle)->cfd();
+      assert(cfd != nullptr);
+      if (cfd->GetID() == 0) {
+        s = Status::InvalidArgument("Can't drop default column family");
+        break;
+      }
+      {
+        InstrumentedMutexLock l(&mutex_);
+        if (cfd->IsDropped() || !seen_cf_ids.insert(cfd->GetID()).second) {
+          s = Status::InvalidArgument("Column family already dropped!\n");
+          break;
+        }
+      }
+      validated_column_families.push_back(handle);
+      excluded_cf_ids.push_back(cfd->GetID());
+    }
+
+    uint64_t options_file_number = 0;
+    uint64_t options_file_size = 0;
+    if (s.ok() && !validated_column_families.empty()) {
+      s = PersistOptionsFileForColumnFamilyManipulation(
+          WriteOptions(), {}, excluded_cf_ids, &options_file_number,
+          &options_file_size);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+    const Status validation_status = s;
+    s = Status::OK();
+
+    ColumnFamilySet* const column_family_set = versions_->GetColumnFamilySet();
+    const bool batch_flushable_mem_accounting =
+        write_buffer_manager_ != nullptr &&
+        write_buffer_manager_->ShouldTrackFlushInitiator();
+    if (batch_flushable_mem_accounting) {
+      InstrumentedMutexLock lock(&mutex_);
+      column_family_set->BeginBulkFlushableMemAccountingUpdate();
     }
     {
-      InstrumentedMutexLock l(&mutex_);
-      if (cfd->IsDropped() || !seen_cf_ids.insert(cfd->GetID()).second) {
-        s = Status::InvalidArgument("Column family already dropped!\n");
-        break;
+      Defer finish_bulk_accounting(
+          [this, column_family_set, batch_flushable_mem_accounting] {
+            if (batch_flushable_mem_accounting) {
+              InstrumentedMutexLock lock(&mutex_);
+              column_family_set->EndBulkFlushableMemAccountingUpdate();
+            }
+          });
+      for (size_t i = 0; i < validated_column_families.size(); ++i) {
+        s = DropColumnFamilyWithOptionsFile(
+            validated_column_families[i],
+            validation_status.ok() && i + 1 == validated_column_families.size()
+                ? options_file_number
+                : 0,
+            validation_status.ok() && i + 1 == validated_column_families.size()
+                ? options_file_size
+                : 0,
+            &dropped_blob_managers);
+        if (!s.ok()) {
+          break;
+        }
+        success_once = true;
       }
     }
-    validated_column_families.push_back(handle);
-    excluded_cf_ids.push_back(cfd->GetID());
-  }
-
-  uint64_t options_file_number = 0;
-  uint64_t options_file_size = 0;
-  if (s.ok() && !validated_column_families.empty()) {
-    s = PersistOptionsFileForColumnFamilyManipulation(
-        WriteOptions(), {}, excluded_cf_ids, &options_file_number,
-        &options_file_size);
-    if (!s.ok()) {
-      return s;
+    if (s.ok() && !validation_status.ok()) {
+      s = validation_status;
     }
-  }
-  const Status validation_status = s;
-  s = Status::OK();
-
-  ColumnFamilySet* const column_family_set = versions_->GetColumnFamilySet();
-  const bool batch_flushable_mem_accounting =
-      write_buffer_manager_ != nullptr &&
-      write_buffer_manager_->ShouldTrackFlushInitiator();
-  if (batch_flushable_mem_accounting) {
-    InstrumentedMutexLock lock(&mutex_);
-    column_family_set->BeginBulkFlushableMemAccountingUpdate();
-  }
-  {
-    Defer finish_bulk_accounting(
-        [this, column_family_set, batch_flushable_mem_accounting] {
-          if (batch_flushable_mem_accounting) {
-            InstrumentedMutexLock lock(&mutex_);
-            column_family_set->EndBulkFlushableMemAccountingUpdate();
-          }
-        });
-    for (size_t i = 0; i < validated_column_families.size(); ++i) {
-      s = DropColumnFamilyWithOptionsFile(
-          validated_column_families[i],
-          validation_status.ok() && i + 1 == validated_column_families.size()
-              ? options_file_number
-              : 0,
-          validation_status.ok() && i + 1 == validated_column_families.size()
-              ? options_file_size
-              : 0);
-      if (!s.ok()) {
-        break;
+    if (success_once) {
+      if (immutable_db_options_.track_options_file_number_in_manifest) {
+        MaybeDeleteObsoleteOptionsFiles();
+      } else {
+        // TODO: plumb Env::IOActivity, Env::IOPriority
+        s.UpdateIfOk(
+            WriteOptionsFile(WriteOptions(), false /*db_mutex_already_held*/));
       }
-      success_once = true;
     }
   }
-  if (s.ok() && !validation_status.ok()) {
-    s = validation_status;
-  }
-  if (success_once) {
-    if (immutable_db_options_.track_options_file_number_in_manifest) {
-      MaybeDeleteObsoleteOptionsFiles();
-    } else {
-      // TODO: plumb Env::IOActivity, Env::IOPriority
-      s.UpdateIfOk(
-          WriteOptionsFile(WriteOptions(), false /*db_mutex_already_held*/));
-    }
-  }
+  DetachDroppedBlobManagers(&dropped_blob_managers);
   return s;
 }
 
-Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
+void DBImpl::DetachDroppedBlobManagers(
+    std::vector<DroppedBlobManager>* dropped_blob_managers) {
+  assert(dropped_blob_managers != nullptr);
+  std::vector<DroppedBlobManager> ready_managers;
+  ready_managers.reserve(dropped_blob_managers->size());
+  for (const auto& dropped : *dropped_blob_managers) {
+    assert(dropped.manager != nullptr);
+    auto deferred_managers =
+        std::make_shared<std::vector<DroppedBlobManager>>(1, dropped);
+    if (!dropped.manager->TryDeferUntilAfterManagerCallback(
+            [this, deferred_managers] {
+              DetachDroppedBlobManagers(deferred_managers.get());
+            })) {
+      ready_managers.push_back(dropped);
+    }
+  }
+  *dropped_blob_managers = std::move(ready_managers);
+
+  BlobFilePartitionManager::DetachedBlobFileWriters detached_blob_writers;
+  for (const auto& dropped : *dropped_blob_managers) {
+    assert(dropped.cfd != nullptr);
+    assert(dropped.manager != nullptr);
+    TEST_SYNC_POINT("DBImpl::DropColumnFamilyImpl:BeforeDetachBlobWriters");
+    auto writers = dropped.manager->DetachWritersAfterColumnFamilyDrop();
+    detached_blob_writers.insert(detached_blob_writers.end(),
+                                 std::make_move_iterator(writers.begin()),
+                                 std::make_move_iterator(writers.end()));
+  }
+
+  // Writer destruction can emit file-I/O callbacks, so finish it before
+  // taking the DB mutex to release the ColumnFamilyData lifetime pins.
+  detached_blob_writers.clear();
+  InstrumentedMutexLock l(&mutex_);
+  for (const auto& dropped : *dropped_blob_managers) {
+    dropped.cfd->UnrefAndTryDelete();
+  }
+  dropped_blob_managers->clear();
+}
+
+Status DBImpl::DropColumnFamilyImpl(
+    ColumnFamilyHandle* column_family,
+    std::vector<DroppedBlobManager>* dropped_blob_managers) {
   options_mutex_.AssertHeld();
+  assert(dropped_blob_managers != nullptr);
 
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
@@ -4905,13 +4958,16 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
     return s;
   }
   return DropColumnFamilyWithOptionsFile(column_family, options_file_number,
-                                         options_file_size);
+                                         options_file_size,
+                                         dropped_blob_managers);
 }
 
 Status DBImpl::DropColumnFamilyWithOptionsFile(
     ColumnFamilyHandle* column_family, uint64_t options_file_number,
-    uint64_t options_file_size) {
+    uint64_t options_file_size,
+    std::vector<DroppedBlobManager>* dropped_blob_managers) {
   options_mutex_.AssertHeld();
+  assert(dropped_blob_managers != nullptr);
 
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
@@ -4933,6 +4989,8 @@ Status DBImpl::DropColumnFamilyWithOptionsFile(
     edit.SetCommittedOptionsFileNumber(options_file_number);
   }
 
+  BlobFilePartitionManager* dropped_blob_manager = nullptr;
+  ColumnFamilyData* dropped_blob_cfd = nullptr;
   // Save re-aquiring lock for RegisterRecordSeqnoTimeWorker when not
   // applicable
   MinAndMaxPreserveSeconds preserve_info;
@@ -4948,6 +5006,12 @@ Status DBImpl::DropColumnFamilyWithOptionsFile(
       WaitForPendingWrites();
       s = versions_->LogAndApply(cfd, read_options, write_options, &edit,
                                  &mutex_, directories_.GetDbDir());
+      if (s.ok() && cfd->blob_partition_manager() != nullptr) {
+        dropped_blob_manager = cfd->blob_partition_manager();
+        cfd->Ref();
+        dropped_blob_cfd = cfd;
+        dropped_blob_manager->RequestColumnFamilyDrop();
+      }
       write_thread_.ExitUnbatched(&w);
       if (s.ok() && options_file_number != 0) {
         versions_->options_file_size_ = options_file_size;
@@ -4979,6 +5043,14 @@ Status DBImpl::DropColumnFamilyWithOptionsFile(
       is_snapshot_supported_ = new_is_snapshot_supported;
     }
     bg_cv_.SignalAll();
+  }
+
+  // Waiting for flush preparation and destroying a writer can both emit
+  // callbacks. The lock-free request under the write-thread barrier prevents
+  // new writes; the public wrappers detach only after releasing both DB locks.
+  if (dropped_blob_manager != nullptr) {
+    assert(dropped_blob_cfd != nullptr);
+    dropped_blob_managers->push_back({dropped_blob_cfd, dropped_blob_manager});
   }
 
   if (preserve_info.IsEnabled()) {

@@ -43,7 +43,8 @@ struct ReadOptions;
 
 // Manages per-partition blob files for write-path blob direct write.
 //
-// The v1 design keeps each memtable switch as one FIFO generation batch.
+// The v1 design keeps each memtable switch as one generation batch identified
+// by the immutable memtable ID.
 // Direct-write files for that memtable are sealed and registered when the
 // matching flush commits. The current implementation still serializes blob
 // appends through one manager mutex; follow-up PRs can add independent
@@ -53,6 +54,15 @@ struct ReadOptions;
 class BlobFilePartitionManager {
  public:
   using FileNumberAllocator = std::function<uint64_t()>;
+  class PreparedGenerationToken {
+   public:
+    bool empty() const { return commit_markers_.empty(); }
+
+   private:
+    friend class BlobFilePartitionManager;
+    std::vector<std::shared_ptr<std::atomic<bool>>> commit_markers_;
+  };
+  using DetachedBlobFileWriters = std::vector<std::unique_ptr<BlobLogWriter>>;
 
   // Creates the per-column-family manager for write-path blob files.
   BlobFilePartitionManager(
@@ -89,26 +99,33 @@ class BlobFilePartitionManager {
                                      const WideColumns& columns) const;
 
   // Move the current active partition files into the next immutable
-  // memtable-generation batch. Called from SwitchMemtable() while DB mutex is
-  // held. No I/O is performed here.
-  void RotateCurrentGeneration();
+  // memtable-generation batch. Called from SwitchMemtable() while its
+  // write-thread barrier is held but the DB mutex is released. No I/O is
+  // performed here.
+  void RotateCurrentGeneration(uint64_t memtable_id);
 
-  // Seal the first `num_generations` queued immutable generations and return
-  // all blob additions and initial-garbage updates that must be registered
-  // with the matching flush. Generations stay queued until
-  // CommitPreparedGenerations() is called. If `generation_blob_file_numbers`
-  // is non-null, it receives the sealed blob file numbers for each prepared
-  // generation in the same FIFO order.
-  Status PrepareFlushAdditions(const WriteOptions& write_options,
-                               size_t num_generations,
-                               std::vector<BlobFileAddition>* additions,
-                               std::vector<BlobFileGarbage>* garbages,
-                               std::vector<std::vector<uint64_t>>*
-                                   generation_blob_file_numbers = nullptr);
+  // Seal the queued immutable generations identified by `memtable_ids` and
+  // return all blob additions and initial-garbage updates that must be
+  // registered with that exact flush. Generations stay queued until their
+  // returned token is published and reclaimed. If
+  // `generation_blob_file_numbers` is non-null, it receives the sealed blob
+  // file numbers in `memtable_ids` order.
+  Status PrepareFlushAdditions(
+      const WriteOptions& write_options,
+      const std::vector<uint64_t>& memtable_ids,
+      std::vector<BlobFileAddition>* additions,
+      std::vector<BlobFileGarbage>* garbages,
+      std::vector<std::vector<uint64_t>>* generation_blob_file_numbers =
+          nullptr,
+      PreparedGenerationToken* prepared_token = nullptr);
 
-  // Remove the first `num_generations` prepared immutable generations after
-  // their blob-file additions and garbage edits were committed to MANIFEST.
-  void CommitPreparedGenerations(size_t num_generations);
+  // Publishes a lock-free commit marker after the matching additions were
+  // committed to MANIFEST. This is safe to call under the DB mutex.
+  void MarkPreparedGenerationsCommitted(const PreparedGenerationToken& token);
+
+  // Reclaims generations covered by the published commit marker and releases
+  // their write-path file mappings. Must be called without the DB mutex.
+  void ReclaimCommittedGenerations();
 
   // In v1 flush-on-write mode each AddRecord flushes to the OS immediately, so
   // there is nothing extra to do for the non-sync write path.
@@ -118,6 +135,22 @@ class BlobFilePartitionManager {
 
   // Sync the active open blob files before a sync WAL write.
   Status SyncAllOpenFiles(const WriteOptions& write_options);
+
+  // Prevents new direct writes after the column-family drop is committed.
+  // This lock-free first phase is called while the DB write-thread barrier and
+  // DB mutex are held, so it must not wait for flush-time manager I/O.
+  void RequestColumnFamilyDrop();
+
+  // Moves every open writer out after RequestColumnFamilyDrop(). Both this
+  // method and destruction of the returned writers must happen after releasing
+  // the DB mutex because they can wait for or perform file I/O.
+  DetachedBlobFileWriters DetachWritersAfterColumnFamilyDrop();
+
+  // Defers `task` while any manager-locked operation that can invoke an
+  // EventListener is active. Returns false when there is no active operation,
+  // in which case the caller must perform the work immediately. This state is
+  // manager-scoped so listeners may delegate DB work to another thread.
+  bool TryDeferUntilAfterManagerCallback(std::function<void()> task);
 
   // Returns blob files still owned by the manager and therefore not yet safe
   // to consider obsolete.
@@ -162,6 +195,15 @@ class BlobFilePartitionManager {
       PinnableSlice* blob_value, uint64_t* bytes_read);
 
  private:
+  class DeferredCallbackScope {
+   public:
+    explicit DeferredCallbackScope(BlobFilePartitionManager* manager);
+    ~DeferredCallbackScope();
+
+   private:
+    BlobFilePartitionManager* manager_;
+  };
+
   struct Partition {
     // Active writer for this partition, or null when the partition is idle.
     std::unique_ptr<BlobLogWriter> writer;
@@ -193,6 +235,14 @@ class BlobFilePartitionManager {
   struct SealedFile {
     // Blob-file metadata ready to be added to MANIFEST.
     BlobFileAddition addition;
+    // Physical finalization runs under mutex_, but completion callbacks run
+    // without it so listeners may safely call back into DB APIs.
+    bool completion_notification_pending = true;
+    bool completion_callback_in_progress = false;
+    // Physical finalization succeeded but SstFileManager registration did not.
+    // Retry only that idempotent phase before exposing this addition to flush;
+    // the listener completion event has already been emitted exactly once.
+    bool sst_file_manager_registration_pending = false;
     // Initial unreachable bytes that should be registered as garbage
     // alongside the file addition.
     uint64_t garbage_blob_count = 0;
@@ -200,6 +250,9 @@ class BlobFilePartitionManager {
   };
 
   struct GenerationBatch {
+    uint64_t memtable_id = 0;
+    std::shared_ptr<std::atomic<bool>> committed =
+        std::make_shared<std::atomic<bool>>(false);
     // Files that were still open when the memtable became immutable.
     std::deque<DeferredFile> deferred_files;
     // Files already sealed for this memtable generation.
@@ -218,16 +271,27 @@ class BlobFilePartitionManager {
                          CompressionType compression, uint32_t partition_idx);
   // Finalizes one active partition file and returns the MANIFEST addition.
   Status SealActiveBlobFile(const WriteOptions& write_options,
-                            Partition* partition, SealedFile* sealed_file);
+                            Partition* partition, SealedFile* sealed_file,
+                            bool* physically_finalized);
   // Finalizes one deferred file that was carried over to flush preparation.
   Status SealDeferredFile(const WriteOptions& write_options,
-                          DeferredFile* deferred, SealedFile* sealed_file);
-  // Appends the footer, reports file completion, and builds the resulting
-  // BlobFileAddition for one sealed blob file.
+                          DeferredFile* deferred, SealedFile* sealed_file,
+                          bool* physically_finalized);
+  // Appends the footer and builds the resulting BlobFileAddition. Completion
+  // is reported later without mutex_ held.
   Status FinalizeBlobFile(const WriteOptions& write_options,
                           BlobLogWriter* writer, uint64_t file_number,
                           uint64_t blob_count, uint64_t total_blob_bytes,
-                          BlobFileAddition* addition);
+                          BlobFileAddition* addition,
+                          bool* physically_finalized);
+  // Reports one physically finalized file to the SstFileManager/listeners.
+  Status NotifyBlobFileCompleted(const BlobFileAddition& addition);
+  // Retries only SstFileManager registration after completion was reported.
+  Status RetryBlobFileRegistration(const BlobFileAddition& addition);
+  // Erases committed generations while mutex_ is held and returns their file
+  // numbers for mapping cleanup.
+  void ReclaimCommittedGenerationsLocked(
+      std::vector<uint64_t>* committed_file_numbers);
   // Appends one initial-garbage record to the flush output if any failed
   // transformed writes targeted the sealed blob file.
   static void AddSealedFileGarbage(const SealedFile& sealed_file,
@@ -251,6 +315,10 @@ class BlobFilePartitionManager {
                                    const Slice& original_value,
                                    uint64_t blob_file_number,
                                    uint64_t blob_offset);
+  void DetachWritersAfterColumnFamilyDropLocked(
+      DetachedBlobFileWriters* detached_writers);
+  void EnterManagerCallback();
+  void ExitManagerCallback();
 
   // Configured partition fanout and write-selection strategy.
   const uint32_t num_partitions_;
@@ -282,12 +350,27 @@ class BlobFilePartitionManager {
   // One active writer slot per configured partition.
   std::vector<std::unique_ptr<Partition>> partitions_;
 
+  // Serializes finalizing write/flush operations while mutex_ is temporarily
+  // released around user completion callbacks.
+  mutable port::Mutex operation_mutex_;
+  // Tracks manager-locked listener contexts across threads. Deferred work is
+  // released only after the last such context exits.
+  mutable port::Mutex deferred_callback_mutex_;
+  size_t active_callback_contexts_ = 0;
+  std::vector<std::function<void()>> deferred_callback_tasks_;
   // Protects partition state and generation queues.
   mutable port::Mutex mutex_;
+  // Set once the owning column family has been dropped. Existing read mappings
+  // remain valid for handles and iterators that outlive the drop.
+  std::atomic<bool> quiesced_{false};
   // Files already sealed while the current mutable memtable was active.
   std::vector<SealedFile> current_generation_sealed_files_;
-  // FIFO immutable memtable generations waiting to be flushed.
+  // Immutable memtable generations waiting to be flushed, in switch order.
   std::deque<GenerationBatch> pending_generations_;
+  // Sticky failure from an attempted footer append/close. Once physical
+  // finalization fails, the writer cannot be retried safely, so preserve its
+  // file mapping and fail future writes/flushes rather than orphan live data.
+  Status terminal_seal_status_;
 
   // Tracks blob files still owned by active or deferred write-path state until
   // MANIFEST commit publishes them.

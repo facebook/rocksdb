@@ -740,17 +740,19 @@ TEST_F(DBWideBlobDirectWriteTest, DirectWriteWideEntityBeforeAndAfterFlush) {
 
   verify();
 
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
+      db_->DefaultColumnFamily());
+  const uint64_t memtable_id = cfh->cfd()->mem()->GetID();
   ASSERT_OK(dbfull()->TEST_SwitchMemtable());
   verify();
 
-  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
-      db_->DefaultColumnFamily());
   auto* mgr = cfh->cfd()->blob_partition_manager();
   ASSERT_NE(mgr, nullptr);
 
   std::vector<BlobFileAddition> additions;
   std::vector<BlobFileGarbage> garbages;
-  ASSERT_OK(mgr->PrepareFlushAdditions(WriteOptions(), /*num_generations=*/1,
+  ASSERT_OK(mgr->PrepareFlushAdditions(WriteOptions(),
+                                       std::vector<uint64_t>{memtable_id},
                                        &additions, &garbages));
   ASSERT_FALSE(additions.empty());
   ASSERT_TRUE(garbages.empty());
@@ -1024,16 +1026,18 @@ TEST_F(DBWideBlobDirectWriteTest,
 
   ASSERT_OK(
       db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
-  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
-
   auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
       db_->DefaultColumnFamily());
+  const uint64_t memtable_id = cfh->cfd()->mem()->GetID();
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+
   auto* mgr = cfh->cfd()->blob_partition_manager();
   ASSERT_NE(mgr, nullptr);
 
   std::vector<BlobFileAddition> additions;
   std::vector<BlobFileGarbage> garbages;
-  ASSERT_OK(mgr->PrepareFlushAdditions(WriteOptions(), /*num_generations=*/1,
+  ASSERT_OK(mgr->PrepareFlushAdditions(WriteOptions(),
+                                       std::vector<uint64_t>{memtable_id},
                                        &additions, &garbages));
   ASSERT_EQ(additions.size(), 1U);
   ASSERT_TRUE(garbages.empty());

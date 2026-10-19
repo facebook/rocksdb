@@ -10,12 +10,17 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <functional>
 #include <limits>
 #include <mutex>
 #include <set>
 #include <sstream>
 #include <string>
+#include <thread>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -29,9 +34,11 @@
 #include "db/db_test_util.h"
 #include "db/db_with_timestamp_test_util.h"
 #include "db/wide/wide_column_test_util.h"
+#include "db/write_callback.h"
 #include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
+#include "file/sst_file_manager_impl.h"
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/file_system.h"
@@ -108,6 +115,24 @@ class RecordingBlobDirectWritePartitionStrategy
   std::vector<Call> calls_;
 };
 
+class BatchableBlobDirectWriteCallback : public WriteCallback {
+ public:
+  explicit BatchableBlobDirectWriteCallback(bool fail) : fail_(fail) {}
+
+  Status Callback(DB* /*db*/) override {
+    called_.store(true, std::memory_order_release);
+    return fail_ ? Status::Busy() : Status::OK();
+  }
+
+  bool AllowWriteBatching() override { return true; }
+
+  bool called() const { return called_.load(std::memory_order_acquire); }
+
+ private:
+  const bool fail_;
+  std::atomic<bool> called_{false};
+};
+
 namespace {
 
 // Matches BlobDB file names so the test filesystem can special-case only active
@@ -174,6 +199,286 @@ class BlobFileChecksumCapturingFileSystem : public FileSystemWrapper {
   std::string file_checksum_;
   std::string file_checksum_func_name_;
   int capture_count_ = 0;
+};
+
+class FailBlobFileSizeOnceFileSystem : public FileSystemWrapper {
+ public:
+  explicit FailBlobFileSizeOnceFileSystem(const std::shared_ptr<FileSystem>& fs)
+      : FileSystemWrapper(fs) {}
+
+  static const char* kClassName() { return "FailBlobFileSizeOnceFileSystem"; }
+  const char* Name() const override { return kClassName(); }
+
+  void FailNextBlobFileSize() {
+    fail_next_blob_file_size_.store(true, std::memory_order_release);
+  }
+
+  int failure_count() const {
+    return failure_count_.load(std::memory_order_acquire);
+  }
+
+  IOStatus GetFileSize(const std::string& fname, const IOOptions& options,
+                       uint64_t* file_size, IODebugContext* dbg) override {
+    if (IsBlobFilePath(fname) &&
+        fail_next_blob_file_size_.exchange(false, std::memory_order_acq_rel)) {
+      failure_count_.fetch_add(1, std::memory_order_relaxed);
+      IOStatus status = IOStatus::IOError("Injected blob file-size failure");
+      status.SetRetryable(true);
+      return status;
+    }
+    return target()->GetFileSize(fname, options, file_size, dbg);
+  }
+
+ private:
+  std::atomic<bool> fail_next_blob_file_size_{false};
+  std::atomic<int> failure_count_{0};
+};
+
+class FailNthBlobSyncWritableFile : public FSWritableFileOwnerWrapper {
+ public:
+  FailNthBlobSyncWritableFile(std::unique_ptr<FSWritableFile>&& target,
+                              std::function<IOStatus()> maybe_fail_sync)
+      : FSWritableFileOwnerWrapper(std::move(target)),
+        maybe_fail_sync_(std::move(maybe_fail_sync)) {}
+
+  IOStatus Sync(const IOOptions& options, IODebugContext* dbg) override {
+    IOStatus s = maybe_fail_sync_();
+    return s.ok() ? target()->Sync(options, dbg) : s;
+  }
+
+  IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override {
+    IOStatus s = maybe_fail_sync_();
+    return s.ok() ? target()->Fsync(options, dbg) : s;
+  }
+
+ private:
+  std::function<IOStatus()> maybe_fail_sync_;
+};
+
+class FailNthBlobSyncFileSystem : public FileSystemWrapper {
+ public:
+  explicit FailNthBlobSyncFileSystem(const std::shared_ptr<FileSystem>& fs)
+      : FileSystemWrapper(fs) {}
+
+  static const char* kClassName() { return "FailNthBlobSyncFileSystem"; }
+  const char* Name() const override { return kClassName(); }
+
+  void FailBlobSyncNumber(int sync_number) {
+    assert(sync_number > 0);
+    sync_count_.store(0, std::memory_order_release);
+    fail_sync_number_.store(sync_number, std::memory_order_release);
+  }
+
+  int failure_count() const {
+    return failure_count_.load(std::memory_order_acquire);
+  }
+
+  IOStatus NewWritableFile(const std::string& fname, const FileOptions& opts,
+                           std::unique_ptr<FSWritableFile>* result,
+                           IODebugContext* dbg) override {
+    IOStatus s = target()->NewWritableFile(fname, opts, result, dbg);
+    if (!s.ok() || !IsBlobFilePath(fname)) {
+      return s;
+    }
+
+    result->reset(new FailNthBlobSyncWritableFile(
+        std::move(*result), [this] { return MaybeFailBlobSync(); }));
+    return IOStatus::OK();
+  }
+
+ private:
+  IOStatus MaybeFailBlobSync() {
+    const int sync_number =
+        sync_count_.fetch_add(1, std::memory_order_acq_rel) + 1;
+    int expected_sync_number = sync_number;
+    if (fail_sync_number_.compare_exchange_strong(expected_sync_number, 0,
+                                                  std::memory_order_acq_rel)) {
+      failure_count_.fetch_add(1, std::memory_order_relaxed);
+      return IOStatus::IOError("Injected blob sync failure");
+    }
+    return IOStatus::OK();
+  }
+
+  std::atomic<int> sync_count_{0};
+  std::atomic<int> fail_sync_number_{0};
+  std::atomic<int> failure_count_{0};
+};
+
+class CountingBlobFileCompletionListener : public EventListener {
+ public:
+  void OnBlobFileCreated(const BlobFileCreationInfo& info) override {
+    if (info.reason == BlobFileCreationReason::kFlush) {
+      completion_count_.fetch_add(1, std::memory_order_relaxed);
+      if (!info.status.ok()) {
+        failed_completion_count_.fetch_add(1, std::memory_order_relaxed);
+      }
+    }
+  }
+
+  int completion_count() const {
+    return completion_count_.load(std::memory_order_relaxed);
+  }
+
+  int failed_completion_count() const {
+    return failed_completion_count_.load(std::memory_order_relaxed);
+  }
+
+ private:
+  std::atomic<int> completion_count_{0};
+  std::atomic<int> failed_completion_count_{0};
+};
+
+class DropColumnFamilyOnBlobCompletionListener : public EventListener {
+ public:
+  void SetTarget(DB* db, ColumnFamilyHandle* column_family) {
+    std::lock_guard<std::mutex> lock(mu_);
+    db_ = db;
+    column_family_ = column_family;
+  }
+
+  void SetBeforeDrop(std::function<void()> before_drop) {
+    std::lock_guard<std::mutex> lock(mu_);
+    before_drop_ = std::move(before_drop);
+  }
+
+  void OnBlobFileCreated(const BlobFileCreationInfo& info) override {
+    if (info.reason != BlobFileCreationReason::kFlush) {
+      return;
+    }
+    DropTarget();
+    completion_count_.fetch_add(1, std::memory_order_release);
+    completion_cv_.notify_all();
+  }
+
+  bool attempted() const { return attempted_.load(std::memory_order_acquire); }
+
+  Status drop_status() const {
+    std::lock_guard<std::mutex> lock(mu_);
+    return drop_status_;
+  }
+
+  int completion_count() const {
+    return completion_count_.load(std::memory_order_acquire);
+  }
+
+  bool WaitForCompletionCount(int expected) {
+    std::unique_lock<std::mutex> lock(mu_);
+    return completion_cv_.wait_for(lock, std::chrono::seconds(5), [&] {
+      return completion_count_.load(std::memory_order_acquire) >= expected;
+    });
+  }
+
+ protected:
+  void DropTarget() {
+    if (attempted_.exchange(true, std::memory_order_acq_rel)) {
+      return;
+    }
+    DB* db = nullptr;
+    ColumnFamilyHandle* column_family = nullptr;
+    std::function<void()> before_drop;
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      db = db_;
+      column_family = column_family_;
+      before_drop = before_drop_;
+    }
+    assert(db != nullptr);
+    assert(column_family != nullptr);
+    if (before_drop) {
+      before_drop();
+    }
+    Status drop_status = db->DropColumnFamily(column_family);
+    std::lock_guard<std::mutex> lock(mu_);
+    drop_status_ = std::move(drop_status);
+  }
+
+ private:
+  mutable std::mutex mu_;
+  DB* db_ = nullptr;
+  ColumnFamilyHandle* column_family_ = nullptr;
+  std::function<void()> before_drop_;
+  Status drop_status_;
+  std::condition_variable completion_cv_;
+  std::atomic<bool> attempted_{false};
+  std::atomic<int> completion_count_{0};
+};
+
+class DropColumnFamilyOnBlobCloseListener
+    : public DropColumnFamilyOnBlobCompletionListener {
+ public:
+  void OnFileCloseFinish(const FileOperationInfo& info) override {
+    if (IsBlobFilePath(info.path)) {
+      DropTarget();
+    }
+  }
+
+  bool ShouldBeNotifiedOnFileIO() override { return true; }
+};
+
+class CrossThreadDropColumnFamilyOnBlobCloseListener
+    : public DropColumnFamilyOnBlobCompletionListener {
+ public:
+  void OnFileCloseFinish(const FileOperationInfo& info) override {
+    if (!IsBlobFilePath(info.path)) {
+      return;
+    }
+    std::thread drop_thread([this] { DropTarget(); });
+    drop_thread.join();
+  }
+
+  bool ShouldBeNotifiedOnFileIO() override { return true; }
+};
+
+class SetOptionsOnBlobCloseListener : public EventListener {
+ public:
+  void SetDB(DB* db) {
+    std::lock_guard<std::mutex> lock(mu_);
+    db_ = db;
+  }
+
+  void SetBeforeSetOptions(std::function<void()> before_set_options) {
+    std::lock_guard<std::mutex> lock(mu_);
+    before_set_options_ = std::move(before_set_options);
+  }
+
+  void OnFileCloseFinish(const FileOperationInfo& info) override {
+    if (!IsBlobFilePath(info.path) ||
+        attempted_.exchange(true, std::memory_order_acq_rel)) {
+      return;
+    }
+    DB* db = nullptr;
+    std::function<void()> before_set_options;
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      db = db_;
+      before_set_options = before_set_options_;
+    }
+    assert(db != nullptr);
+    if (before_set_options) {
+      before_set_options();
+    }
+    Status status = db->SetOptions(db->DefaultColumnFamily(),
+                                   std::unordered_map<std::string, std::string>{
+                                       {"disable_auto_compactions", "true"}});
+    std::lock_guard<std::mutex> lock(mu_);
+    status_ = std::move(status);
+  }
+
+  bool ShouldBeNotifiedOnFileIO() override { return true; }
+
+  bool attempted() const { return attempted_.load(std::memory_order_acquire); }
+
+  Status status() const {
+    std::lock_guard<std::mutex> lock(mu_);
+    return status_;
+  }
+
+ private:
+  mutable std::mutex mu_;
+  DB* db_ = nullptr;
+  std::function<void()> before_set_options_;
+  Status status_;
+  std::atomic<bool> attempted_{false};
 };
 
 // Keeps track of when an active blob file stops being writer-visible so the
@@ -537,6 +842,364 @@ class DBBlobDirectWriteTest : public DBTestBase {
     ASSERT_EQ(inspector.value_, value);
   }
 };
+
+TEST_F(DBBlobDirectWriteTest,
+       OrdinaryBlobCompletionReportsSstFileManagerFailure) {
+  std::shared_ptr<SstFileManager> sst_file_manager(NewSstFileManager(env_));
+  auto* sfm = static_cast<SstFileManagerImpl*>(sst_file_manager.get());
+  auto listener = std::make_shared<CountingBlobFileCompletionListener>();
+
+  Options options = GetBlobDirectWriteCompatibleOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 32;
+  options.disable_auto_compactions = true;
+  options.sst_file_manager = std::move(sst_file_manager);
+  options.listeners.push_back(listener);
+  Reopen(options);
+
+  sfm->SetMaxAllowedSpaceUsage(1);
+  ASSERT_OK(Put("key", std::string(128, 'v')));
+  ASSERT_NOK(Flush());
+  ASSERT_EQ(listener->completion_count(), 1);
+  ASSERT_EQ(listener->failed_completion_count(), 1);
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteBlobCompletionListenerCanDropColumnFamily) {
+  auto listener = std::make_shared<DropColumnFamilyOnBlobCompletionListener>();
+  Options options = GetDirectWriteOptions();
+  options.listeners.push_back(listener);
+  options.create_missing_column_families = true;
+  Reopen(options);
+
+  ColumnFamilyHandle* column_family = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(ColumnFamilyOptions(options),
+                                    "listener_drop", &column_family));
+  ASSERT_NE(column_family, nullptr);
+  listener->SetTarget(db_.get(), column_family);
+
+  ASSERT_OK(
+      db_->Put(WriteOptions(), column_family, "key", std::string(128, 'v')));
+  const Status flush_status = db_->Flush(FlushOptions(), column_family);
+  ASSERT_TRUE(flush_status.ok() || flush_status.IsColumnFamilyDropped())
+      << flush_status.ToString();
+  ASSERT_TRUE(listener->attempted());
+  ASSERT_OK(listener->drop_status());
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(column_family));
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteCompletionDropStillReportsAllFinalizedFiles) {
+  auto listener = std::make_shared<DropColumnFamilyOnBlobCompletionListener>();
+  Options options = GetDirectWriteOptions();
+  options.blob_direct_write_partitions = 2;
+  options.listeners.push_back(listener);
+  Reopen(options);
+
+  ColumnFamilyHandle* column_family = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(ColumnFamilyOptions(options),
+                                    "multi_file_listener_drop",
+                                    &column_family));
+  listener->SetTarget(db_.get(), column_family);
+
+  ASSERT_OK(db_->Put(WriteOptions(), column_family, "first-key",
+                     std::string(128, 'a')));
+  ASSERT_OK(db_->Put(WriteOptions(), column_family, "second-key",
+                     std::string(128, 'b')));
+  ASSERT_EQ(CountBlobFiles(), 2U);
+  const Status flush_status = db_->Flush(FlushOptions(), column_family);
+  ASSERT_TRUE(flush_status.ok() || flush_status.IsColumnFamilyDropped())
+      << flush_status.ToString();
+  ASSERT_TRUE(listener->attempted());
+  ASSERT_OK(listener->drop_status());
+  ASSERT_TRUE(listener->WaitForCompletionCount(2));
+  ASSERT_EQ(listener->completion_count(), 2);
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(column_family));
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteCompletionDropDrainsAfterRegistrationFailure) {
+  auto failing_fs =
+      std::make_shared<FailBlobFileSizeOnceFileSystem>(env_->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, failing_fs));
+  std::shared_ptr<SstFileManager> sst_file_manager(
+      NewSstFileManager(env.get()));
+  auto listener = std::make_shared<DropColumnFamilyOnBlobCompletionListener>();
+
+  Options options = GetDirectWriteOptions();
+  options.blob_direct_write_partitions = 2;
+  options.disable_auto_compactions = true;
+  options.env = env.get();
+  options.sst_file_manager = std::move(sst_file_manager);
+  options.listeners.push_back(listener);
+  Defer close_db([this]() { Close(); });
+  Reopen(options);
+
+  ColumnFamilyHandle* column_family = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(ColumnFamilyOptions(options),
+                                    "registration_failure_listener_drop",
+                                    &column_family));
+  listener->SetTarget(db_.get(), column_family);
+
+  ASSERT_OK(db_->Put(WriteOptions(), column_family, "first-key",
+                     std::string(128, 'a')));
+  ASSERT_OK(db_->Put(WriteOptions(), column_family, "second-key",
+                     std::string(128, 'b')));
+  ASSERT_EQ(CountBlobFiles(), 2U);
+
+  failing_fs->FailNextBlobFileSize();
+  const Status flush_status = db_->Flush(FlushOptions(), column_family);
+  ASSERT_FALSE(flush_status.IsIOError()) << flush_status.ToString();
+  ASSERT_TRUE(flush_status.ok() || flush_status.IsColumnFamilyDropped())
+      << flush_status.ToString();
+  ASSERT_EQ(failing_fs->failure_count(), 1);
+  ASSERT_TRUE(listener->attempted());
+  ASSERT_OK(listener->drop_status());
+  ASSERT_TRUE(listener->WaitForCompletionCount(2));
+  ASSERT_EQ(listener->completion_count(), 2);
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(column_family));
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteBlobCloseListenerCanDropSameColumnFamily) {
+  auto listener = std::make_shared<DropColumnFamilyOnBlobCloseListener>();
+  Options options = GetDirectWriteOptions();
+  options.listeners.push_back(listener);
+  Reopen(options);
+
+  ColumnFamilyHandle* column_family = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(ColumnFamilyOptions(options),
+                                    "close_listener_same_cf", &column_family));
+  listener->SetTarget(db_.get(), column_family);
+
+  ASSERT_OK(
+      db_->Put(WriteOptions(), column_family, "key", std::string(128, 'v')));
+  const Status flush_status = db_->Flush(FlushOptions(), column_family);
+  ASSERT_TRUE(flush_status.ok() || flush_status.IsColumnFamilyDropped())
+      << flush_status.ToString();
+  ASSERT_TRUE(listener->attempted());
+  ASSERT_OK(listener->drop_status());
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(column_family));
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteBlobCloseListenerCanDropFromAnotherThread) {
+  auto listener =
+      std::make_shared<CrossThreadDropColumnFamilyOnBlobCloseListener>();
+  Options options = GetDirectWriteOptions();
+  options.listeners.push_back(listener);
+  Reopen(options);
+
+  ColumnFamilyHandle* column_family = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(ColumnFamilyOptions(options),
+                                    "cross_thread_close_listener_drop",
+                                    &column_family));
+  listener->SetTarget(db_.get(), column_family);
+
+  ASSERT_OK(
+      db_->Put(WriteOptions(), column_family, "key", std::string(128, 'v')));
+  const Status flush_status = db_->Flush(FlushOptions(), column_family);
+  ASSERT_TRUE(flush_status.ok() || flush_status.IsColumnFamilyDropped())
+      << flush_status.ToString();
+  ASSERT_TRUE(listener->attempted());
+  ASSERT_OK(listener->drop_status());
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(column_family));
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteBlobCompletionListenerAvoidsConcurrentDropLockCycle) {
+  auto listener = std::make_shared<DropColumnFamilyOnBlobCompletionListener>();
+  Options options = GetDirectWriteOptions();
+  options.listeners.push_back(listener);
+  options.create_missing_column_families = true;
+  Reopen(options);
+
+  ColumnFamilyHandle* callback_column_family = nullptr;
+  ColumnFamilyHandle* external_column_family = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(ColumnFamilyOptions(options),
+                                    "listener_drop_target",
+                                    &callback_column_family));
+  ASSERT_OK(db_->CreateColumnFamily(ColumnFamilyOptions(options),
+                                    "external_drop_target",
+                                    &external_column_family));
+  listener->SetTarget(db_.get(), callback_column_family);
+
+  std::mutex coordination_mu;
+  std::condition_variable coordination_cv;
+  bool completion_callback_entered = false;
+  bool external_drop_reached_detach = false;
+  listener->SetBeforeDrop([&] {
+    std::unique_lock<std::mutex> lock(coordination_mu);
+    completion_callback_entered = true;
+    coordination_cv.notify_all();
+    coordination_cv.wait(lock, [&] { return external_drop_reached_detach; });
+  });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::DropColumnFamilyImpl:BeforeDetachBlobWriters", [&](void*) {
+        std::lock_guard<std::mutex> lock(coordination_mu);
+        if (!external_drop_reached_detach) {
+          external_drop_reached_detach = true;
+          coordination_cv.notify_all();
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer reset_sync_points([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  ASSERT_OK(db_->Put(WriteOptions(), external_column_family, "external-key",
+                     std::string(128, 'e')));
+  ASSERT_OK(db_->Put(WriteOptions(), callback_column_family, "callback-key",
+                     std::string(128, 'c')));
+
+  Status flush_status;
+  std::thread flush_thread([&] {
+    flush_status = db_->Flush(FlushOptions(), external_column_family);
+  });
+  {
+    std::unique_lock<std::mutex> lock(coordination_mu);
+    coordination_cv.wait(lock, [&] { return completion_callback_entered; });
+  }
+
+  Status external_drop_status;
+  std::thread external_drop_thread([&] {
+    external_drop_status = db_->DropColumnFamily(external_column_family);
+  });
+
+  external_drop_thread.join();
+  flush_thread.join();
+
+  ASSERT_OK(external_drop_status);
+  ASSERT_TRUE(flush_status.ok() || flush_status.IsColumnFamilyDropped())
+      << flush_status.ToString();
+  ASSERT_TRUE(listener->attempted());
+  ASSERT_OK(listener->drop_status());
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(callback_column_family));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(external_column_family));
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteDropClosesWriterAfterReleasingOptionsMutex) {
+  auto listener = std::make_shared<SetOptionsOnBlobCloseListener>();
+  Options options = GetDirectWriteOptions();
+  options.listeners.push_back(listener);
+  Reopen(options);
+  listener->SetDB(db_.get());
+
+  ColumnFamilyHandle* column_family = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(ColumnFamilyOptions(options),
+                                    "close_listener_drop", &column_family));
+  ASSERT_OK(
+      db_->Put(WriteOptions(), column_family, "key", std::string(128, 'v')));
+
+  ASSERT_OK(db_->DropColumnFamily(column_family));
+  ASSERT_TRUE(listener->attempted());
+  ASSERT_OK(listener->status());
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(column_family));
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteMultiDropClosesWritersAfterReleasingOptionsMutex) {
+  auto listener = std::make_shared<SetOptionsOnBlobCloseListener>();
+  Options options = GetDirectWriteOptions();
+  options.listeners.push_back(listener);
+  Reopen(options);
+  listener->SetDB(db_.get());
+
+  ColumnFamilyHandle* first_column_family = nullptr;
+  ColumnFamilyHandle* second_column_family = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(ColumnFamilyOptions(options),
+                                    "first_close_listener_drop",
+                                    &first_column_family));
+  ASSERT_OK(db_->CreateColumnFamily(ColumnFamilyOptions(options),
+                                    "second_close_listener_drop",
+                                    &second_column_family));
+  ASSERT_OK(db_->Put(WriteOptions(), first_column_family, "first-key",
+                     std::string(128, 'a')));
+  ASSERT_OK(db_->Put(WriteOptions(), second_column_family, "second-key",
+                     std::string(128, 'b')));
+
+  ASSERT_OK(
+      db_->DropColumnFamilies({first_column_family, second_column_family}));
+  ASSERT_TRUE(listener->attempted());
+  ASSERT_OK(listener->status());
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(first_column_family));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(second_column_family));
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteDropDefersDetachUntilFileCloseListenerReleasesManager) {
+  auto listener = std::make_shared<SetOptionsOnBlobCloseListener>();
+  Options options = GetDirectWriteOptions();
+  options.listeners.push_back(listener);
+  Reopen(options);
+  listener->SetDB(db_.get());
+
+  ColumnFamilyHandle* column_family = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(ColumnFamilyOptions(options),
+                                    "concurrent_close_listener_drop",
+                                    &column_family));
+  ASSERT_OK(
+      db_->Put(WriteOptions(), column_family, "key", std::string(128, 'v')));
+
+  std::mutex coordination_mu;
+  std::condition_variable coordination_cv;
+  bool close_listener_entered = false;
+  bool release_close_listener = false;
+  bool drop_reached_detach = false;
+  listener->SetBeforeSetOptions([&] {
+    std::unique_lock<std::mutex> lock(coordination_mu);
+    close_listener_entered = true;
+    coordination_cv.notify_all();
+    coordination_cv.wait(lock, [&] { return release_close_listener; });
+  });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::DropColumnFamilyImpl:BeforeDetachBlobWriters", [&](void*) {
+        std::lock_guard<std::mutex> lock(coordination_mu);
+        drop_reached_detach = true;
+        coordination_cv.notify_all();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer reset_sync_points([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  Status flush_status;
+  std::thread flush_thread(
+      [&] { flush_status = db_->Flush(FlushOptions(), column_family); });
+  {
+    std::unique_lock<std::mutex> lock(coordination_mu);
+    coordination_cv.wait(lock, [&] { return close_listener_entered; });
+  }
+
+  Status drop_status;
+  std::thread drop_thread(
+      [&] { drop_status = db_->DropColumnFamily(column_family); });
+  drop_thread.join();
+  {
+    std::lock_guard<std::mutex> lock(coordination_mu);
+    ASSERT_FALSE(drop_reached_detach);
+    release_close_listener = true;
+    coordination_cv.notify_all();
+  }
+  flush_thread.join();
+
+  ASSERT_OK(drop_status);
+  ASSERT_TRUE(flush_status.ok() || flush_status.IsColumnFamilyDropped())
+      << flush_status.ToString();
+  ASSERT_TRUE(listener->attempted());
+  ASSERT_OK(listener->status());
+  {
+    std::unique_lock<std::mutex> lock(coordination_mu);
+    ASSERT_TRUE(coordination_cv.wait_for(lock, std::chrono::seconds(5),
+                                         [&] { return drop_reached_detach; }));
+  }
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(column_family));
+}
 
 TEST_F(
     DBBlobDirectWriteTest,
@@ -1396,6 +2059,185 @@ TEST_F(DBBlobDirectWriteTest, DirectWriteFailedBatchTrackedAsInitialGarbage) {
   ASSERT_EQ(cf_meta.blob_files[0].garbage_blob_bytes, failed_record_bytes);
 }
 
+TEST_F(DBBlobDirectWriteTest,
+       DirectWritePartialTransformFailureTracksCompletedRecordsAsGarbage) {
+  auto failing_fs =
+      std::make_shared<FailBlobFileSizeOnceFileSystem>(env_->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, failing_fs));
+  std::shared_ptr<SstFileManager> sst_file_manager(
+      NewSstFileManager(env.get()));
+
+  Options options = GetBlobDirectWriteCompatibleOptions();
+  const std::string first_key = "first";
+  const std::string second_key = "second";
+  const std::string value(128, 'v');
+  const uint64_t first_record_bytes =
+      BlobLogRecord::kHeaderSize + first_key.size() + value.size();
+  options.env = env.get();
+  options.sst_file_manager = std::move(sst_file_manager);
+  Defer close_db([this]() { Close(); });
+  Reopen(options);
+
+  Options bdw_options = GetDirectWriteOptions();
+  bdw_options.blob_file_size =
+      BlobLogHeader::kSize + first_record_bytes + BlobLogFooter::kSize;
+  ColumnFamilyHandle* bdw_cfh = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(bdw_options, "bdw", &bdw_cfh));
+  ASSERT_NE(bdw_cfh, nullptr);
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(bdw_cfh);
+  auto* mgr = cfh->cfd()->blob_partition_manager();
+  ASSERT_NE(mgr, nullptr);
+
+  failing_fs->FailNextBlobFileSize();
+  WriteBatch batch;
+  ASSERT_OK(batch.Put(bdw_cfh, first_key, value));
+  ASSERT_OK(batch.Put(bdw_cfh, second_key, value));
+  const Status write_status = db_->Write(WriteOptions(), &batch);
+  ASSERT_TRUE(write_status.IsIOError());
+  ASSERT_EQ(failing_fs->failure_count(), 1);
+  std::string result;
+  ASSERT_TRUE(
+      db_->Get(ReadOptions(), bdw_cfh, first_key, &result).IsNotFound());
+  ASSERT_TRUE(
+      db_->Get(ReadOptions(), bdw_cfh, second_key, &result).IsNotFound());
+
+  const uint64_t memtable_id = cfh->cfd()->mem()->GetID();
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable(cfh->cfd()));
+  std::vector<BlobFileAddition> additions;
+  std::vector<BlobFileGarbage> garbages;
+  ASSERT_OK(mgr->PrepareFlushAdditions(WriteOptions(),
+                                       std::vector<uint64_t>{memtable_id},
+                                       &additions, &garbages));
+  ASSERT_EQ(additions.size(), 1U);
+  ASSERT_EQ(additions[0].GetTotalBlobCount(), 1U);
+  ASSERT_EQ(garbages.size(), 1U);
+  ASSERT_EQ(garbages[0].GetBlobFileNumber(), additions[0].GetBlobFileNumber());
+  ASSERT_EQ(garbages[0].GetGarbageBlobCount(), 1U);
+  ASSERT_EQ(garbages[0].GetGarbageBlobBytes(), first_record_bytes);
+
+  ASSERT_OK(db_->DropColumnFamily(bdw_cfh));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(bdw_cfh));
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteMemtableInsertFailureRollsBackTransformedRecords) {
+  Reopen(GetBlobDirectWriteCompatibleOptions());
+
+  ColumnFamilyHandle* bdw_cfh = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(GetDirectWriteOptions(), "bdw", &bdw_cfh));
+  ASSERT_NE(bdw_cfh, nullptr);
+  ColumnFamilyHandle* dropped_cfh = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(GetBlobDirectWriteCompatibleOptions(),
+                                    "dropped", &dropped_cfh));
+  ASSERT_NE(dropped_cfh, nullptr);
+
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(bdw_cfh);
+  auto* mgr = cfh->cfd()->blob_partition_manager();
+  ASSERT_NE(mgr, nullptr);
+
+  const std::string key = "rolled_back";
+  const std::string value(128, 'r');
+  const uint64_t record_bytes =
+      BlobLogRecord::kHeaderSize + key.size() + value.size();
+  WriteBatch batch;
+  ASSERT_OK(batch.Put(bdw_cfh, key, value));
+  ASSERT_OK(batch.Put(dropped_cfh, "missing_cf", "value"));
+  ASSERT_OK(db_->DropColumnFamily(dropped_cfh));
+
+  WriteOptions write_options;
+  write_options.disableWAL = true;
+  const Status write_status = db_->Write(write_options, &batch);
+  ASSERT_TRUE(write_status.IsInvalidArgument()) << write_status.ToString();
+
+  std::string result;
+  ASSERT_TRUE(db_->Get(ReadOptions(), bdw_cfh, key, &result).IsNotFound());
+
+  const uint64_t memtable_id = cfh->cfd()->mem()->GetID();
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable(cfh->cfd()));
+  std::vector<BlobFileAddition> additions;
+  std::vector<BlobFileGarbage> garbages;
+  ASSERT_OK(mgr->PrepareFlushAdditions(WriteOptions(),
+                                       std::vector<uint64_t>{memtable_id},
+                                       &additions, &garbages));
+  ASSERT_EQ(additions.size(), 1U);
+  ASSERT_EQ(garbages.size(), 1U);
+  ASSERT_EQ(garbages[0].GetBlobFileNumber(), additions[0].GetBlobFileNumber());
+  ASSERT_EQ(garbages[0].GetGarbageBlobCount(), 1U);
+  ASSERT_EQ(garbages[0].GetGarbageBlobBytes(), record_bytes);
+
+  ASSERT_OK(db_->DropColumnFamily(bdw_cfh));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(dropped_cfh));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(bdw_cfh));
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       GroupedCallbackFailureDoesNotRollbackSuccessfulFollower) {
+  Reopen(GetDirectWriteOptions());
+
+  const std::string failed_key = "failed_leader";
+  const std::string committed_key = "committed_follower";
+  const std::string failed_value(128, 'x');
+  const std::string committed_value(128, 'y');
+  WriteBatch failed_batch;
+  WriteBatch committed_batch;
+  ASSERT_OK(failed_batch.Put(failed_key, failed_value));
+  ASSERT_OK(committed_batch.Put(committed_key, committed_value));
+  BatchableBlobDirectWriteCallback failed_callback(/*fail=*/true);
+  BatchableBlobDirectWriteCallback committed_callback(/*fail=*/false);
+
+  std::atomic<uint32_t> threads_joining{0};
+  std::atomic<uint32_t> threads_linked{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "WriteThread::JoinBatchGroup:Start", [&](void* /*arg*/) {
+        const uint32_t position = threads_joining.fetch_add(1);
+        while (threads_linked.load(std::memory_order_acquire) < position) {
+          std::this_thread::yield();
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "WriteThread::JoinBatchGroup:Wait", [&](void* /*arg*/) {
+        threads_linked.fetch_add(1, std::memory_order_release);
+        while (threads_linked.load(std::memory_order_acquire) < 2) {
+          std::this_thread::yield();
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status failed_status;
+  Status committed_status;
+  std::thread leader([&] {
+    failed_status = dbfull()->WriteWithCallback(WriteOptions(), &failed_batch,
+                                                &failed_callback);
+  });
+  while (threads_linked.load(std::memory_order_acquire) < 1) {
+    std::this_thread::yield();
+  }
+  std::thread follower([&] {
+    committed_status = dbfull()->WriteWithCallback(
+        WriteOptions(), &committed_batch, &committed_callback);
+  });
+
+  leader.join();
+  follower.join();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_TRUE(failed_callback.called());
+  ASSERT_TRUE(committed_callback.called());
+  ASSERT_TRUE(failed_status.IsBusy());
+  ASSERT_OK(committed_status);
+  ASSERT_EQ(Get(failed_key), "NOT_FOUND");
+  ASSERT_EQ(Get(committed_key), committed_value);
+
+  ASSERT_OK(Flush());
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  ASSERT_EQ(cf_meta.blob_file_count, 1U);
+  ASSERT_EQ(cf_meta.blob_files.size(), 1U);
+  ASSERT_EQ(cf_meta.blob_files[0].total_blob_count, 1U);
+  ASSERT_EQ(cf_meta.blob_files[0].garbage_blob_count, 0U);
+}
+
 TEST_F(DBBlobDirectWriteTest, DirectWriteRollbackMismatchReturnsCorruption) {
   Reopen(GetDirectWriteOptions());
 
@@ -1437,6 +2279,129 @@ TEST_F(DBBlobDirectWriteTest,
   ASSERT_OK(db_->DestroyColumnFamilyHandle(bdw_cfh));
 }
 
+TEST_F(DBBlobDirectWriteTest, DropQuiescesActiveAndDeferredDirectWriteFiles) {
+  Options options = GetBlobDirectWriteCompatibleOptions();
+  options.blob_direct_write_partitions = 2;
+  Reopen(options);
+
+  ColumnFamilyHandle* bdw_cfh = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(GetDirectWriteOptions(), "bdw", &bdw_cfh));
+  ASSERT_NE(bdw_cfh, nullptr);
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(bdw_cfh);
+  auto* mgr = cfh->cfd()->blob_partition_manager();
+  ASSERT_NE(mgr, nullptr);
+
+  const std::string first_key = "deferred";
+  const std::string first_value(128, 'd');
+  ASSERT_OK(db_->Put(WriteOptions(), bdw_cfh, first_key, first_value));
+  const uint64_t deferred_memtable_id = cfh->cfd()->mem()->GetID();
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable(cfh->cfd()));
+
+  const std::string second_key = "active";
+  const std::string second_value(128, 'a');
+  ASSERT_OK(db_->Put(WriteOptions(), bdw_cfh, second_key, second_value));
+
+  ReadOptions read_options;
+  read_options.allow_unprepared_value = true;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, bdw_cfh));
+  iter->Seek(first_key);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), first_key);
+  ASSERT_TRUE(iter->value().empty());
+
+  ASSERT_OK(db_->DropColumnFamily(bdw_cfh));
+  ASSERT_FALSE(dbfull()->HasAnyBlobDirectWriteColumnFamily());
+
+  std::vector<BlobFileAddition> additions;
+  std::vector<BlobFileGarbage> garbages;
+  ASSERT_TRUE(
+      mgr->PrepareFlushAdditions(WriteOptions(),
+                                 std::vector<uint64_t>{deferred_memtable_id},
+                                 &additions, &garbages)
+          .IsColumnFamilyDropped());
+  ASSERT_TRUE(additions.empty());
+  ASSERT_TRUE(garbages.empty());
+
+  // Dropping closes the detached writers but keeps their read mappings alive
+  // until old iterators and handles release the column family.
+  ASSERT_TRUE(iter->PrepareValue());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->value().ToString(), first_value);
+
+  iter.reset();
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(bdw_cfh));
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DropDoesNotHoldDBMutexWhileFlushFinalizationOwnsManager) {
+  std::shared_ptr<SstFileManager> sst_file_manager(NewSstFileManager(env_));
+  auto* sfm = static_cast<SstFileManagerImpl*>(sst_file_manager.get());
+
+  Options options = GetBlobDirectWriteCompatibleOptions();
+  options.disable_auto_compactions = true;
+  options.sst_file_manager = std::move(sst_file_manager);
+  Reopen(options);
+
+  ColumnFamilyHandle* bdw_cfh = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(GetDirectWriteOptions(), "bdw", &bdw_cfh));
+  ASSERT_NE(bdw_cfh, nullptr);
+  ASSERT_OK(db_->Put(WriteOptions(), bdw_cfh, "key", std::string(128, 'v')));
+  sfm->SetMaxAllowedSpaceUsage(1);
+
+  std::mutex sync_mutex;
+  std::condition_variable sync_cv;
+  bool completion_callback_reached = false;
+  bool drop_released_db_mutex = false;
+  bool release_completion_callback = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobFileCompletionCallback::CallBack::MaxAllowedSpaceReached",
+      [&](void* /*arg*/) {
+        std::unique_lock<std::mutex> lock(sync_mutex);
+        completion_callback_reached = true;
+        sync_cv.notify_all();
+        sync_cv.wait(lock, [&] { return release_completion_callback; });
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::DropColumnFamilyImpl:BeforeDetachBlobWriters",
+      [&](void* /*arg*/) {
+        std::lock_guard<std::mutex> lock(sync_mutex);
+        drop_released_db_mutex = true;
+        sync_cv.notify_all();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  FlushOptions flush_options;
+  flush_options.wait = true;
+  Status flush_status;
+  std::thread flush_thread(
+      [&] { flush_status = db_->Flush(flush_options, bdw_cfh); });
+
+  {
+    std::unique_lock<std::mutex> lock(sync_mutex);
+    sync_cv.wait(lock, [&] { return completion_callback_reached; });
+  }
+
+  Status drop_status;
+  std::thread drop_thread(
+      [&] { drop_status = db_->DropColumnFamily(bdw_cfh); });
+
+  {
+    std::unique_lock<std::mutex> lock(sync_mutex);
+    sync_cv.wait(lock, [&] { return drop_released_db_mutex; });
+    release_completion_callback = true;
+    sync_cv.notify_all();
+  }
+
+  flush_thread.join();
+  drop_thread.join();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_NOK(flush_status);
+  ASSERT_OK(drop_status);
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(bdw_cfh));
+}
+
 TEST_F(DBBlobDirectWriteTest,
        DirectWritePreparedGenerationsStayReusableUntilCommit) {
   Options options = GetDirectWriteOptions();
@@ -1454,13 +2419,15 @@ TEST_F(DBBlobDirectWriteTest,
   const std::string key = "retry_key";
   const std::string value(128, 'r');
   ASSERT_OK(Put(key, value));
+  const uint64_t memtable_id = cfh->cfd()->mem()->GetID();
   ASSERT_OK(dbfull()->TEST_SwitchMemtable(cfh->cfd()));
 
   std::vector<BlobFileAddition> additions1;
   std::vector<BlobFileGarbage> garbages1;
   // Simulate a flush retry: prepare once, skip commit, then prepare the same
   // generation again and verify it reuses the already sealed blob file.
-  ASSERT_OK(mgr->PrepareFlushAdditions(WriteOptions(), /*num_generations=*/1,
+  ASSERT_OK(mgr->PrepareFlushAdditions(WriteOptions(),
+                                       std::vector<uint64_t>{memtable_id},
                                        &additions1, &garbages1));
   ASSERT_EQ(additions1.size(), 1U);
   ASSERT_TRUE(garbages1.empty());
@@ -1469,7 +2436,8 @@ TEST_F(DBBlobDirectWriteTest,
 
   std::vector<BlobFileAddition> additions2;
   std::vector<BlobFileGarbage> garbages2;
-  ASSERT_OK(mgr->PrepareFlushAdditions(WriteOptions(), /*num_generations=*/1,
+  ASSERT_OK(mgr->PrepareFlushAdditions(WriteOptions(),
+                                       std::vector<uint64_t>{memtable_id},
                                        &additions2, &garbages2));
   ASSERT_EQ(additions2.size(), 1U);
   ASSERT_TRUE(garbages2.empty());
@@ -1496,6 +2464,211 @@ TEST_F(DBBlobDirectWriteTest,
 
   ASSERT_EQ(Get(key), value);
   ASSERT_EQ(CountBlobFiles(), 1U);
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWritePrepareSelectsExactMemtableGeneration) {
+  Reopen(GetBlobDirectWriteCompatibleOptions());
+  Options bdw_options = GetDirectWriteOptions();
+  bdw_options.blob_file_size = 1 << 20;
+  ColumnFamilyHandle* bdw_cfh = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(bdw_options, "bdw", &bdw_cfh));
+  ASSERT_NE(bdw_cfh, nullptr);
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(bdw_cfh);
+  auto* mgr = cfh->cfd()->blob_partition_manager();
+  ASSERT_NE(mgr, nullptr);
+
+  const std::string first_key = "first_generation";
+  const std::string first_value(128, 'a');
+  const uint64_t first_record_bytes =
+      BlobLogRecord::kHeaderSize + first_key.size() + first_value.size();
+  ASSERT_OK(db_->Put(WriteOptions(), bdw_cfh, first_key, first_value));
+  const uint64_t first_memtable_id = cfh->cfd()->mem()->GetID();
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable(cfh->cfd()));
+
+  const std::string second_key = "second_generation";
+  const std::string second_value(256, 'b');
+  const uint64_t second_record_bytes =
+      BlobLogRecord::kHeaderSize + second_key.size() + second_value.size();
+  ASSERT_OK(db_->Put(WriteOptions(), bdw_cfh, second_key, second_value));
+  const uint64_t second_memtable_id = cfh->cfd()->mem()->GetID();
+  ASSERT_NE(second_memtable_id, first_memtable_id);
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable(cfh->cfd()));
+
+  std::vector<BlobFileAddition> second_additions;
+  std::vector<BlobFileGarbage> second_garbages;
+  ASSERT_OK(mgr->PrepareFlushAdditions(
+      WriteOptions(), std::vector<uint64_t>{second_memtable_id},
+      &second_additions, &second_garbages));
+  ASSERT_EQ(second_additions.size(), 1U);
+  ASSERT_TRUE(second_garbages.empty());
+  ASSERT_EQ(second_additions[0].GetTotalBlobBytes(), second_record_bytes);
+
+  std::vector<BlobFileAddition> first_additions;
+  std::vector<BlobFileGarbage> first_garbages;
+  ASSERT_OK(mgr->PrepareFlushAdditions(WriteOptions(),
+                                       std::vector<uint64_t>{first_memtable_id},
+                                       &first_additions, &first_garbages));
+  ASSERT_EQ(first_additions.size(), 1U);
+  ASSERT_TRUE(first_garbages.empty());
+  ASSERT_EQ(first_additions[0].GetTotalBlobBytes(), first_record_bytes);
+  ASSERT_NE(first_additions[0].GetBlobFileNumber(),
+            second_additions[0].GetBlobFileNumber());
+
+  ASSERT_OK(db_->DropColumnFamily(bdw_cfh));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(bdw_cfh));
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteCompletionFailureRetainsFinalizedFileForRetry) {
+  auto failing_fs =
+      std::make_shared<FailBlobFileSizeOnceFileSystem>(env_->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, failing_fs));
+  std::shared_ptr<SstFileManager> sst_file_manager(
+      NewSstFileManager(env.get()));
+  auto* sfm = static_cast<SstFileManagerImpl*>(sst_file_manager.get());
+
+  Options options = GetDirectWriteOptions();
+  options.disable_auto_compactions = true;
+  options.env = env.get();
+  options.sst_file_manager = std::move(sst_file_manager);
+  auto completion_listener =
+      std::make_shared<CountingBlobFileCompletionListener>();
+  options.listeners.push_back(completion_listener);
+  Defer close_db([this]() { Close(); });
+  Reopen(options);
+
+  const std::string key = "callback_failure_key";
+  const std::string value(128, 'f');
+  ASSERT_OK(Put(key, value));
+
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
+      db_->DefaultColumnFamily());
+  auto* mgr = cfh->cfd()->blob_partition_manager();
+  ASSERT_NE(mgr, nullptr);
+  const uint64_t memtable_id = cfh->cfd()->mem()->GetID();
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable(cfh->cfd()));
+
+  failing_fs->FailNextBlobFileSize();
+  std::vector<BlobFileAddition> failed_additions;
+  std::vector<BlobFileGarbage> failed_garbages;
+  const Status failed_prepare = mgr->PrepareFlushAdditions(
+      WriteOptions(), std::vector<uint64_t>{memtable_id}, &failed_additions,
+      &failed_garbages);
+  ASSERT_TRUE(failed_prepare.IsIOError());
+  ASSERT_EQ(failing_fs->failure_count(), 1);
+  ASSERT_TRUE(failed_additions.empty());
+  ASSERT_EQ(CountBlobFiles(), 1U);
+  ASSERT_EQ(completion_listener->completion_count(), 1);
+  ASSERT_EQ(completion_listener->failed_completion_count(), 0);
+
+  // A full obsolete-file scan must still see the finalized file as owned by
+  // the direct-write manager even though the completion callback failed.
+  dbfull()->TEST_DeleteObsoleteFiles();
+  ASSERT_EQ(CountBlobFiles(), 1U);
+  ASSERT_EQ(Get(key), value);
+
+  std::vector<BlobFileAddition> retry_additions;
+  std::vector<BlobFileGarbage> retry_garbages;
+  ASSERT_OK(mgr->PrepareFlushAdditions(WriteOptions(),
+                                       std::vector<uint64_t>{memtable_id},
+                                       &retry_additions, &retry_garbages));
+  ASSERT_EQ(retry_additions.size(), 1U);
+  ASSERT_TRUE(retry_garbages.empty());
+  ASSERT_EQ(CountBlobFiles(), 1U);
+  ASSERT_EQ(sfm->GetTrackedFiles().size(), 1U);
+  ASSERT_EQ(completion_listener->completion_count(), 1);
+  ASSERT_EQ(completion_listener->failed_completion_count(), 0);
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteFooterFailureStillReportsEarlierFinalizedFiles) {
+  auto failing_fs =
+      std::make_shared<FailNthBlobSyncFileSystem>(env_->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, failing_fs));
+  std::shared_ptr<SstFileManager> sst_file_manager(
+      NewSstFileManager(env.get()));
+  auto* sfm = static_cast<SstFileManagerImpl*>(sst_file_manager.get());
+
+  Options options = GetDirectWriteOptions();
+  options.blob_direct_write_partitions = 2;
+  options.disable_auto_compactions = true;
+  options.env = env.get();
+  options.sst_file_manager = std::move(sst_file_manager);
+  auto completion_listener =
+      std::make_shared<CountingBlobFileCompletionListener>();
+  options.listeners.push_back(completion_listener);
+  Defer close_db([this]() { Close(); });
+  Reopen(options);
+
+  ASSERT_OK(Put("first_partition", std::string(128, 'a')));
+  ASSERT_OK(Put("second_partition", std::string(128, 'b')));
+
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
+      db_->DefaultColumnFamily());
+  auto* mgr = cfh->cfd()->blob_partition_manager();
+  ASSERT_NE(mgr, nullptr);
+  const uint64_t memtable_id = cfh->cfd()->mem()->GetID();
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable(cfh->cfd()));
+
+  failing_fs->FailBlobSyncNumber(2);
+  std::vector<BlobFileAddition> additions;
+  std::vector<BlobFileGarbage> garbages;
+  const Status failed_prepare = mgr->PrepareFlushAdditions(
+      WriteOptions(), std::vector<uint64_t>{memtable_id}, &additions,
+      &garbages);
+  ASSERT_TRUE(failed_prepare.IsIOError()) << failed_prepare.ToString();
+  ASSERT_EQ(failing_fs->failure_count(), 1);
+  ASSERT_TRUE(additions.empty());
+  ASSERT_TRUE(garbages.empty());
+  ASSERT_EQ(completion_listener->completion_count(), 1);
+  ASSERT_EQ(sfm->GetTrackedFiles().size(), 1U);
+
+  // The physical failure is terminal, but the prior file's completion event
+  // and SstFileManager registration must not be repeated on retry.
+  ASSERT_TRUE(mgr->PrepareFlushAdditions(WriteOptions(),
+                                         std::vector<uint64_t>{memtable_id},
+                                         &additions, &garbages)
+                  .IsIOError());
+  ASSERT_EQ(completion_listener->completion_count(), 1);
+  ASSERT_EQ(sfm->GetTrackedFiles().size(), 1U);
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteFlushPrepareFailureRollsBackMemtableForRetry) {
+  auto failing_fs =
+      std::make_shared<FailBlobFileSizeOnceFileSystem>(env_->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, failing_fs));
+  std::shared_ptr<SstFileManager> sst_file_manager(
+      NewSstFileManager(env.get()));
+
+  Options options = GetDirectWriteOptions();
+  options.disable_auto_compactions = true;
+  options.max_bgerror_resume_count = 0;
+  options.env = env.get();
+  options.sst_file_manager = std::move(sst_file_manager);
+  Defer close_db([this]() { Close(); });
+  Reopen(options);
+
+  const std::string key = "flush_prepare_retry_key";
+  const std::string value(128, 'r');
+  ASSERT_OK(Put(key, value));
+
+  failing_fs->FailNextBlobFileSize();
+  const Status failed_flush = Flush();
+  ASSERT_TRUE(failed_flush.IsIOError()) << failed_flush.ToString();
+  ASSERT_EQ(failing_fs->failure_count(), 1);
+  ASSERT_EQ(Get(key), value);
+
+  ASSERT_OK(db_->Resume());
+  ASSERT_OK(Flush());
+  ASSERT_EQ(Get(key), value);
+
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  ASSERT_EQ(cf_meta.blob_file_count, 1U);
+  ASSERT_EQ(cf_meta.blob_files.size(), 1U);
+  ASSERT_EQ(cf_meta.blob_files[0].total_blob_count, 1U);
 }
 
 TEST_F(DBBlobDirectWriteTest, DirectWriteBoundaryValues) {

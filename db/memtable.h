@@ -426,6 +426,23 @@ class ReadOnlyMemTable {
     return std::move(flush_job_info_);
   }
 
+  using FlushManifestCommitCallback = std::function<void(const Status&)>;
+
+  // The callback is carried by the oldest memtable in a flush batch until the
+  // thread that actually writes that batch's edit to MANIFEST completes.
+  void SetFlushManifestCommitCallback(FlushManifestCommitCallback&& callback) {
+    assert(!flush_manifest_commit_callback_);
+    flush_manifest_commit_callback_ = std::move(callback);
+  }
+
+  FlushManifestCommitCallback ReleaseFlushManifestCommitCallback() {
+    return std::move(flush_manifest_commit_callback_);
+  }
+
+  void ClearFlushManifestCommitCallback() {
+    flush_manifest_commit_callback_ = nullptr;
+  }
+
   static void HandleTypeValue(
       const Slice& lookup_user_key, const Slice& value, bool value_pinned,
       bool do_merge, bool merge_in_progress, MergeContext* merge_context,
@@ -569,6 +586,9 @@ class ReadOnlyMemTable {
 
   // Flush job info of the current memtable.
   std::unique_ptr<FlushJobInfo> flush_job_info_;
+  // Side effects that become safe only after this flush batch reaches
+  // MANIFEST. The callback must be nonblocking because it runs under DB mutex.
+  FlushManifestCommitCallback flush_manifest_commit_callback_;
 
   RelaxedAtomic<bool> marked_for_flush_{false};
 

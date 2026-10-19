@@ -5,6 +5,7 @@
 
 #include "db/blob/blob_file_partition_manager.h"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cinttypes>
@@ -93,6 +94,47 @@ DirectWriteCompressionState& GetDirectWriteCompressionState(
 }
 
 }  // namespace
+
+BlobFilePartitionManager::DeferredCallbackScope::DeferredCallbackScope(
+    BlobFilePartitionManager* manager)
+    : manager_(manager) {
+  assert(manager_ != nullptr);
+  manager_->EnterManagerCallback();
+}
+
+BlobFilePartitionManager::DeferredCallbackScope::~DeferredCallbackScope() {
+  manager_->ExitManagerCallback();
+}
+
+void BlobFilePartitionManager::EnterManagerCallback() {
+  MutexLock lock(&deferred_callback_mutex_);
+  ++active_callback_contexts_;
+}
+
+void BlobFilePartitionManager::ExitManagerCallback() {
+  std::vector<std::function<void()>> tasks;
+  {
+    MutexLock lock(&deferred_callback_mutex_);
+    assert(active_callback_contexts_ > 0);
+    --active_callback_contexts_;
+    if (active_callback_contexts_ == 0) {
+      tasks.swap(deferred_callback_tasks_);
+    }
+  }
+  for (auto& task : tasks) {
+    task();
+  }
+}
+
+bool BlobFilePartitionManager::TryDeferUntilAfterManagerCallback(
+    std::function<void()> task) {
+  MutexLock lock(&deferred_callback_mutex_);
+  if (active_callback_contexts_ == 0) {
+    return false;
+  }
+  deferred_callback_tasks_.push_back(std::move(task));
+  return true;
+}
 
 BlobFilePartitionManager::BlobFilePartitionManager(
     uint32_t num_partitions,
@@ -255,55 +297,55 @@ Status BlobFilePartitionManager::OpenNewBlobFile(Partition* partition,
 
 Status BlobFilePartitionManager::SealActiveBlobFile(
     const WriteOptions& write_options, Partition* partition,
-    SealedFile* sealed_file) {
+    SealedFile* sealed_file, bool* physically_finalized) {
   assert(partition != nullptr);
   assert(partition->writer);
   assert(sealed_file != nullptr);
+  assert(physically_finalized != nullptr);
 
   const uint64_t file_number = partition->file_number;
   Status s =
       FinalizeBlobFile(write_options, partition->writer.get(), file_number,
                        partition->blob_count, partition->total_blob_bytes,
-                       &sealed_file->addition);
-  if (!s.ok()) {
-    RemoveFilePartitionMapping(file_number);
-    ResetPartitionState(partition);
-    return s;
-  }
+                       &sealed_file->addition, physically_finalized);
 
-  sealed_file->garbage_blob_count = partition->garbage_blob_count;
-  sealed_file->garbage_blob_bytes = partition->garbage_blob_bytes;
+  if (*physically_finalized) {
+    sealed_file->garbage_blob_count = partition->garbage_blob_count;
+    sealed_file->garbage_blob_bytes = partition->garbage_blob_bytes;
+  }
   ResetPartitionState(partition);
-  return Status::OK();
+  return s;
 }
 
 Status BlobFilePartitionManager::SealDeferredFile(
     const WriteOptions& write_options, DeferredFile* deferred,
-    SealedFile* sealed_file) {
+    SealedFile* sealed_file, bool* physically_finalized) {
   assert(deferred != nullptr);
   assert(deferred->writer);
   assert(sealed_file != nullptr);
+  assert(physically_finalized != nullptr);
 
-  Status s = FinalizeBlobFile(
-      write_options, deferred->writer.get(), deferred->file_number,
-      deferred->blob_count, deferred->total_blob_bytes, &sealed_file->addition);
-  if (!s.ok()) {
-    RemoveFilePartitionMapping(deferred->file_number);
-    return s;
+  Status s = FinalizeBlobFile(write_options, deferred->writer.get(),
+                              deferred->file_number, deferred->blob_count,
+                              deferred->total_blob_bytes,
+                              &sealed_file->addition, physically_finalized);
+  if (*physically_finalized) {
+    sealed_file->garbage_blob_count = deferred->garbage_blob_count;
+    sealed_file->garbage_blob_bytes = deferred->garbage_blob_bytes;
   }
 
-  sealed_file->garbage_blob_count = deferred->garbage_blob_count;
-  sealed_file->garbage_blob_bytes = deferred->garbage_blob_bytes;
   deferred->writer.reset();
-  return Status::OK();
+  return s;
 }
 
 Status BlobFilePartitionManager::FinalizeBlobFile(
     const WriteOptions& write_options, BlobLogWriter* writer,
     uint64_t file_number, uint64_t blob_count, uint64_t total_blob_bytes,
-    BlobFileAddition* addition) {
+    BlobFileAddition* addition, bool* physically_finalized) {
   assert(writer != nullptr);
   assert(addition != nullptr);
+  assert(physically_finalized != nullptr);
+  *physically_finalized = false;
 
   BlobLogFooter footer;
   footer.blob_count = blob_count;
@@ -316,17 +358,6 @@ Status BlobFilePartitionManager::FinalizeBlobFile(
     return s;
   }
 
-  if (blob_callback_ != nullptr) {
-    const std::string blob_file_path = BlobFileName(db_path_, file_number);
-    s = blob_callback_->OnBlobFileCompleted(
-        blob_file_path, column_family_name_, /*job_id=*/0, file_number,
-        BlobFileCreationReason::kFlush, s, checksum_value, checksum_method,
-        blob_count, total_blob_bytes);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-
   *addition =
       BlobFileAddition(file_number, blob_count, total_blob_bytes,
                        std::move(checksum_method), std::move(checksum_value));
@@ -335,7 +366,33 @@ Status BlobFilePartitionManager::FinalizeBlobFile(
                                      addition->GetChecksumMethod()};
     blob_file_cache_->RegisterBlobFileChecksum(blob_file);
   }
+  *physically_finalized = true;
   return Status::OK();
+}
+
+Status BlobFilePartitionManager::NotifyBlobFileCompleted(
+    const BlobFileAddition& addition) {
+  if (blob_callback_ == nullptr) {
+    return Status::OK();
+  }
+
+  const uint64_t file_number = addition.GetBlobFileNumber();
+  const std::string blob_file_path = BlobFileName(db_path_, file_number);
+  return blob_callback_->OnBlobFilePhysicallyCompleted(
+      blob_file_path, column_family_name_, /*job_id=*/0, file_number,
+      BlobFileCreationReason::kFlush, Status::OK(), addition.GetChecksumValue(),
+      addition.GetChecksumMethod(), addition.GetTotalBlobCount(),
+      addition.GetTotalBlobBytes());
+}
+
+Status BlobFilePartitionManager::RetryBlobFileRegistration(
+    const BlobFileAddition& addition) {
+  if (blob_callback_ == nullptr) {
+    return Status::OK();
+  }
+
+  return blob_callback_->RetrySstFileManagerRegistration(
+      BlobFileName(db_path_, addition.GetBlobFileNumber()));
 }
 
 void BlobFilePartitionManager::AddSealedFileGarbage(
@@ -443,6 +500,10 @@ Status BlobFilePartitionManager::WriteBlob(
   assert(blob_offset != nullptr);
   assert(blob_size != nullptr);
 
+  if (quiesced_.load(std::memory_order_acquire)) {
+    return Status::ColumnFamilyDropped();
+  }
+
   // Do compression before taking the partition mutex so large-value CPU work
   // does not serialize writers. A concurrent file rollover can still cause
   // this compressed buffer to be discarded below, which is acceptable on this
@@ -477,59 +538,106 @@ Status BlobFilePartitionManager::WriteBlob(
                                         value) %
              num_partitions_);
 
-  {
-    MutexLock lock(&mutex_);
-    Partition* partition = partitions_[selected_partition_idx].get();
-
-    auto seal_current_file = [&]() -> Status {
-      if (!partition->writer) {
-        return Status::OK();
+  MutexLock operation_lock(&operation_mutex_);
+  for (;;) {
+    BlobFileAddition pending_completion;
+    bool sealed_file = false;
+    bool wrote_blob = false;
+    {
+      DeferredCallbackScope callback_scope(this);
+      MutexLock lock(&mutex_);
+      if (quiesced_.load(std::memory_order_acquire)) {
+        return Status::ColumnFamilyDropped();
       }
-      SealedFile sealed_file;
-      Status s = SealActiveBlobFile(write_options, partition, &sealed_file);
-      if (s.ok()) {
-        current_generation_sealed_files_.push_back(std::move(sealed_file));
+      if (!terminal_seal_status_.ok()) {
+        return terminal_seal_status_;
       }
-      return s;
-    };
+      Partition* partition = partitions_[selected_partition_idx].get();
+      const uint64_t record_size =
+          BlobLogRecord::kHeaderSize + key.size() + write_value.size();
+      const uint64_t future_file_size =
+          partition->file_size + record_size + BlobLogFooter::kSize;
 
-    const uint64_t record_size =
-        BlobLogRecord::kHeaderSize + key.size() + write_value.size();
-    const uint64_t future_file_size =
-        partition->file_size + record_size + BlobLogFooter::kSize;
+      if (partition->writer &&
+          (partition->column_family_id != column_family_id ||
+           partition->compression != compression ||
+           (partition->blob_count > 0 && future_file_size > blob_file_size_))) {
+        SealedFile completed_file;
+        bool physically_finalized = false;
+        Status s = SealActiveBlobFile(write_options, partition, &completed_file,
+                                      &physically_finalized);
+        if (physically_finalized) {
+          completed_file.completion_callback_in_progress = true;
+          pending_completion = completed_file.addition;
+          current_generation_sealed_files_.push_back(std::move(completed_file));
+          sealed_file = true;
+        } else if (!s.ok()) {
+          terminal_seal_status_ = s;
+        }
+        if (!s.ok()) {
+          return s;
+        }
+      } else {
+        if (!partition->writer) {
+          Status s = OpenNewBlobFile(partition, column_family_id, compression,
+                                     selected_partition_idx);
+          if (!s.ok()) {
+            return s;
+          }
+        }
 
-    if (partition->writer &&
-        (partition->column_family_id != column_family_id ||
-         partition->compression != compression ||
-         (partition->blob_count > 0 && future_file_size > blob_file_size_))) {
-      Status s = seal_current_file();
-      if (!s.ok()) {
-        return s;
+        uint64_t key_offset = 0;
+        Status s = partition->writer->AddRecord(write_options, key, write_value,
+                                                &key_offset, blob_offset);
+        if (!s.ok()) {
+          return s;
+        }
+
+        partition->sync_required = true;
+        partition->blob_count += 1;
+        partition->total_blob_bytes += record_size;
+        partition->file_size =
+            BlobLogHeader::kSize + partition->total_blob_bytes;
+
+        *blob_file_number = partition->file_number;
+        *blob_size = write_value.size();
+        wrote_blob = true;
       }
     }
 
-    if (!partition->writer) {
-      Status s = OpenNewBlobFile(partition, column_family_id, compression,
-                                 selected_partition_idx);
-      if (!s.ok()) {
-        return s;
+    if (wrote_blob) {
+      break;
+    }
+    assert(sealed_file);
+
+    Status callback_status = NotifyBlobFileCompleted(pending_completion);
+    bool manager_quiesced = false;
+    {
+      MutexLock lock(&mutex_);
+      auto sealed_it =
+          std::find_if(current_generation_sealed_files_.begin(),
+                       current_generation_sealed_files_.end(),
+                       [&pending_completion](const SealedFile& completed_file) {
+                         return completed_file.addition.GetBlobFileNumber() ==
+                                pending_completion.GetBlobFileNumber();
+                       });
+      if (sealed_it == current_generation_sealed_files_.end()) {
+        return Status::Corruption(
+            "Lost blob direct-write completion state for file " +
+            std::to_string(pending_completion.GetBlobFileNumber()));
       }
+      assert(sealed_it->completion_callback_in_progress);
+      sealed_it->completion_callback_in_progress = false;
+      sealed_it->completion_notification_pending = false;
+      sealed_it->sst_file_manager_registration_pending = !callback_status.ok();
+      manager_quiesced = quiesced_.load(std::memory_order_acquire);
     }
-
-    uint64_t key_offset = 0;
-    Status s = partition->writer->AddRecord(write_options, key, write_value,
-                                            &key_offset, blob_offset);
-    if (!s.ok()) {
-      return s;
+    if (!callback_status.ok()) {
+      return callback_status;
     }
-
-    partition->sync_required = true;
-    partition->blob_count += 1;
-    partition->total_blob_bytes += record_size;
-    partition->file_size = BlobLogHeader::kSize + partition->total_blob_bytes;
-
-    *blob_file_number = partition->file_number;
-    *blob_size = write_value.size();
+    if (manager_quiesced) {
+      return Status::ColumnFamilyDropped();
+    }
   }
 
   Status prepopulate_s = MaybePrepopulateBlobCache(
@@ -543,10 +651,19 @@ Status BlobFilePartitionManager::WriteBlob(
   return Status::OK();
 }
 
-void BlobFilePartitionManager::RotateCurrentGeneration() {
+void BlobFilePartitionManager::RotateCurrentGeneration(uint64_t memtable_id) {
+  assert(memtable_id != 0);
   MutexLock lock(&mutex_);
+  if (quiesced_.load(std::memory_order_acquire)) {
+    return;
+  }
+  assert(std::none_of(pending_generations_.begin(), pending_generations_.end(),
+                      [memtable_id](const GenerationBatch& batch) {
+                        return batch.memtable_id == memtable_id;
+                      }));
 
   GenerationBatch batch;
+  batch.memtable_id = memtable_id;
   batch.sealed_files = std::move(current_generation_sealed_files_);
   current_generation_sealed_files_.clear();
 
@@ -570,10 +687,12 @@ void BlobFilePartitionManager::RotateCurrentGeneration() {
 }
 
 Status BlobFilePartitionManager::PrepareFlushAdditions(
-    const WriteOptions& write_options, size_t num_generations,
+    const WriteOptions& write_options,
+    const std::vector<uint64_t>& memtable_ids,
     std::vector<BlobFileAddition>* additions,
     std::vector<BlobFileGarbage>* garbages,
-    std::vector<std::vector<uint64_t>>* generation_blob_file_numbers) {
+    std::vector<std::vector<uint64_t>>* generation_blob_file_numbers,
+    PreparedGenerationToken* prepared_token) {
   assert(additions != nullptr);
   assert(garbages != nullptr);
   additions->clear();
@@ -581,30 +700,167 @@ Status BlobFilePartitionManager::PrepareFlushAdditions(
   if (generation_blob_file_numbers != nullptr) {
     generation_blob_file_numbers->clear();
   }
-
-  MutexLock lock(&mutex_);
-  if (num_generations > pending_generations_.size()) {
-    return Status::Corruption(
-        "Missing blob direct write generation metadata for flush");
+  if (prepared_token != nullptr) {
+    *prepared_token = PreparedGenerationToken{};
   }
 
-  for (size_t i = 0; i < num_generations; ++i) {
-    GenerationBatch& batch = pending_generations_[i];
-    while (!batch.deferred_files.empty()) {
-      DeferredFile deferred = std::move(batch.deferred_files.front());
-      batch.deferred_files.pop_front();
-
-      SealedFile sealed_file;
-      Status s = SealDeferredFile(write_options, &deferred, &sealed_file);
-      if (!s.ok()) {
-        return s;
+  MutexLock operation_lock(&operation_mutex_);
+  // Every lookup below occurs with mutex_ held.
+  auto find_pending_generation = [this](uint64_t memtable_id) {
+    return std::find_if(pending_generations_.begin(),
+                        pending_generations_.end(),
+                        [memtable_id](const GenerationBatch& batch) {
+                          return batch.memtable_id == memtable_id;
+                        });
+  };
+  {
+    DeferredCallbackScope callback_scope(this);
+    MutexLock lock(&mutex_);
+    std::vector<uint64_t> committed_file_numbers;
+    ReclaimCommittedGenerationsLocked(&committed_file_numbers);
+    if (!committed_file_numbers.empty()) {
+      RemoveFilePartitionMappings(committed_file_numbers);
+    }
+    if (quiesced_.load(std::memory_order_acquire)) {
+      return Status::ColumnFamilyDropped();
+    }
+    bool stop_finalizing = !terminal_seal_status_.ok();
+    for (uint64_t memtable_id : memtable_ids) {
+      if (stop_finalizing) {
+        break;
       }
-      // Keep each successfully sealed file attached to the generation
-      // immediately. If a later seal or the flush job itself fails, retry must
-      // reuse these exact on-disk files instead of finalizing replacements.
-      batch.sealed_files.push_back(std::move(sealed_file));
+      auto batch_it = find_pending_generation(memtable_id);
+      if (batch_it == pending_generations_.end()) {
+        return Status::Corruption(
+            "Missing blob direct write generation metadata for memtable " +
+            std::to_string(memtable_id));
+      }
+      GenerationBatch& batch = *batch_it;
+      while (!batch.deferred_files.empty()) {
+        SealedFile sealed_file;
+        bool physically_finalized = false;
+        Status s =
+            SealDeferredFile(write_options, &batch.deferred_files.front(),
+                             &sealed_file, &physically_finalized);
+        if (physically_finalized) {
+          batch.deferred_files.pop_front();
+          // Attach the successfully finalized file before reporting it. A
+          // callback or registration failure must retry this exact file.
+          batch.sealed_files.push_back(std::move(sealed_file));
+        } else if (!s.ok()) {
+          terminal_seal_status_ = s;
+        }
+        if (!s.ok()) {
+          stop_finalizing = true;
+          break;
+        }
+      }
+    }
+  }
+
+  // User completion listeners may call DropColumnFamily(), which takes DB
+  // locks and then waits for this manager. Never invoke them under mutex_.
+  for (;;) {
+    BlobFileAddition pending_addition;
+    bool notify_completion = false;
+    bool found_pending_callback = false;
+    bool manager_quiesced = false;
+    {
+      MutexLock lock(&mutex_);
+      manager_quiesced = quiesced_.load(std::memory_order_acquire);
+      for (uint64_t memtable_id : memtable_ids) {
+        auto batch_it = find_pending_generation(memtable_id);
+        if (batch_it == pending_generations_.end()) {
+          return Status::Corruption(
+              "Missing blob direct write generation metadata for memtable " +
+              std::to_string(memtable_id));
+        }
+        for (auto& sealed_file : batch_it->sealed_files) {
+          if (sealed_file.completion_callback_in_progress) {
+            return Status::Busy(
+                "Blob direct-write completion callback already in progress");
+          }
+          notify_completion = sealed_file.completion_notification_pending;
+          // A dropped CF will never publish these additions. Still report
+          // every physically finalized file, but do not let an obsolete
+          // registration retry hide a later completion notification.
+          if (!notify_completion &&
+              (!sealed_file.sst_file_manager_registration_pending ||
+               manager_quiesced)) {
+            continue;
+          }
+          sealed_file.completion_callback_in_progress = true;
+          pending_addition = sealed_file.addition;
+          found_pending_callback = true;
+          break;
+        }
+        if (found_pending_callback) {
+          break;
+        }
+      }
     }
 
+    if (!found_pending_callback) {
+      if (manager_quiesced) {
+        return Status::ColumnFamilyDropped();
+      }
+      break;
+    }
+
+    Status callback_status = notify_completion
+                                 ? NotifyBlobFileCompleted(pending_addition)
+                                 : RetryBlobFileRegistration(pending_addition);
+    {
+      MutexLock lock(&mutex_);
+      SealedFile* completed_file = nullptr;
+      for (auto& batch : pending_generations_) {
+        auto sealed_it =
+            std::find_if(batch.sealed_files.begin(), batch.sealed_files.end(),
+                         [&pending_addition](const SealedFile& sealed_file) {
+                           return sealed_file.addition.GetBlobFileNumber() ==
+                                  pending_addition.GetBlobFileNumber();
+                         });
+        if (sealed_it != batch.sealed_files.end()) {
+          completed_file = &*sealed_it;
+          break;
+        }
+      }
+      if (completed_file == nullptr) {
+        return Status::Corruption(
+            "Lost blob direct-write completion state for file " +
+            std::to_string(pending_addition.GetBlobFileNumber()));
+      }
+      assert(completed_file->completion_callback_in_progress);
+      completed_file->completion_callback_in_progress = false;
+      manager_quiesced = quiesced_.load(std::memory_order_acquire);
+      if (notify_completion) {
+        completed_file->completion_notification_pending = false;
+        completed_file->sst_file_manager_registration_pending =
+            !callback_status.ok() && !manager_quiesced;
+      } else if (callback_status.ok() || manager_quiesced) {
+        completed_file->sst_file_manager_registration_pending = false;
+      }
+    }
+    if (!callback_status.ok() && !manager_quiesced) {
+      return callback_status;
+    }
+  }
+
+  MutexLock lock(&mutex_);
+  if (quiesced_.load(std::memory_order_acquire)) {
+    return Status::ColumnFamilyDropped();
+  }
+  if (!terminal_seal_status_.ok()) {
+    return terminal_seal_status_;
+  }
+  for (uint64_t memtable_id : memtable_ids) {
+    auto batch_it = find_pending_generation(memtable_id);
+    if (batch_it == pending_generations_.end()) {
+      return Status::Corruption(
+          "Missing blob direct write generation metadata for memtable " +
+          std::to_string(memtable_id));
+    }
+    GenerationBatch& batch = *batch_it;
     std::vector<uint64_t>* generation_file_numbers = nullptr;
     if (generation_blob_file_numbers != nullptr) {
       generation_blob_file_numbers->emplace_back();
@@ -613,12 +869,18 @@ Status BlobFilePartitionManager::PrepareFlushAdditions(
     }
 
     for (const auto& sealed_file : batch.sealed_files) {
+      assert(!sealed_file.completion_notification_pending);
+      assert(!sealed_file.completion_callback_in_progress);
+      assert(!sealed_file.sst_file_manager_registration_pending);
       additions->push_back(sealed_file.addition);
       AddSealedFileGarbage(sealed_file, garbages);
       if (generation_file_numbers != nullptr) {
         generation_file_numbers->push_back(
             sealed_file.addition.GetBlobFileNumber());
       }
+    }
+    if (prepared_token != nullptr) {
+      prepared_token->commit_markers_.push_back(batch.committed);
     }
   }
 
@@ -634,6 +896,9 @@ Status BlobFilePartitionManager::MarkBlobWriteAsGarbage(uint64_t file_number,
   }
 
   MutexLock lock(&mutex_);
+  if (quiesced_.load(std::memory_order_acquire)) {
+    return Status::ColumnFamilyDropped();
+  }
   for (auto& partition : partitions_) {
     if (MarkPartitionGarbage(partition.get(), file_number, blob_count,
                              blob_bytes)) {
@@ -668,17 +933,50 @@ Status BlobFilePartitionManager::MarkBlobWriteAsGarbage(uint64_t file_number,
   return Status::Corruption(message);
 }
 
-void BlobFilePartitionManager::CommitPreparedGenerations(
-    size_t num_generations) {
-  MutexLock lock(&mutex_);
-  while (num_generations-- > 0 && !pending_generations_.empty()) {
-    pending_generations_.pop_front();
+void BlobFilePartitionManager::MarkPreparedGenerationsCommitted(
+    const PreparedGenerationToken& token) {
+  assert(!token.empty());
+  for (const auto& commit_marker : token.commit_markers_) {
+    assert(commit_marker != nullptr);
+    commit_marker->store(true, std::memory_order_release);
+  }
+}
+
+void BlobFilePartitionManager::ReclaimCommittedGenerationsLocked(
+    std::vector<uint64_t>* committed_file_numbers) {
+  assert(committed_file_numbers != nullptr);
+  for (auto it = pending_generations_.begin();
+       it != pending_generations_.end();) {
+    if (!it->committed->load(std::memory_order_acquire)) {
+      ++it;
+      continue;
+    }
+    for (const auto& sealed_file : it->sealed_files) {
+      committed_file_numbers->push_back(
+          sealed_file.addition.GetBlobFileNumber());
+    }
+    it = pending_generations_.erase(it);
+  }
+}
+
+void BlobFilePartitionManager::ReclaimCommittedGenerations() {
+  std::vector<uint64_t> committed_file_numbers;
+  {
+    MutexLock lock(&mutex_);
+    ReclaimCommittedGenerationsLocked(&committed_file_numbers);
+  }
+  if (!committed_file_numbers.empty()) {
+    RemoveFilePartitionMappings(committed_file_numbers);
   }
 }
 
 Status BlobFilePartitionManager::SyncAllOpenFiles(
     const WriteOptions& write_options) {
+  DeferredCallbackScope callback_scope(this);
   MutexLock lock(&mutex_);
+  if (quiesced_.load(std::memory_order_acquire)) {
+    return Status::ColumnFamilyDropped();
+  }
   for (const auto& partition : partitions_) {
     if (!partition->writer || !partition->sync_required) {
       continue;
@@ -690,6 +988,38 @@ Status BlobFilePartitionManager::SyncAllOpenFiles(
     partition->sync_required = false;
   }
   return Status::OK();
+}
+
+void BlobFilePartitionManager::RequestColumnFamilyDrop() {
+  quiesced_.store(true, std::memory_order_release);
+}
+
+BlobFilePartitionManager::DetachedBlobFileWriters
+BlobFilePartitionManager::DetachWritersAfterColumnFamilyDrop() {
+  DetachedBlobFileWriters detached_writers;
+  MutexLock lock(&mutex_);
+  DetachWritersAfterColumnFamilyDropLocked(&detached_writers);
+  return detached_writers;
+}
+
+void BlobFilePartitionManager::DetachWritersAfterColumnFamilyDropLocked(
+    DetachedBlobFileWriters* detached_writers) {
+  assert(detached_writers != nullptr);
+  assert(quiesced_.load(std::memory_order_acquire));
+
+  for (auto& partition : partitions_) {
+    if (partition->writer) {
+      detached_writers->push_back(std::move(partition->writer));
+    }
+    ResetPartitionState(partition.get());
+  }
+  for (auto& batch : pending_generations_) {
+    for (auto& deferred : batch.deferred_files) {
+      if (deferred.writer) {
+        detached_writers->push_back(std::move(deferred.writer));
+      }
+    }
+  }
 }
 
 void BlobFilePartitionManager::GetActiveBlobFileNumbers(

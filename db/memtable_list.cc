@@ -576,6 +576,7 @@ void MemTableList::RollbackMemtableFlush(
       // Only rollback complete, not in-progress,
       // in_progress can be flushes that are still writing SSTs
       if (m->flush_completed_) {
+        m->ClearFlushManifestCommitCallback();
         m->flush_in_progress_ = false;
         m->flush_completed_ = false;
         m->edit_.Clear();
@@ -590,6 +591,7 @@ void MemTableList::RollbackMemtableFlush(
 
   for (ReadOnlyMemTable* m : mems) {
     if (m->flush_in_progress_) {
+      m->ClearFlushManifestCommitCallback();
       assert(m->file_number_ == 0);
       m->file_number_ = 0;
       m->flush_in_progress_ = false;
@@ -658,6 +660,8 @@ Status MemTableList::TryInstallMemtableFlushResults(
     uint64_t batch_file_number = 0;
     autovector<VersionEdit*> edit_list;
     autovector<ReadOnlyMemTable*> memtables_to_flush;
+    std::vector<ReadOnlyMemTable::FlushManifestCommitCallback>
+        manifest_commit_callbacks;
     // enumerate from the last (earliest) element to see how many batch finished
     for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
       ReadOnlyMemTable* m = *it;
@@ -684,6 +688,10 @@ Status MemTableList::TryInstallMemtableFlushResults(
         std::unique_ptr<FlushJobInfo> info = m->ReleaseFlushJobInfo();
         if (info != nullptr) {
           committed_flush_jobs_info->push_back(std::move(info));
+        }
+        auto callback = m->ReleaseFlushManifestCommitCallback();
+        if (callback) {
+          manifest_commit_callbacks.push_back(std::move(callback));
         }
       }
       memtables_to_flush.push_back(m);
@@ -715,11 +723,20 @@ Status MemTableList::TryInstallMemtableFlushResults(
           nullptr);
       edit_list.push_back(&edit);
 
-      const auto manifest_write_cb = [this, cfd, num_mem_to_flush, log_buffer,
-                                      to_delete, mu](const Status& status) {
-        RemoveMemTablesOrRestoreFlags(status, cfd, num_mem_to_flush, log_buffer,
-                                      to_delete, mu);
-      };
+      const auto manifest_write_cb =
+          [this, cfd, num_mem_to_flush, log_buffer, to_delete, mu,
+           manifest_commit_callbacks](const Status& status) {
+            const Status callback_status =
+                status.ok() && cfd->IsDropped()
+                    ? Status::ColumnFamilyDropped(
+                          "Column family dropped before flush MANIFEST commit")
+                    : status;
+            for (const auto& callback : manifest_commit_callbacks) {
+              callback(callback_status);
+            }
+            RemoveMemTablesOrRestoreFlags(status, cfd, num_mem_to_flush,
+                                          log_buffer, to_delete, mu);
+          };
       if (write_edits) {
         // this can release and reacquire the mutex.
         s = vset->LogAndApply(cfd, read_options, write_options, edit_list, mu,
@@ -730,6 +747,9 @@ Status MemTableList::TryInstallMemtableFlushResults(
         // If write_edit is false (e.g: successful mempurge),
         // then remove old memtables, wake up manifest write queue threads,
         // and don't commit anything to the manifest file.
+        for (const auto& callback : manifest_commit_callbacks) {
+          callback(s);
+        }
         RemoveMemTablesOrRestoreFlags(s, cfd, num_mem_to_flush, log_buffer,
                                       to_delete, mu);
         // Note: cfd->SetLogNumber is only called when a VersionEdit
