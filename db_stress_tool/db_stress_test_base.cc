@@ -6948,6 +6948,7 @@ void InitializeOptionsFromFlags(
   options.daily_offpeak_time_utc = FLAGS_daily_offpeak_time_utc;
   options.stats_dump_period_sec =
       static_cast<unsigned int>(FLAGS_stats_dump_period_sec);
+  options.mutex_hold_log_threshold_us = FLAGS_mutex_hold_log_threshold_us;
   options.max_compaction_trigger_wakeup_seconds =
       FLAGS_max_compaction_trigger_wakeup_seconds;
   options.periodic_compaction_phase_recovery_percent =

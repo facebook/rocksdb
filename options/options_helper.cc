@@ -123,6 +123,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.allow_fallocate = immutable_db_options.allow_fallocate;
   options.is_fd_close_on_exec = immutable_db_options.is_fd_close_on_exec;
   options.stats_dump_period_sec = mutable_db_options.stats_dump_period_sec;
+  options.mutex_hold_log_threshold_us =
+      mutable_db_options.mutex_hold_log_threshold_us;
   options.stats_persist_period_sec =
       mutable_db_options.stats_persist_period_sec;
   options.persist_stats_to_disk = immutable_db_options.persist_stats_to_disk;

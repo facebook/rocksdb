@@ -240,6 +240,7 @@ class PessimisticTransactionDB : public TransactionDB {
 
   Transaction* BeginInternalTransaction(const WriteOptions& options);
   Transaction* GetTransactionByNameLocked(const TransactionName& name);
+  void ConfigureSlowMutexLogging();
 
   std::shared_ptr<LockManager> lock_manager_;
 
@@ -255,6 +256,7 @@ class PessimisticTransactionDB : public TransactionDB {
 
   // map from name to two phase transaction instance
   std::mutex name_map_mutex_;
+  std::unique_ptr<SlowMutexTimer> name_map_timer_;
   std::unordered_map<TransactionName, Transaction*> transactions_;
 
   // Signal that we are testing a crash scenario. Some asserts could be relaxed
