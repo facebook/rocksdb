@@ -143,6 +143,7 @@ typedef struct rocksdb_column_family_metadata_options_t
 typedef struct rocksdb_envoptions_t rocksdb_envoptions_t;
 typedef struct rocksdb_ingestexternalfileoptions_t
     rocksdb_ingestexternalfileoptions_t;
+typedef struct rocksdb_ingestexternalfilearg_t rocksdb_ingestexternalfilearg_t;
 typedef struct rocksdb_trace_options_t rocksdb_trace_options_t;
 typedef struct rocksdb_trace_reader_t rocksdb_trace_reader_t;
 typedef struct rocksdb_replay_options_t rocksdb_replay_options_t;
@@ -3821,6 +3822,42 @@ extern ROCKSDB_LIBRARY_API void rocksdb_ingest_external_file_cf(
     rocksdb_t* db, rocksdb_column_family_handle_t* handle,
     const char* const* file_list, const size_t list_len,
     const rocksdb_ingestexternalfileoptions_t* opt, char** errptr);
+
+/* IngestExternalFileArg: the per-column-family argument to
+   rocksdb_ingest_external_files(). The setters copy their inputs, so the
+   caller keeps ownership of everything passed in. */
+extern ROCKSDB_LIBRARY_API rocksdb_ingestexternalfilearg_t*
+rocksdb_ingestexternalfilearg_create(void);
+extern ROCKSDB_LIBRARY_API void rocksdb_ingestexternalfilearg_destroy(
+    rocksdb_ingestexternalfilearg_t* arg);
+extern ROCKSDB_LIBRARY_API void rocksdb_ingestexternalfilearg_set_column_family(
+    rocksdb_ingestexternalfilearg_t* arg,
+    rocksdb_column_family_handle_t* column_family);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_ingestexternalfilearg_set_external_files(
+    rocksdb_ingestexternalfilearg_t* arg, const char* const* file_list,
+    size_t list_len);
+extern ROCKSDB_LIBRARY_API void rocksdb_ingestexternalfilearg_set_options(
+    rocksdb_ingestexternalfilearg_t* arg,
+    const rocksdb_ingestexternalfileoptions_t* opt);
+/* Checksums are raw bytes (e.g. the 4-byte big-endian CRC32C produced by
+   rocksdb_file_checksum_gen_crc32c_factory_create()), so each one is passed
+   with its length. Entry i applies to the i-th external file. */
+extern ROCKSDB_LIBRARY_API void
+rocksdb_ingestexternalfilearg_set_files_checksums(
+    rocksdb_ingestexternalfilearg_t* arg, const char* const* checksums,
+    const size_t* checksums_lens, size_t num_checksums);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_ingestexternalfilearg_set_files_checksum_func_names(
+    rocksdb_ingestexternalfilearg_t* arg, const char* const* func_names,
+    size_t num_func_names);
+
+/* Ingests files into multiple column families and records the result
+   atomically in the MANIFEST. Each arg must refer to a different column
+   family. */
+extern ROCKSDB_LIBRARY_API void rocksdb_ingest_external_files(
+    rocksdb_t* db, const rocksdb_ingestexternalfilearg_t* const* args,
+    size_t num_args, char** errptr);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_try_catch_up_with_primary(
     rocksdb_t* db, char** errptr);

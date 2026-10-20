@@ -117,6 +117,7 @@ using ROCKSDB_NAMESPACE::HistogramData;
 using ROCKSDB_NAMESPACE::HyperClockCacheOptions;
 using ROCKSDB_NAMESPACE::ImportColumnFamilyOptions;
 using ROCKSDB_NAMESPACE::InfoLogLevel;
+using ROCKSDB_NAMESPACE::IngestExternalFileArg;
 using ROCKSDB_NAMESPACE::IngestExternalFileOptions;
 using ROCKSDB_NAMESPACE::Iterator;
 using ROCKSDB_NAMESPACE::LevelMetaData;
@@ -570,6 +571,9 @@ struct rocksdb_envoptions_t {
 };
 struct rocksdb_ingestexternalfileoptions_t {
   IngestExternalFileOptions rep;
+};
+struct rocksdb_ingestexternalfilearg_t {
+  IngestExternalFileArg rep;
 };
 struct rocksdb_trace_options_t {
   TraceOptions rep;
@@ -7041,6 +7045,61 @@ void rocksdb_ingest_external_file_cf(
     files[i] = std::string(file_list[i]);
   }
   SaveError(errptr, db->rep->IngestExternalFile(handle->rep, files, opt->rep));
+}
+
+rocksdb_ingestexternalfilearg_t* rocksdb_ingestexternalfilearg_create() {
+  return new rocksdb_ingestexternalfilearg_t;
+}
+
+void rocksdb_ingestexternalfilearg_destroy(
+    rocksdb_ingestexternalfilearg_t* arg) {
+  delete arg;
+}
+
+void rocksdb_ingestexternalfilearg_set_column_family(
+    rocksdb_ingestexternalfilearg_t* arg,
+    rocksdb_column_family_handle_t* column_family) {
+  arg->rep.column_family = column_family->rep;
+}
+
+void rocksdb_ingestexternalfilearg_set_external_files(
+    rocksdb_ingestexternalfilearg_t* arg, const char* const* file_list,
+    size_t list_len) {
+  arg->rep.external_files.assign(file_list, file_list + list_len);
+}
+
+void rocksdb_ingestexternalfilearg_set_options(
+    rocksdb_ingestexternalfilearg_t* arg,
+    const rocksdb_ingestexternalfileoptions_t* opt) {
+  arg->rep.options = opt->rep;
+}
+
+void rocksdb_ingestexternalfilearg_set_files_checksums(
+    rocksdb_ingestexternalfilearg_t* arg, const char* const* checksums,
+    const size_t* checksums_lens, size_t num_checksums) {
+  arg->rep.files_checksums.clear();
+  arg->rep.files_checksums.reserve(num_checksums);
+  for (size_t i = 0; i < num_checksums; ++i) {
+    arg->rep.files_checksums.emplace_back(checksums[i], checksums_lens[i]);
+  }
+}
+
+void rocksdb_ingestexternalfilearg_set_files_checksum_func_names(
+    rocksdb_ingestexternalfilearg_t* arg, const char* const* func_names,
+    size_t num_func_names) {
+  arg->rep.files_checksum_func_names.assign(func_names,
+                                            func_names + num_func_names);
+}
+
+void rocksdb_ingest_external_files(
+    rocksdb_t* db, const rocksdb_ingestexternalfilearg_t* const* args,
+    size_t num_args, char** errptr) {
+  std::vector<IngestExternalFileArg> ingest_args;
+  ingest_args.reserve(num_args);
+  for (size_t i = 0; i < num_args; ++i) {
+    ingest_args.push_back(args[i]->rep);
+  }
+  SaveError(errptr, db->rep->IngestExternalFiles(ingest_args));
 }
 
 void rocksdb_try_catch_up_with_primary(rocksdb_t* db, char** errptr) {
