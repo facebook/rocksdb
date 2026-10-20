@@ -1,0 +1,1 @@
+With `max_bgerror_resume_count <= 0` (auto resume disabled), a retryable or file-scoped IO error during compaction or flush is now a hard background error that stops writes until `DB::Resume()` is called. Previously, compaction errors were silently retried, and flush errors with a healthy WAL were soft errors that let writes continue while flushes were stopped.
