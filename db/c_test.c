@@ -5225,6 +5225,84 @@ int main(int argc, char** argv) {
     remove(sst_wrong_checksum);
   }
 
+  StartPhase("sstfilereader");
+  {
+    char reader_sst[256];
+    char reader_garbage[256];
+    char reader_missing[256];
+    snprintf(reader_sst, sizeof(reader_sst),
+             "%s/rocksdb_c_test-%" PRIu64 "-reader.sst", GetTempDir(),
+             GetTestId());
+    snprintf(reader_garbage, sizeof(reader_garbage), "%s-garbage", reader_sst);
+    snprintf(reader_missing, sizeof(reader_missing), "%s-missing", reader_sst);
+    rocksdb_options_t* reader_options = rocksdb_options_create();
+    rocksdb_options_set_env(reader_options, env);
+
+    rocksdb_envoptions_t* env_opt = rocksdb_envoptions_create();
+    rocksdb_sstfilewriter_t* writer =
+        rocksdb_sstfilewriter_create(env_opt, reader_options);
+    remove(reader_sst);
+    rocksdb_sstfilewriter_open(writer, reader_sst, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_put(writer, "reader_a", 8, "v1", 2, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_put(writer, "reader_b", 8, "v2", 2, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_put(writer, "reader_c", 8, "v3", 2, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_finish(writer, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_destroy(writer);
+    rocksdb_envoptions_destroy(env_opt);
+
+    rocksdb_sstfilereader_t* reader =
+        rocksdb_sstfilereader_create(reader_options);
+    rocksdb_sstfilereader_open(reader, reader_sst, &err);
+    CheckNoError(err);
+    rocksdb_iterator_t* iter =
+        rocksdb_sstfilereader_new_iterator(reader, roptions);
+    rocksdb_iter_seek_to_first(iter);
+    CheckCondition(rocksdb_iter_valid(iter));
+    CheckIter(iter, "reader_a", "v1");
+    rocksdb_iter_next(iter);
+    CheckIter(iter, "reader_b", "v2");
+    rocksdb_iter_seek_to_last(iter);
+    CheckCondition(rocksdb_iter_valid(iter));
+    CheckIter(iter, "reader_c", "v3");
+    rocksdb_iter_next(iter);
+    CheckCondition(!rocksdb_iter_valid(iter));
+    rocksdb_iter_get_error(iter, &err);
+    CheckNoError(err);
+    rocksdb_iter_destroy(iter);
+    rocksdb_sstfilereader_verify_checksum(reader, roptions, &err);
+    CheckNoError(err);
+    rocksdb_sstfilereader_destroy(reader);
+
+    // Opening a missing file or a file that is not an SST fails.
+    reader = rocksdb_sstfilereader_create(reader_options);
+    remove(reader_missing);
+    rocksdb_sstfilereader_open(reader, reader_missing, &err);
+    CheckCondition(err != NULL);
+    Free(&err);
+    rocksdb_sstfilereader_destroy(reader);
+
+    FILE* garbage = fopen(reader_garbage, "wb");
+    CheckCondition(garbage != NULL);
+    for (int i = 0; i < 128; i++) {
+      fputs("not an sst file ", garbage);
+    }
+    fclose(garbage);
+    reader = rocksdb_sstfilereader_create(reader_options);
+    rocksdb_sstfilereader_open(reader, reader_garbage, &err);
+    CheckCondition(err != NULL);
+    Free(&err);
+    rocksdb_sstfilereader_destroy(reader);
+
+    rocksdb_options_destroy(reader_options);
+    remove(reader_sst);
+    remove(reader_garbage);
+  }
+
   StartPhase("cache_options");
   {
     rocksdb_cache_t* co;
