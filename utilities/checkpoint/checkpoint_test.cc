@@ -330,6 +330,33 @@ TEST_F(CheckpointTest, GetSnapshotLink) {
   }
 }
 
+// A checkpoint taken without a flush copies the live indexed WAL, and opening
+// it replays every acknowledged write from that WAL.
+TEST_F(CheckpointTest, CheckpointCopiesIndexedWAL) {
+  Options options = CurrentOptions();
+  options.partition_wal_usage = PartitionWALUsage::kPartitionByColumnFamily;
+  DestroyAndReopen(options);
+  for (int i = 0; i < 10; ++i) {
+    ASSERT_OK(Put("key" + std::to_string(i), "value" + std::to_string(i)));
+  }
+  Checkpoint* checkpoint = nullptr;
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
+  std::unique_ptr<Checkpoint> owned(checkpoint);
+  ASSERT_OK(owned->CreateCheckpoint(snapshot_name_,
+                                    std::numeric_limits<uint64_t>::max()));
+  Close();
+  ASSERT_GT(test::CountIndexedWALFiles(env_, snapshot_name_), 0);
+
+  std::unique_ptr<DB> snapshot_db;
+  ASSERT_OK(DB::Open(options, snapshot_name_, &snapshot_db));
+  for (int i = 0; i < 10; ++i) {
+    std::string value;
+    ASSERT_OK(
+        snapshot_db->Get(ReadOptions(), "key" + std::to_string(i), &value));
+    ASSERT_EQ("value" + std::to_string(i), value);
+  }
+}
+
 TEST_F(CheckpointTest, CheckpointWithBlob) {
   // Create a database with a blob file
   Options options = CurrentOptions();

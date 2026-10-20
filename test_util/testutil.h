@@ -1040,6 +1040,11 @@ FileType GetFileType(const std::string& path);
 // Get the file number given the file path
 uint64_t GetFileNumber(const std::string& path);
 
+// Number of WAL files directly in `dir` that start with the WAL index marker,
+// that is, WALs written with a PartitionWALUsage other than kNone. -1 if
+// `dir` or one of its WAL files cannot be read.
+int CountIndexedWALFiles(Env* env, const std::string& dir);
+
 // Creates an Env from the system environment by looking at the system
 // environment variables.
 Status CreateEnvFromSystem(const ConfigOptions& options, Env** result,
