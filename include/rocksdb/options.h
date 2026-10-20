@@ -494,6 +494,10 @@ struct CompactionServiceJobInfo {
   // the output level of the compaction.
   int output_level;
 
+  // The execution pool selected for this job, independent of later DB option
+  // updates.
+  bool use_separate_remote_compaction_pool = false;
+
   CompactionServiceJobInfo() {}
   CompactionServiceJobInfo(std::string db_name_, std::string db_id_,
                            std::string db_session_id_, uint32_t cf_id_,

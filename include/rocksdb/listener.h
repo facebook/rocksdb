@@ -407,6 +407,9 @@ struct SubcompactionJobInfo {
   // the job id, which is unique in the same thread.
   int job_id;
 
+  // The execution pool selected for the parent job.
+  bool use_separate_remote_compaction_pool = false;
+
   // sub-compaction job id, which is only unique within the same compaction, so
   // use both 'job_id' and 'subcompaction_job_id' to identify a subcompaction
   // within an instance.
@@ -442,6 +445,10 @@ struct CompactionJobInfo {
   uint64_t thread_id;
   // the job id, which is unique in the same thread.
   int job_id;
+
+  // The execution pool selected for this job, independent of later DB option
+  // updates.
+  bool use_separate_remote_compaction_pool = false;
 
   // the number of L0 files in the CF right before and after the compaction
   int num_l0_files;
