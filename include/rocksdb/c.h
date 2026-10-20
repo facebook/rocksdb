@@ -144,6 +144,7 @@ typedef struct rocksdb_envoptions_t rocksdb_envoptions_t;
 typedef struct rocksdb_ingestexternalfileoptions_t
     rocksdb_ingestexternalfileoptions_t;
 typedef struct rocksdb_ingestexternalfilearg_t rocksdb_ingestexternalfilearg_t;
+typedef struct rocksdb_fileingestionhandle_t rocksdb_fileingestionhandle_t;
 typedef struct rocksdb_trace_options_t rocksdb_trace_options_t;
 typedef struct rocksdb_trace_reader_t rocksdb_trace_reader_t;
 typedef struct rocksdb_replay_options_t rocksdb_replay_options_t;
@@ -3876,6 +3877,33 @@ rocksdb_ingestexternalfilearg_set_files_checksum_func_names(
 extern ROCKSDB_LIBRARY_API void rocksdb_ingest_external_files(
     rocksdb_t* db, const rocksdb_ingestexternalfilearg_t* const* args,
     size_t num_args, char** errptr);
+
+/* Two-phase external file ingestion. rocksdb_prepare_file_ingestion() does
+   the work that does not need the DB mutex (validating the args, reading file
+   metadata, and linking/copying/syncing the files into the DB) and returns a
+   handle, or NULL with *errptr set on failure. Nothing is visible until the
+   handle is committed with rocksdb_commit_file_ingestion_handles(). `args` has
+   the same requirements as for rocksdb_ingest_external_files().
+
+   Every handle must be either committed or destroyed before the DB is closed.
+   Destroying a handle that was never committed rolls back its ingestion. */
+extern ROCKSDB_LIBRARY_API rocksdb_fileingestionhandle_t*
+rocksdb_prepare_file_ingestion(
+    rocksdb_t* db, const rocksdb_ingestexternalfilearg_t* const* args,
+    size_t num_args, char** errptr);
+/* Commits the prepared ingestions atomically: all of their files become
+   visible together, or none do. Handles that target the same column family
+   are committed in array order (a later handle wins for overlapping keys) and
+   must have been prepared with the same ingest options.
+
+   This call takes ownership of every handle, whether it succeeds or fails; on
+   failure all of them are rolled back. Each entry of `handles` is set to NULL,
+   and the caller must not destroy the handles afterwards. */
+extern ROCKSDB_LIBRARY_API void rocksdb_commit_file_ingestion_handles(
+    rocksdb_t* db, rocksdb_fileingestionhandle_t** handles, size_t num_handles,
+    char** errptr);
+extern ROCKSDB_LIBRARY_API void rocksdb_fileingestionhandle_destroy(
+    rocksdb_fileingestionhandle_t* handle);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_try_catch_up_with_primary(
     rocksdb_t* db, char** errptr);

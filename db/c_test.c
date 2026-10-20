@@ -217,6 +217,17 @@ static void WriteSstFile(const rocksdb_options_t* options, const char* path,
   rocksdb_envoptions_destroy(env_opt);
 }
 
+static rocksdb_ingestexternalfilearg_t* CreateIngestArg(
+    rocksdb_column_family_handle_t* cf, const char* path,
+    const rocksdb_ingestexternalfileoptions_t* opt) {
+  rocksdb_ingestexternalfilearg_t* arg = rocksdb_ingestexternalfilearg_create();
+  rocksdb_ingestexternalfilearg_set_column_family(arg, cf);
+  const char* files[1] = {path};
+  rocksdb_ingestexternalfilearg_set_external_files(arg, files, 1);
+  rocksdb_ingestexternalfilearg_set_options(arg, opt);
+  return arg;
+}
+
 static void CheckMultiGetValues(size_t num_keys, char** values,
                                 size_t* values_sizes, char** errs,
                                 const char** expected) {
@@ -5301,6 +5312,204 @@ int main(int argc, char** argv) {
     rocksdb_options_destroy(reader_options);
     remove(reader_sst);
     remove(reader_garbage);
+  }
+
+  StartPhase("two_phase_file_ingestion");
+  {
+    char tp_dbname[256];
+    char sst1[256];
+    char sst2[256];
+    char sst3[256];
+    char sst4[256];
+    snprintf(tp_dbname, sizeof(tp_dbname),
+             "%s/rocksdb_c_test-%" PRIu64 "-two-phase-ingest", GetTempDir(),
+             GetTestId());
+    snprintf(sst1, sizeof(sst1), "%s-1.sst", tp_dbname);
+    snprintf(sst2, sizeof(sst2), "%s-2.sst", tp_dbname);
+    snprintf(sst3, sizeof(sst3), "%s-3.sst", tp_dbname);
+    snprintf(sst4, sizeof(sst4), "%s-4.sst", tp_dbname);
+
+    rocksdb_options_t* tp_options = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(tp_options, 1);
+    rocksdb_options_set_env(tp_options, env);
+    rocksdb_file_checksum_gen_factory_t* checksum_factory =
+        rocksdb_file_checksum_gen_crc32c_factory_create();
+    rocksdb_options_set_file_checksum_gen_factory(tp_options, checksum_factory);
+    rocksdb_destroy_db(tp_options, tp_dbname, &err);
+    CheckNoError(err);
+    rocksdb_t* tp_db = rocksdb_open(tp_options, tp_dbname, &err);
+    CheckNoError(err);
+    rocksdb_column_family_handle_t* default_cf =
+        rocksdb_get_default_column_family_handle(tp_db);
+    rocksdb_column_family_handle_t* cf =
+        rocksdb_create_column_family(tp_db, tp_options, "tp_cf", &err);
+    CheckNoError(err);
+    rocksdb_ingestexternalfileoptions_t* ing_opt =
+        rocksdb_ingestexternalfileoptions_create();
+    rocksdb_fileingestionhandle_t* handles[2];
+
+    // Single column family: nothing is visible until commit.
+    WriteSstFile(tp_options, sst1, "tp_single", "v1");
+    rocksdb_ingestexternalfilearg_t* arg1 = CreateIngestArg(cf, sst1, ing_opt);
+    const rocksdb_ingestexternalfilearg_t* args1[1] = {arg1};
+    handles[0] = rocksdb_prepare_file_ingestion(tp_db, args1, 1, &err);
+    CheckNoError(err);
+    CheckCondition(handles[0] != NULL);
+    CheckGetCF(tp_db, roptions, cf, "tp_single", NULL);
+    rocksdb_commit_file_ingestion_handles(tp_db, handles, 1, &err);
+    CheckNoError(err);
+    CheckCondition(handles[0] == NULL);
+    CheckGetCF(tp_db, roptions, cf, "tp_single", "v1");
+    rocksdb_ingestexternalfilearg_destroy(arg1);
+
+    // One handle covering two column families.
+    WriteSstFile(tp_options, sst1, "tp_multi_default", "v2");
+    WriteSstFile(tp_options, sst2, "tp_multi_cf", "v3");
+    rocksdb_ingestexternalfilearg_t* default_arg =
+        CreateIngestArg(default_cf, sst1, ing_opt);
+    rocksdb_ingestexternalfilearg_t* cf_arg =
+        CreateIngestArg(cf, sst2, ing_opt);
+    const rocksdb_ingestexternalfilearg_t* args2[2] = {default_arg, cf_arg};
+    handles[0] = rocksdb_prepare_file_ingestion(tp_db, args2, 2, &err);
+    CheckNoError(err);
+    CheckGetCF(tp_db, roptions, default_cf, "tp_multi_default", NULL);
+    CheckGetCF(tp_db, roptions, cf, "tp_multi_cf", NULL);
+    rocksdb_commit_file_ingestion_handles(tp_db, handles, 1, &err);
+    CheckNoError(err);
+    CheckGetCF(tp_db, roptions, default_cf, "tp_multi_default", "v2");
+    CheckGetCF(tp_db, roptions, cf, "tp_multi_cf", "v3");
+    rocksdb_ingestexternalfilearg_destroy(default_arg);
+    rocksdb_ingestexternalfilearg_destroy(cf_arg);
+
+    // Two separately prepared handles become visible together.
+    WriteSstFile(tp_options, sst1, "tp_pair_default", "v4");
+    WriteSstFile(tp_options, sst2, "tp_pair_cf", "v5");
+    default_arg = CreateIngestArg(default_cf, sst1, ing_opt);
+    cf_arg = CreateIngestArg(cf, sst2, ing_opt);
+    const rocksdb_ingestexternalfilearg_t* default_args[1] = {default_arg};
+    const rocksdb_ingestexternalfilearg_t* cf_args[1] = {cf_arg};
+    handles[0] = rocksdb_prepare_file_ingestion(tp_db, default_args, 1, &err);
+    CheckNoError(err);
+    handles[1] = rocksdb_prepare_file_ingestion(tp_db, cf_args, 1, &err);
+    CheckNoError(err);
+    CheckGetCF(tp_db, roptions, default_cf, "tp_pair_default", NULL);
+    CheckGetCF(tp_db, roptions, cf, "tp_pair_cf", NULL);
+    rocksdb_commit_file_ingestion_handles(tp_db, handles, 2, &err);
+    CheckNoError(err);
+    CheckCondition(handles[0] == NULL && handles[1] == NULL);
+    CheckGetCF(tp_db, roptions, default_cf, "tp_pair_default", "v4");
+    CheckGetCF(tp_db, roptions, cf, "tp_pair_cf", "v5");
+    rocksdb_ingestexternalfilearg_destroy(default_arg);
+    rocksdb_ingestexternalfilearg_destroy(cf_arg);
+
+    // Destroying a handle without committing rolls the ingestion back, and the
+    // same file can be ingested again afterwards.
+    WriteSstFile(tp_options, sst1, "tp_rollback", "v6");
+    arg1 = CreateIngestArg(cf, sst1, ing_opt);
+    args1[0] = arg1;
+    handles[0] = rocksdb_prepare_file_ingestion(tp_db, args1, 1, &err);
+    CheckNoError(err);
+    rocksdb_fileingestionhandle_destroy(handles[0]);
+    CheckGetCF(tp_db, roptions, cf, "tp_rollback", NULL);
+    rocksdb_ingest_external_files(tp_db, args1, 1, &err);
+    CheckNoError(err);
+    CheckGetCF(tp_db, roptions, cf, "tp_rollback", "v6");
+    rocksdb_ingestexternalfilearg_destroy(arg1);
+
+    // Handles for the same column family prepared with different options are
+    // rejected at commit. Both handles are consumed and rolled back.
+    WriteSstFile(tp_options, sst1, "tp_reject1", "v7");
+    WriteSstFile(tp_options, sst2, "tp_reject2", "v8");
+    rocksdb_ingestexternalfileoptions_t* other_opt =
+        rocksdb_ingestexternalfileoptions_create();
+    rocksdb_ingestexternalfileoptions_set_snapshot_consistency(other_opt, 0);
+    rocksdb_ingestexternalfilearg_t* reject_arg1 =
+        CreateIngestArg(cf, sst1, ing_opt);
+    rocksdb_ingestexternalfilearg_t* reject_arg2 =
+        CreateIngestArg(cf, sst2, other_opt);
+    const rocksdb_ingestexternalfilearg_t* reject_args1[1] = {reject_arg1};
+    const rocksdb_ingestexternalfilearg_t* reject_args2[1] = {reject_arg2};
+    handles[0] = rocksdb_prepare_file_ingestion(tp_db, reject_args1, 1, &err);
+    CheckNoError(err);
+    handles[1] = rocksdb_prepare_file_ingestion(tp_db, reject_args2, 1, &err);
+    CheckNoError(err);
+    rocksdb_commit_file_ingestion_handles(tp_db, handles, 2, &err);
+    CheckCondition(err != NULL);
+    Free(&err);
+    CheckCondition(handles[0] == NULL && handles[1] == NULL);
+    CheckGetCF(tp_db, roptions, cf, "tp_reject1", NULL);
+    CheckGetCF(tp_db, roptions, cf, "tp_reject2", NULL);
+    rocksdb_ingestexternalfilearg_destroy(reject_arg1);
+    rocksdb_ingestexternalfilearg_destroy(reject_arg2);
+    rocksdb_ingestexternalfileoptions_destroy(other_opt);
+
+    // A failed prepare returns NULL.
+    rocksdb_ingestexternalfilearg_t* empty_arg =
+        rocksdb_ingestexternalfilearg_create();
+    rocksdb_ingestexternalfilearg_set_column_family(empty_arg, cf);
+    const rocksdb_ingestexternalfilearg_t* empty_args[1] = {empty_arg};
+    handles[0] = rocksdb_prepare_file_ingestion(tp_db, empty_args, 1, &err);
+    CheckCondition(err != NULL);
+    Free(&err);
+    CheckCondition(handles[0] == NULL);
+    rocksdb_ingestexternalfilearg_destroy(empty_arg);
+
+    // A checksum supplied at prepare time is recorded at commit.
+    WriteSstFile(tp_options, sst3, "tp_checksum", "v9");
+    char checksum[4];
+    FileChecksumCrc32c(sst3, checksum);
+    const char* checksums[1] = {checksum};
+    const size_t checksums_lens[1] = {sizeof(checksum)};
+    const char* func_names[1] = {"FileChecksumCrc32c"};
+    rocksdb_ingestexternalfileoptions_set_verify_file_checksum(ing_opt, 0);
+    rocksdb_ingestexternalfilearg_t* checksum_arg =
+        CreateIngestArg(cf, sst3, ing_opt);
+    rocksdb_ingestexternalfilearg_set_files_checksums(checksum_arg, checksums,
+                                                      checksums_lens, 1);
+    rocksdb_ingestexternalfilearg_set_files_checksum_func_names(checksum_arg,
+                                                                func_names, 1);
+    const rocksdb_ingestexternalfilearg_t* checksum_args[1] = {checksum_arg};
+    handles[0] = rocksdb_prepare_file_ingestion(tp_db, checksum_args, 1, &err);
+    CheckNoError(err);
+    rocksdb_commit_file_ingestion_handles(tp_db, handles, 1, &err);
+    CheckNoError(err);
+    CheckGetCF(tp_db, roptions, cf, "tp_checksum", "v9");
+    rocksdb_verify_file_checksums(tp_db, &err);
+    CheckNoError(err);
+
+    // The supplied bytes are trusted as-is: a wrong checksum is recorded and
+    // later caught by rocksdb_verify_file_checksums().
+    WriteSstFile(tp_options, sst4, "tp_wrong_checksum", "v10");
+    checksum[0] ^= 0x1;
+    const char* wrong_files[1] = {sst4};
+    rocksdb_ingestexternalfilearg_set_external_files(checksum_arg, wrong_files,
+                                                     1);
+    rocksdb_ingestexternalfilearg_set_files_checksums(checksum_arg, checksums,
+                                                      checksums_lens, 1);
+    handles[0] = rocksdb_prepare_file_ingestion(tp_db, checksum_args, 1, &err);
+    CheckNoError(err);
+    rocksdb_commit_file_ingestion_handles(tp_db, handles, 1, &err);
+    CheckNoError(err);
+    CheckGetCF(tp_db, roptions, cf, "tp_wrong_checksum", "v10");
+    rocksdb_verify_file_checksums(tp_db, &err);
+    CheckCondition(err != NULL);
+    Free(&err);
+    rocksdb_ingestexternalfilearg_destroy(checksum_arg);
+
+    rocksdb_ingestexternalfileoptions_destroy(ing_opt);
+    rocksdb_column_family_handle_destroy(cf);
+    rocksdb_column_family_handle_destroy(default_cf);
+    // In debug builds, closing asserts that no prepared ingestion is still
+    // outstanding.
+    rocksdb_close(tp_db);
+    rocksdb_destroy_db(tp_options, tp_dbname, &err);
+    CheckNoError(err);
+    rocksdb_options_destroy(tp_options);
+    rocksdb_file_checksum_gen_factory_destroy(checksum_factory);
+    remove(sst1);
+    remove(sst2);
+    remove(sst3);
+    remove(sst4);
   }
 
   StartPhase("cache_options");
