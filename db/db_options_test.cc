@@ -1949,6 +1949,20 @@ TEST_F(DBOptionsTest, OptimizeForCompactionTableReadUsesGlobalDirectReadsOnly) {
   }
 }
 
+TEST_F(DBOptionsTest, SetDBOptionsRejectsPartitionWALUsage) {
+  Options options = CurrentOptions();
+  Destroy(options);
+  ASSERT_OK(TryReopen(options));
+  const Status s = dbfull()->SetDBOptions(
+      {{"partition_wal_usage", "partition_by_column_family"}});
+  // Immutable DB options are not in the mutable option table, so
+  // SetDBOptions cannot find them.
+  ASSERT_TRUE(s.IsNotFound()) << s.ToString();
+  ASSERT_STREQ("Unrecognized option: partition_wal_usage", s.getState());
+  ASSERT_EQ(PartitionWALUsage::kNone,
+            dbfull()->GetDBOptions().partition_wal_usage);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
