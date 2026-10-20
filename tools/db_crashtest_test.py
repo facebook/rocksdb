@@ -1506,6 +1506,76 @@ class DBCrashTestTest(unittest.TestCase):
         self.assertIn("--expected_values_dir=", execute_calls[0][0])
         self.assertEqual(1, len(cleanups))
 
+    def test_remote_liveness_tolerates_remote_client_glog_stderr(self):
+        db_crashtest = self.load_db_crashtest()
+        db_crashtest.is_remote_db = True
+        self.register_expected_values_dir_cleanup(db_crashtest)
+        self.register_diagnostics_dir_cleanup(db_crashtest)
+        cleanups = []
+        remote_client_stderr = (
+            "W1005 13:44:52.165011 25352 RemoteEnvUtil.tcc:357] Applying flag "
+            "override from remote config\n"
+            "I1005 13:44:57.266612 25622 RpcCall.h:607] Exception for operation "
+            "GET_DIRECTORY: Directory not found\n"
+            "E1005 13:44:57.652867 25352 RemoteFile.tcc:261] Failed to close file "
+            "remote://cluster/dev_test/rocksdb_crashtest_liveness/LOG\n"
+            "W1005 15:44:44.703493 26629 QuorumWriter.cpp:1799] ctx: , Info:- "
+            "blockId=blk_db05b165, chunkSizes=[21847,21847], dataShard=1, "
+            "totalShard=5, successWrites=4\n"
+            "\n"
+        )
+
+        def fake_execute_cmd(
+            cmd, timeout=None, timeout_pstack=False, expected_to_timeout=True
+        ):
+            return (
+                True,
+                -15,
+                "Crash-recovery verification passed :)\n",
+                remote_client_stderr,
+                123,
+            )
+
+        db_crashtest.execute_cmd = fake_execute_cmd
+        db_crashtest.print_fault_injection_log = lambda pid: None
+        db_crashtest.cleanup_after_success = lambda db_arg, num_dbs=1: cleanups.append(
+            (db_arg, num_dbs)
+        )
+
+        with redirect_stdout(io.StringIO()) as stdout:
+            db_crashtest.liveness_main(self.build_mode_args(duration=17), [])
+
+        self.assertEqual(1, len(cleanups))
+        self.assertIn("Ignored known stderr:", stdout.getvalue())
+        self.assertIn("QuorumWriter.cpp:1799", stdout.getvalue())
+
+    def test_remote_db_stderr_keeps_rocksdb_errors_and_fatal_glog(self):
+        db_crashtest = self.load_db_crashtest()
+        db_crashtest.is_remote_db = True
+        stderr = (
+            "W1005 15:44:44.703493 26629 QuorumWriter.cpp:1799] successWrites=4\n"
+            "error : Get() returns IO error: Failed to read 1032 bytes\n"
+            "F0619 02:06:45.123456 1234 RemoteFileCache.cpp:200] File size and "
+            "file content mismatch\n"
+        )
+
+        _, kept = db_crashtest.sanitize_known_stderr(
+            "", stderr, True, {"use_async_db_api": 0}
+        )
+
+        self.assertEqual(
+            "error : Get() returns IO error: Failed to read 1032 bytes\n"
+            "F0619 02:06:45.123456 1234 RemoteFileCache.cpp:200] File size and "
+            "file content mismatch\n",
+            kept,
+        )
+
+        db_crashtest.is_remote_db = False
+        _, kept = db_crashtest.sanitize_known_stderr(
+            "", stderr, True, {"use_async_db_api": 0}
+        )
+        self.assertEqual(stderr, kept)
+
     def test_remote_liveness_uses_local_expected_values_dir(self):
         db_crashtest = self.load_db_crashtest()
         os.environ[_TEST_DIR_ENV_VAR] = "/dev_test/rocksdb_crash_test/job123"

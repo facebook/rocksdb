@@ -44,6 +44,14 @@ _IGNORED_CACHELIB_INFO_STDERR_RE = re.compile(
     r"(?:Allocator|BlockCache|Device|Driver|EnginePair|LruPolicy|NavySetup|"
     r"RegionManager|RejectRandomAP|SlabAllocator|SparseMapIndex)\.cpp:\d+\] .*$"
 )
+# Remote storage client libraries log routine INFO/WARNING/ERROR glog/XLOG
+# lines to stderr: quorum write laggers, retries, not-found probes before file
+# creation. CI tries to compile XLOG below DFATAL out of those clients, but that
+# is not reliable, and a single line fails a multi-hour remote run. db_stress reports its own failures without the glog
+# prefix, and FATAL glog lines are never ignored.
+_IGNORED_REMOTE_DB_CLIENT_STDERR_RE = re.compile(
+    r"^[IWE]\d{4} \d{2}:\d{2}:\d{2}\.\d+ +\d+ [^ :\]]+:\d+\] .*$"
+)
 _NO_SPACE_SUBSTRINGS = (
     "no space left on device",
     "out of disk space",
@@ -2580,10 +2588,12 @@ def sanitize_known_stderr(stdout, stderr, hit_timeout, finalized_params):
     ignore_cachelib_info_stderr = secondary_cache_uri.startswith(
         "cachelibwrapper://"
     )
+    ignore_remote_db_client_stderr = is_remote_db
     if len(stderr) == 0 or not (
         ignore_sigterm_stderr
         or ignore_io_uring_init_stderr
         or ignore_cachelib_info_stderr
+        or ignore_remote_db_client_stderr
     ):
         return stdout, stderr
 
@@ -2592,14 +2602,22 @@ def sanitize_known_stderr(stdout, stderr, hit_timeout, finalized_params):
     for line in stderr.splitlines(keepends=True):
         stripped_line = line.rstrip("\n")
         if (
-            ignore_sigterm_stderr
-            and _IGNORED_SIGTERM_STDERR_RE.fullmatch(stripped_line)
-        ) or (
-            ignore_io_uring_init_stderr
-            and _IGNORED_IO_URING_INIT_STDERR_RE.fullmatch(stripped_line)
-        ) or (
-            ignore_cachelib_info_stderr
-            and _IGNORED_CACHELIB_INFO_STDERR_RE.fullmatch(stripped_line)
+            (
+                ignore_sigterm_stderr
+                and _IGNORED_SIGTERM_STDERR_RE.fullmatch(stripped_line)
+            )
+            or (
+                ignore_io_uring_init_stderr
+                and _IGNORED_IO_URING_INIT_STDERR_RE.fullmatch(stripped_line)
+            )
+            or (
+                ignore_cachelib_info_stderr
+                and _IGNORED_CACHELIB_INFO_STDERR_RE.fullmatch(stripped_line)
+            )
+            or (
+                ignore_remote_db_client_stderr
+                and _IGNORED_REMOTE_DB_CLIENT_STDERR_RE.fullmatch(stripped_line)
+            )
         ):
             ignored_lines.append(line)
         else:
