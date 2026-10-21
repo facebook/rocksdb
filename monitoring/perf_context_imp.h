@@ -17,9 +17,6 @@ extern thread_local PerfContext perf_context;
 #endif
 
 #if !defined(NPERF_CONTEXT)
-#if defined(OS_SOLARIS)
-inline PerfContext& GetPerfContextFast() { return perf_context; }
-#else
 // PerfContext has a non-trivial destructor, so each access to `perf_context`
 // from another file calls its TLS init function. The macros below read this
 // constant-initialized pointer instead.
@@ -33,7 +30,6 @@ inline PerfContext& GetPerfContextFast() {
   }
   return *ctx;
 }
-#endif
 #endif
 
 #if defined(NPERF_CONTEXT)

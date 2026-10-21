@@ -184,14 +184,12 @@ struct PerfContextInt {
 PerfContext perf_context;
 #else
 thread_local PerfContext perf_context;
-#if !defined(OS_SOLARIS)
 thread_local constinit PerfContext* perf_context_fast_ptr = nullptr;
 
 PerfContext* InitPerfContextFastPtr() {
   perf_context_fast_ptr = &perf_context;
   return perf_context_fast_ptr;
 }
-#endif
 #endif
 
 PerfContext* get_perf_context() {
