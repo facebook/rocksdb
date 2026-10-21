@@ -6,6 +6,7 @@
 #include "rocksdb/perf_context.h"
 
 #include <algorithm>
+#include <atomic>
 #include <iostream>
 #include <memory>
 #include <thread>
@@ -958,6 +959,31 @@ TEST_F(PerfContextTest, DBMutexLockCounter) {
       child_thread.join();
     }
   }
+}
+
+TEST_F(PerfContextTest, CountersArePerThread) {
+  constexpr int kNumThreads = 4;
+  std::atomic<int> num_added{0};
+  std::vector<uint64_t> seen(kNumThreads, 0);
+  std::vector<port::Thread> threads;
+  threads.reserve(kNumThreads);
+  for (int i = 0; i < kNumThreads; ++i) {
+    threads.emplace_back([&, i] {
+      SetPerfLevel(PerfLevel::kEnableCount);
+      PERF_COUNTER_ADD(user_key_comparison_count, i + 1);
+      num_added.fetch_add(1);
+      while (num_added.load() < kNumThreads) {
+        std::this_thread::yield();
+      }
+      seen[i] = get_perf_context()->user_key_comparison_count;
+    });
+  }
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  const std::vector<uint64_t> expected{1, 2, 3, 4};
+  ASSERT_EQ(expected, seen);
 }
 
 TEST_F(PerfContextTest, FalseDBMutexWait) {
