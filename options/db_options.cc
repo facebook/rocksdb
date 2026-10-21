@@ -166,6 +166,12 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableDBOptions, remote_compaction_manifest_floor),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"use_separate_remote_compaction_pool",
+         {offsetof(struct MutableDBOptions,
+                   use_separate_remote_compaction_pool),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable | OptionTypeFlags::kDontSerialize |
+              OptionTypeFlags::kCompareNever}},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
@@ -1141,6 +1147,8 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       fast_sst_open(options.fast_sst_open),
       remote_compaction_manifest_floor(
           options.remote_compaction_manifest_floor),
+      use_separate_remote_compaction_pool(
+          options.use_separate_remote_compaction_pool),
       daily_offpeak_time_utc(options.daily_offpeak_time_utc),
       max_compaction_trigger_wakeup_seconds(
           options.max_compaction_trigger_wakeup_seconds),
@@ -1214,6 +1222,8 @@ void MutableDBOptions::Dump(Logger* log) const {
                    fast_sst_open);
   ROCKS_LOG_HEADER(log, "      Options.remote_compaction_manifest_floor: %d",
                    remote_compaction_manifest_floor);
+  ROCKS_LOG_HEADER(log, "Options.use_separate_remote_compaction_pool: %s",
+                   use_separate_remote_compaction_pool ? "true" : "false");
 }
 
 Status GetMutableDBOptionsFromStrings(
@@ -1233,6 +1243,10 @@ Status GetMutableDBOptionsFromStrings(
 
 bool MutableDBOptionsAreEqual(const MutableDBOptions& this_options,
                               const MutableDBOptions& that_options) {
+  if (this_options.use_separate_remote_compaction_pool !=
+      that_options.use_separate_remote_compaction_pool) {
+    return false;
+  }
   ConfigOptions config_options;
   std::string mismatch;
   return OptionTypeInfo::StructsAreEqual(
