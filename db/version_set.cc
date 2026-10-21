@@ -7616,10 +7616,6 @@ Status VersionSet::ResolveOptionsFileNumber(
     if (it->first < manifest_state.committed_options_file_number) {
       break;
     }
-    if (it == highest) {
-      rejected_tracked_file_numbers.push_back(it->first);
-      continue;
-    }
     bool tracked = false;
     Status marker_status = is_tracked(it->second, &tracked);
     if (!marker_status.ok()) {
