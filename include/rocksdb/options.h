@@ -1749,7 +1749,10 @@ struct DBOptions {
   // Error happens, SetBGError is called to deal with the error. If the error
   // can be auto-recovered (e.g., retryable IO Error during Flush or WAL write),
   // then db resume is called in background to recover from the error. If this
-  // value is 0 or negative, DB::Resume() will not be called automatically.
+  // value is 0 or negative, DB::Resume() will not be called automatically, and
+  // any background retryable IO error (including one during compaction, which
+  // would otherwise be retried by rescheduling the compaction) stops writes
+  // until the user calls DB::Resume().
   //
   // Default: INT_MAX
   int max_bgerror_resume_count = INT_MAX;
