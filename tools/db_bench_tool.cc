@@ -853,6 +853,14 @@ DEFINE_int32(bloom_bits, -1,
 
 DEFINE_bool(use_ribbon_filter, false, "Use Ribbon instead of Bloom filter");
 
+DEFINE_int32(bloom_before_level, 0,
+             "Only used with -use_ribbon_filter. Use Bloom filters for LSM "
+             "levels below this one and Ribbon filters starting at this level. "
+             "Memtable flushes count as level -1. 0 (default) -> Bloom only "
+             "for flushes, Ribbon otherwise; -1 -> always Ribbon; "
+             "a large value (e.g. 999) -> always Bloom. See "
+             "NewRibbonFilterPolicy().");
+
 DEFINE_double(memtable_bloom_size_ratio, 0,
               "Ratio of memtable size used for bloom filter. 0 means no bloom "
               "filter.");
@@ -5794,8 +5802,10 @@ class Benchmark {
           table_options->filter_policy.reset();
         } else {
           table_options->filter_policy.reset(
-              FLAGS_use_ribbon_filter ? NewRibbonFilterPolicy(FLAGS_bloom_bits)
-                                      : NewBloomFilterPolicy(FLAGS_bloom_bits));
+              FLAGS_use_ribbon_filter
+                  ? NewRibbonFilterPolicy(FLAGS_bloom_bits,
+                                          FLAGS_bloom_before_level)
+                  : NewBloomFilterPolicy(FLAGS_bloom_bits));
         }
       }
     }
