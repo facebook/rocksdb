@@ -1526,6 +1526,10 @@ rocksdb_compactionjobinfo_thread_id(const rocksdb_compactionjobinfo_t* info);
 extern ROCKSDB_LIBRARY_API int rocksdb_compactionjobinfo_job_id(
     const rocksdb_compactionjobinfo_t* info);
 
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_compactionjobinfo_use_separate_remote_compaction_pool(
+    const rocksdb_compactionjobinfo_t* info);
+
 extern ROCKSDB_LIBRARY_API int rocksdb_compactionjobinfo_num_l0_files(
     const rocksdb_compactionjobinfo_t* info);
 
@@ -1563,6 +1567,10 @@ extern ROCKSDB_LIBRARY_API uint64_t rocksdb_subcompactionjobinfo_thread_id(
     const rocksdb_subcompactionjobinfo_t* info);
 
 extern ROCKSDB_LIBRARY_API int rocksdb_subcompactionjobinfo_job_id(
+    const rocksdb_subcompactionjobinfo_t* info);
+
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_subcompactionjobinfo_use_separate_remote_compaction_pool(
     const rocksdb_subcompactionjobinfo_t* info);
 
 extern ROCKSDB_LIBRARY_API int
@@ -5287,6 +5295,13 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_db_host_id(
 
 extern ROCKSDB_LIBRARY_API const char* rocksdb_options_get_db_host_id(
     rocksdb_options_t* opt, size_t* size);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_use_separate_remote_compaction_pool(rocksdb_options_t* opt,
+                                                        unsigned char v);
+
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_options_get_use_separate_remote_compaction_pool(rocksdb_options_t* opt);
 
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_remote_compaction_manifest_floor(rocksdb_options_t* opt,

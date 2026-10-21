@@ -1116,6 +1116,9 @@ DEFINE_bool(remote_compaction_failure_fall_back_to_local, true,
             "If true, remote compaction failures will be ignored and "
             "compactions will fall back to local and retried");
 
+DEFINE_bool(use_separate_remote_compaction_pool, false,
+            "Sets DBOptions.use_separate_remote_compaction_pool");
+
 DEFINE_uint32(
     openandcompact_max_secondary_open_retries,
     ROCKSDB_NAMESPACE::OpenAndCompactOptions().max_secondary_open_retries,

@@ -4886,6 +4886,11 @@ int rocksdb_compactionjobinfo_job_id(const rocksdb_compactionjobinfo_t* info) {
   return info->rep.job_id;
 }
 
+unsigned char rocksdb_compactionjobinfo_use_separate_remote_compaction_pool(
+    const rocksdb_compactionjobinfo_t* info) {
+  return info->rep.use_separate_remote_compaction_pool;
+}
+
 int rocksdb_compactionjobinfo_num_l0_files(
     const rocksdb_compactionjobinfo_t* info) {
   return info->rep.num_l0_files;
@@ -4947,6 +4952,11 @@ uint64_t rocksdb_subcompactionjobinfo_thread_id(
 int rocksdb_subcompactionjobinfo_job_id(
     const rocksdb_subcompactionjobinfo_t* info) {
   return info->rep.job_id;
+}
+
+unsigned char rocksdb_subcompactionjobinfo_use_separate_remote_compaction_pool(
+    const rocksdb_subcompactionjobinfo_t* info) {
+  return info->rep.use_separate_remote_compaction_pool;
 }
 
 int rocksdb_subcompactionjobinfo_subcompaction_job_id(
@@ -10174,6 +10184,16 @@ const char* rocksdb_options_get_db_host_id(rocksdb_options_t* opt,
                                            size_t* size) {
   *size = opt->rep.db_host_id.size();
   return opt->rep.db_host_id.data();
+}
+
+void rocksdb_options_set_use_separate_remote_compaction_pool(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.use_separate_remote_compaction_pool = v;
+}
+
+unsigned char rocksdb_options_get_use_separate_remote_compaction_pool(
+    rocksdb_options_t* opt) {
+  return opt->rep.use_separate_remote_compaction_pool;
 }
 
 void rocksdb_options_set_remote_compaction_manifest_floor(
