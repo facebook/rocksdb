@@ -9,8 +9,13 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Information about a Compaction Job.
+ */
 public class CompactionJobInfo extends RocksObject {
-
+  /**
+   * Constructs a new CompactionJobInfo.
+   */
   public CompactionJobInfo() {
     super(newCompactionJobInfo());
   }

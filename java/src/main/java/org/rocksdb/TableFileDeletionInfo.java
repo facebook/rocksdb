@@ -7,6 +7,9 @@ package org.rocksdb;
 
 import java.util.Objects;
 
+/**
+ * Information on Table File deleteion.
+ */
 public class TableFileDeletionInfo {
   private final String dbName;
   private final String filePath;

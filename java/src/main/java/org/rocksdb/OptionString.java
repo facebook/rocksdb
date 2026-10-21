@@ -9,6 +9,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
+/**
+ * An option expressed as a String.
+ */
 @SuppressWarnings("PMD.AvoidStringBufferField")
 public class OptionString {
   private static final char kvPairSeparator = ';';
@@ -21,23 +24,51 @@ public class OptionString {
 
   private static final char escapeChar = '\\';
 
+  /**
+   * The value of the option.
+   */
   static class Value {
     final List<String> list;
     final List<Entry> complex;
 
+    /**
+     * Constructs a Value.
+     *
+     * @param list the list of values.
+     * @param complex the list of complex values.
+     */
     public Value(final List<String> list, final List<Entry> complex) {
       this.list = list;
       this.complex = complex;
     }
 
+    /**
+     * Returns true if the value is a list.
+     *
+     * @return true if the value is a list, false otherwise.
+     */
     public boolean isList() {
       return (this.list != null && this.complex == null);
     }
 
+    /**
+     * Constructs a value from a list.
+     *
+     * @param list a list of string values.
+     *
+     * @return the value.
+     */
     public static Value fromList(final List<String> list) {
       return new Value(list, null);
     }
 
+    /**
+     * Constructs a value from a complex value.
+     *
+     * @param complex the complex value.
+     *
+     * @return the value.
+     */
     public static Value fromComplex(final List<Entry> complex) {
       return new Value(null, complex);
     }
@@ -256,6 +287,13 @@ public class OptionString {
       return entries;
     }
 
+    /**
+     * Parse a string into a list of entry.
+     *
+     * @param str the string.
+     *
+     * @return the list of entry.
+     */
     public static List<Entry> parse(final String str) {
       Objects.requireNonNull(str);
 

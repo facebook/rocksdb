@@ -653,6 +653,25 @@ jobs:
       run: make V=1 J=8 -j8 rocksdbjavastatic
     - uses: "./.github/actions/teardown-ccache"
       if: always()
+  check-javadocs:
+    if: ${{ github.repository_owner == 'facebook' }}
+    runs-on:
+      labels: 4-core-ubuntu
+    container:
+      image: evolvedbinary/rocksjava:almalinux8_x64-be
+      options: --shm-size=16gb
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/install-maven"
+    - uses: "./.github/actions/pre-steps"
+    - name: Set Java Environment
+      run: |-
+        echo "JAVA_HOME=${JAVA_HOME}"
+        which java && java -version
+        which javac && javac -version
+    - name: Check RocksDBJava JavaDocs
+      run: pushd java; make V=1 J=8 -j8 javadocs
+    - uses: "./.github/actions/post-steps"
   build-macos-java:
     if: needs.config.outputs.only_job == 'build-macos-java' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config

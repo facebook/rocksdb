@@ -7,6 +7,9 @@ package org.rocksdb;
 
 import java.util.List;
 
+/**
+ * Utility functions to assist in working with Options.
+ */
 public class OptionsUtil {
   /**
    * A static method to construct the DBOptions and ColumnFamilyDescriptors by

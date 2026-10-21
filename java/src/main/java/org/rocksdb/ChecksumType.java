@@ -14,18 +14,20 @@ public enum ChecksumType {
    */
   kNoChecksum((byte) 0),
   /**
-   * CRC32 Checksum
+   * CRC32 Checksum.
    */
   kCRC32c((byte) 1),
   /**
-   * XX Hash
+   * XX Hash.
    */
   kxxHash((byte) 2),
   /**
-   * XX Hash 64
+   * XX Hash 64.
    */
   kxxHash64((byte) 3),
-
+  /**
+   * XX Hash v3.
+   */
   kXXH3((byte) 4);
 
   /**

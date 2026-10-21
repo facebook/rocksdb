@@ -14,6 +14,12 @@ public class DbPath {
   final Path path;
   final long targetSize;
 
+  /**
+   * Constructs a DbPath.
+   *
+   * @param path the path.
+   * @param targetSize the target size.
+   */
   public DbPath(final Path path, final long targetSize) {
     this.path = path;
     this.targetSize = targetSize;

@@ -392,6 +392,9 @@ public class WriteBatch extends AbstractWriteBatch {
    * Handler callback for iterating over the contents of a batch.
    */
   public abstract static class Handler extends RocksCallbackObject {
+    /**
+     * Constructs a Handler.
+     */
     public Handler() {
       super(0L);
     }
@@ -401,39 +404,182 @@ public class WriteBatch extends AbstractWriteBatch {
       return createNewHandler0();
     }
 
+    /**
+     * Put operation callback.
+     *
+     * @param columnFamilyId the id of the column family that the operation was performed on.
+     * @param key the key from the put operation.
+     * @param value the value from the put operation.
+     *
+     * @throws RocksDBException to signal an error from the handler.
+     */
     public abstract void put(final int columnFamilyId, final byte[] key,
         final byte[] value) throws RocksDBException;
+
+    /**
+     * Put operation callback.
+     *
+     * @param key the key from the put operation.
+     * @param value the value from the put operation.
+     */
     public abstract void put(final byte[] key, final byte[] value);
+
+    /**
+     * Merge operation callback.
+     *
+     * @param columnFamilyId the id of the column family that the operation was performed on.
+     * @param key the key from the merge operation.
+     * @param value the value from the merge operation.
+     *
+     * @throws RocksDBException to signal an error from the handler.
+     */
     public abstract void merge(final int columnFamilyId, final byte[] key,
         final byte[] value) throws RocksDBException;
+
+    /**
+     * Merge operation callback.
+     *
+     * @param key the key from the merge operation.
+     * @param value the value from the merge operation.
+     */
     public abstract void merge(final byte[] key, final byte[] value);
+
+    /**
+     * Delete operation callback.
+     *
+     * @param columnFamilyId the id of the column family that the operation was performed on.
+     * @param key the key from the delete operation.
+     *
+     * @throws RocksDBException to signal an error from the handler.
+     */
     public abstract void delete(final int columnFamilyId, final byte[] key)
         throws RocksDBException;
+
+    /**
+     * Delete operation callback.
+     *
+     * @param key the key from the delete operation.
+     */
     public abstract void delete(final byte[] key);
+
+    /**
+     * Single Delete operation callback.
+     *
+     * @param columnFamilyId the id of the column family that the operation was performed on.
+     * @param key the key from the single delete operation.
+     *
+     * @throws RocksDBException to signal an error from the handler.
+     */
     public abstract void singleDelete(final int columnFamilyId,
         final byte[] key) throws RocksDBException;
+
+    /**
+     * Single Delete operation callback.
+     *
+     * @param key the key from the single delete operation.
+     */
     public abstract void singleDelete(final byte[] key);
+
+    /**
+     * Delete Range operation callback.
+     *
+     * @param columnFamilyId the id of the column family that the operation was performed on.
+     * @param beginKey the begin key from the delete range operation.
+     * @param endKey the end key from the delete range operation.
+     *
+     * @throws RocksDBException to signal an error from the handler.
+     */
     public abstract void deleteRange(final int columnFamilyId,
         final byte[] beginKey, final byte[] endKey) throws RocksDBException;
+
+    /**
+     * Delete Range operation callback.
+     *
+     * @param beginKey the begin key from the delete range operation.
+     * @param endKey the end key from the delete range operation.
+     */
     public abstract void deleteRange(final byte[] beginKey,
         final byte[] endKey);
+
+    /**
+     * Log Data operation callback.
+     *
+     * @param blob the blob from the log data operation.
+     */
     public abstract void logData(final byte[] blob);
+
+    /**
+     * Put Blob Index operation callback.
+     *
+     * @param columnFamilyId the id of the column family that the operation was performed on.
+     * @param key the key from the put blob index operation.
+     * @param value the value from the put blob index operation.
+     *
+     * @throws RocksDBException to signal an error from the handler.
+     */
     public abstract void putBlobIndex(final int columnFamilyId,
         final byte[] key, final byte[] value) throws RocksDBException;
+
+    /**
+     * Mark Begin Prepare operation callback.
+     *
+     * @throws RocksDBException to signal an error from the handler.
+     */
     public abstract void markBeginPrepare() throws RocksDBException;
+
+    /**
+     * Mark End Prepare operation callback.
+     *
+     * @param xid the transaction id.
+     *
+     * @throws RocksDBException to signal an error from the handler.
+     */
     public abstract void markEndPrepare(final byte[] xid)
         throws RocksDBException;
+
+    /**
+     * Mark Noop operation callback.
+     *
+     * @param emptyBatch true if the batch was empty, false otherwise.
+     *
+     * @throws RocksDBException to signal an error from the handler.
+     */
     public abstract void markNoop(final boolean emptyBatch)
         throws RocksDBException;
+
+    /**
+     * Mark Rollback operation callback.
+     *
+     * @param xid the transaction id.
+     *
+     * @throws RocksDBException to signal an error from the handler.
+     */
     public abstract void markRollback(final byte[] xid)
         throws RocksDBException;
+
+    /**
+     * Mark Commit operation callback.
+     *
+     * @param xid the transaction id.
+     *
+     * @throws RocksDBException to signal an error from the handler.
+     */
     public abstract void markCommit(final byte[] xid)
         throws RocksDBException;
+
+    /**
+     * Mark Commit With Timestamp operation callback.
+     *
+     * @param xid the transaction id.
+     * @param ts the timestamp.
+     *
+     * @throws RocksDBException to signal an error from the handler.
+     */
     public abstract void markCommitWithTimestamp(final byte[] xid, final byte[] ts)
         throws RocksDBException;
 
     /**
-     * shouldContinue is called by the underlying iterator
+     * Called by the underlying iterator
      * {@link WriteBatch#iterate(Handler)}. If it returns false,
      * iteration is halted. Otherwise, it continues
      * iterating. The default implementation always
@@ -457,6 +603,13 @@ public class WriteBatch extends AbstractWriteBatch {
     private long count;
     private long contentFlags;
 
+    /**
+     * Constructs a SavePoint.
+     *
+     * @param size the size
+     * @param count the count
+     * @param contentFlags the content flags
+     */
     public SavePoint(final long size, final long count,
         final long contentFlags) {
       this.size = size;
@@ -464,6 +617,9 @@ public class WriteBatch extends AbstractWriteBatch {
       this.contentFlags = contentFlags;
     }
 
+    /**
+     * Clear the save point data.
+     */
     public void clear() {
       this.size = 0;
       this.count = 0;
@@ -497,6 +653,13 @@ public class WriteBatch extends AbstractWriteBatch {
       return contentFlags;
     }
 
+    /**
+     * Determines if {@link #clear()} was
+     * called.
+     *
+     * @return true if {@link #clear()} was called and the save point remains empty, false
+     *     otherwise.
+     */
     public boolean isCleared() {
       return (size | count | contentFlags) == 0;
     }

@@ -11,14 +11,27 @@ package org.rocksdb;
  * two strings.
  */
 public class StringAppendOperator extends MergeOperator {
+  /**
+   * Constructs a StringAppendOperator.
+   */
   public StringAppendOperator() {
     this(',');
   }
 
+  /**
+   * Constructs a StringAppendOperator.
+   *
+   * @param delim the character delimiter to use when appending.
+   */
   public StringAppendOperator(final char delim) {
     super(newSharedStringAppendOperator(delim));
   }
 
+  /**
+   * Constructs a StringAppendOperator.
+   *
+   * @param delim the string delimiter to use when appending.
+   */
   public StringAppendOperator(final String delim) {
     super(newSharedStringAppendOperator(delim));
   }

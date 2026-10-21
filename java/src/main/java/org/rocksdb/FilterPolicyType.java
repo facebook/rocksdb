@@ -9,6 +9,9 @@ package org.rocksdb;
  * IndexType used in conjunction with BlockBasedTable.
  */
 public enum FilterPolicyType {
+  /**
+   * Unknown filter policy.
+   */
   kUnknownFilterPolicy((byte) 0),
 
   /**
@@ -25,7 +28,7 @@ public enum FilterPolicyType {
    */
   kRibbonFilterPolicy((byte) 2);
 
-  public Filter createFilter(final long handle, final double param) {
+  Filter createFilter(final long handle, final double param) {
     if (this == kBloomFilterPolicy) {
       return new BloomFilter(handle, param);
     }

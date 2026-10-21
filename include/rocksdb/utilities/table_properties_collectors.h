@@ -83,7 +83,7 @@ class CompactOnDeletionCollectorFactory
 };
 
 // Creates a factory of a table property collector that marks a SST
-// file as need-compaction when it observe at least "D" deletion
+// file as need-compaction when it observes at least "D" deletion
 // entries in any "N" consecutive entries, or the ratio of tombstone
 // entries >= deletion_ratio.
 //

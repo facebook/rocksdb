@@ -20,8 +20,19 @@ import java.util.List;
  * {@link RocksDB#multiGetByteBuffers(ReadOptions, List, List, List)}
  */
 public class ByteBufferGetStatus {
+  /**
+   * Status of the request to fetch into the buffer.
+   */
   public final Status status;
+
+  /**
+   * Size of the data, which may be bigger than the buffer.
+   */
   public final int requiredSize;
+
+  /**
+   * Buffer containing as much of the value as fits.
+   */
   public final ByteBuffer value;
 
   /**

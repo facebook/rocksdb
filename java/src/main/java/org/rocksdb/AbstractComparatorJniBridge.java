@@ -12,7 +12,7 @@ import java.nio.ByteBuffer;
  * it holds methods which are called
  * from C++ to interact with a Comparator
  * written in Java.
- *
+ * <p>
  * Placing these bridge methods in this
  * class keeps the API of the
  * {@link org.rocksdb.AbstractComparator} clean.

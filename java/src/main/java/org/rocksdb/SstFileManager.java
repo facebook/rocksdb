@@ -17,11 +17,25 @@ import java.util.Map;
  */
 //@ThreadSafe
 public final class SstFileManager extends RocksObject {
+  /**
+   * The default bytes-per-sec rate.
+   */
+  public static final long DEFAULT_RATE_BYTES_PER_SEC = 0;
 
-  public static final long RATE_BYTES_PER_SEC_DEFAULT = 0;
-  public static final boolean DELETE_EXISTING_TRASH_DEFAULT = true;
-  public static final double MAX_TRASH_DB_RATION_DEFAULT = 0.25;
-  public static final long BYTES_MAX_DELETE_CHUNK_DEFAULT = 64 * 1024 * 1024;
+  /**
+   * The default of whether to delete existing trash.
+   */
+  public static final boolean DEFAULT_DELETE_EXISTING_TRASH = true;
+
+  /**
+   * The default max trash db ratio.
+   */
+  public static final double DEFAULT_MAX_TRASH_DB_RATIO = 0.25;
+
+  /**
+   * The default max delete chunk size in bytes.
+   */
+  public static final long DEFAULT_BYTES_MAX_DELETE_CHUNK = 64 * 1024 * 1024;
 
   /**
    * Create a new SstFileManager that can be shared among multiple RocksDB
@@ -46,7 +60,7 @@ public final class SstFileManager extends RocksObject {
    */
   public SstFileManager(final Env env, /*@Nullable*/  final Logger logger)
       throws RocksDBException {
-    this(env, logger, RATE_BYTES_PER_SEC_DEFAULT);
+    this(env, logger, DEFAULT_RATE_BYTES_PER_SEC);
   }
 
   /**
@@ -66,7 +80,7 @@ public final class SstFileManager extends RocksObject {
    */
   public SstFileManager(final Env env, /*@Nullable*/  final Logger logger,
       final long rateBytesPerSec) throws RocksDBException {
-    this(env, logger, rateBytesPerSec, MAX_TRASH_DB_RATION_DEFAULT);
+    this(env, logger, rateBytesPerSec, DEFAULT_MAX_TRASH_DB_RATIO);
   }
 
   /**
@@ -90,8 +104,7 @@ public final class SstFileManager extends RocksObject {
   public SstFileManager(final Env env, /*@Nullable*/ final Logger logger,
       final long rateBytesPerSec, final double maxTrashDbRatio)
       throws RocksDBException {
-    this(env, logger, rateBytesPerSec, maxTrashDbRatio,
-        BYTES_MAX_DELETE_CHUNK_DEFAULT);
+    this(env, logger, rateBytesPerSec, maxTrashDbRatio, DEFAULT_BYTES_MAX_DELETE_CHUNK);
   }
 
   /**

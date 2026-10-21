@@ -123,6 +123,11 @@ public class ColumnFamilyHandle extends RocksObject {
     }
   }
 
+  /**
+   * Returns true if this is the handle for the default column family.
+   *
+   * @return true if this is the handle for the default column family, false otherwise.
+   */
   protected boolean isDefaultColumnFamily() {
     return nativeHandle_ == rocksDB_.getDefaultColumnFamily().nativeHandle_;
   }

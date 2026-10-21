@@ -10,6 +10,9 @@ import java.nio.ByteBuffer;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
+/**
+ * Simple utility functions for working with bytes.
+ */
 public class ByteUtil {
 
   /**
@@ -29,8 +32,9 @@ public class ByteUtil {
    * lexically less than {@code y}, or a value greater than zero if {@code x}
    * is lexically greater than {@code y}.  Note that lexical order is determined
    * as if comparing unsigned char arrays.
-   *
-   * Similar to <a href="https://github.com/gcc-mirror/gcc/blob/master/libiberty/memcmp.c">memcmp.c</a>.
+   * <p>
+   * Similar to <a
+   * href="https://github.com/gcc-mirror/gcc/blob/master/libiberty/memcmp.c">memcmp.c</a>.
    *
    * @param x the first value to compare with
    * @param y the second value to compare against

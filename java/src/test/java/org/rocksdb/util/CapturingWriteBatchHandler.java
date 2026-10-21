@@ -124,16 +124,34 @@ public class CapturingWriteBatchHandler extends WriteBatch.Handler {
     events.add(new Event(Action.MARK_COMMIT_WITH_TIMESTAMP, (byte[]) null, (byte[]) null));
   }
 
+  /**
+   * Event received by the handler.
+   */
   public static class Event {
     public final Action action;
     public final int columnFamilyId;
     public final byte[] key;
     public final byte[] value;
 
+    /**
+     * Construct an event.
+     *
+     * @param action the action of the event
+     * @param key the key of the event
+     * @param value the value of the event
+     */
     public Event(final Action action, final byte[] key, final byte[] value) {
       this(action, 0, key, value);
     }
 
+    /**
+     * Construct an event.
+     *
+     * @param action the action of the event
+     * @param columnFamilyId the id of the column family of the event
+     * @param key the key of the event
+     * @param value the value of the event
+     */
     public Event(final Action action, final int columnFamilyId, final byte[] key,
         final byte[] value) {
       this.action = action;

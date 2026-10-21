@@ -7,6 +7,9 @@ package org.rocksdb;
 
 import java.util.Objects;
 
+/**
+ * Information on a Write Stall.
+ */
 public class WriteStallInfo {
   private final String columnFamilyName;
   private final WriteStallCondition currentCondition;
