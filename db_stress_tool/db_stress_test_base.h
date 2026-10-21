@@ -628,6 +628,11 @@ class StressTest {
 
   void CleanUpColumnFamilies();
 
+  Status VerifyOptionsFileStateBeforeOpen(
+      const std::vector<ColumnFamilyDescriptor>& cf_descriptors,
+      bool db_exists);
+  Status VerifyPersistedOptionsAfterOpen();
+
   void RecordManifestStateBeforeReopen();
   void VerifyManifestNotRewritten();
 
@@ -675,6 +680,7 @@ class StressTest {
   uint64_t manifest_file_number_before_reopen_;
   uint64_t manifest_file_size_before_reopen_;
   std::string current_file_content_before_reopen_;
+  bool verify_options_manifest_tracking_ = false;
 };
 
 // Load options from OPTIONS file and populate `options`.

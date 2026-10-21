@@ -471,6 +471,7 @@ default_params = {
     "wbm_flush_policy": lambda: random.choice(_WBM_FLUSH_POLICIES),
     "avoid_unnecessary_blocking_io": random.randint(0, 1),
     "write_dbid_to_manifest": random.randint(0, 1),
+    "track_options_file_number_in_manifest": lambda: random.randint(0, 1),
     "write_identity_file": random.randint(0, 1),
     "optimize_manifest_for_recovery": lambda: 1 if random.randint(1, 5) == 1 else 0,
     "reuse_manifest_on_open": lambda: 1 if random.randint(1, 5) == 1 else 0,

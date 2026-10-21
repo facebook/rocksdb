@@ -358,6 +358,16 @@ class DBCrashTestTest(unittest.TestCase):
             self.assertEqual(0, params["test_secondary"]())
             self.assertEqual(1, params["test_secondary"]())
 
+    def test_manifest_options_tracking_is_randomized_per_invocation(self):
+        db_crashtest = self.load_db_crashtest()
+        choose_tracking = db_crashtest.default_params[
+            "track_options_file_number_in_manifest"
+        ]
+
+        with mock.patch.object(db_crashtest.random, "randint", side_effect=[0, 1]):
+            self.assertEqual(0, choose_tracking())
+            self.assertEqual(1, choose_tracking())
+
     def test_skip_verifydb_disables_verification_knobs(self):
         db_crashtest = self.load_db_crashtest()
 
