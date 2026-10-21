@@ -21,9 +21,6 @@
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
-#ifdef OS_SOLARIS
-#include <alloca.h>
-#endif
 
 #include "cache/lru_cache.h"
 #include "db/attribute_group_iterator_impl.h"

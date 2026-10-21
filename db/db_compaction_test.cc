@@ -7408,8 +7408,7 @@ TEST_F(DBCompactionTest,
 // The NewRandomAccessFile:O_DIRECT sync point in env/fs_posix.cc fires once
 // per fresh open with the O_DIRECT flag, so this proves the kernel path, not
 // just the FileOptions. Only runs on platforms that take the O_DIRECT path.
-#if !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(OS_SOLARIS) && \
-    !defined(OS_WIN)
+#if !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(OS_WIN)
 TEST_F(DBCompactionTest, UseDirectIoForCompactionReadsEndToEnd) {
   if (!IsDirectIOSupported()) {
     ROCKSDB_GTEST_BYPASS("Direct IO not supported");

@@ -12,12 +12,7 @@ namespace ROCKSDB_NAMESPACE {
 #if defined(NPERF_CONTEXT)
 extern PerfContext perf_context;
 #else
-#if defined(OS_SOLARIS)
-extern thread_local PerfContext perf_context_;
-#define perf_context (*get_perf_context())
-#else
 extern thread_local PerfContext perf_context;
-#endif
 #endif
 
 #if defined(NPERF_CONTEXT)

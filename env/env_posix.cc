@@ -29,7 +29,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#if defined(OS_LINUX) || defined(OS_SOLARIS) || defined(OS_ANDROID)
+#if defined(OS_LINUX) || defined(OS_ANDROID)
 #include <sys/statfs.h>
 #endif
 #include <sys/statvfs.h>
@@ -147,8 +147,6 @@ class PosixClock : public SystemClock {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
-#elif defined(OS_SOLARIS)
-    return gethrtime();
 #elif defined(__MACH__)
     clock_serv_t cclock;
     mach_timespec_t ts;

@@ -212,7 +212,7 @@ PerfContext* get_perf_context() {
 }
 
 PerfContext::~PerfContext() {
-#if !defined(NPERF_CONTEXT) && !defined(OS_SOLARIS)
+#if !defined(NPERF_CONTEXT)
   ClearPerLevelPerfContext();
 #endif
 }
