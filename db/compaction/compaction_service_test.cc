@@ -7,6 +7,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -2036,6 +2037,10 @@ class PoolTestCompactionService : public MyTestCompactionService {
   using MyTestCompactionService::MyTestCompactionService;
 
   void SetRouting(LocalRouting routing) { routing_ = routing; }
+  void SetScheduleObserver(
+      std::function<void(const CompactionServiceJobInfo&)> observer) {
+    schedule_observer_ = std::move(observer);
+  }
   void SetLocalCF(const std::string& cf) { local_cf_ = cf; }
   void SetLocalSubcompactions(int count) { local_subcompactions_ = count; }
   void SetSubcompactionException(uint32_t sub_job_id, bool unknown) {
@@ -2045,6 +2050,9 @@ class PoolTestCompactionService : public MyTestCompactionService {
 
   CompactionServiceScheduleResponse Schedule(
       const CompactionServiceJobInfo& info, const std::string& input) override {
+    if (schedule_observer_) {
+      schedule_observer_(info);
+    }
     if ((info.job_id & UINT32_MAX) == throwing_subcompaction_) {
       if (throw_unknown_) {
         throw 42;
@@ -2099,6 +2107,7 @@ class PoolTestCompactionService : public MyTestCompactionService {
   }
 
  private:
+  std::function<void(const CompactionServiceJobInfo&)> schedule_observer_;
   LocalRouting routing_ = LocalRouting::kRemote;
   uint64_t throwing_subcompaction_ = UINT64_MAX;
   bool throw_unknown_ = false;
@@ -2139,6 +2148,116 @@ class PoolPressureListener : public EventListener {
   BackgroundJobPressure pressure_;
 };
 
+class CompactionContextListener : public EventListener {
+ public:
+  void OnCompactionBegin(DB*, const CompactionJobInfo& info) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    EXPECT_TRUE(jobs_
+                    .emplace(std::make_pair(info.cf_id, info.job_id),
+                             Counts{info.use_separate_remote_compaction_pool})
+                    .second);
+    ++begun_;
+    gated_jobs_ += info.use_separate_remote_compaction_pool ? 1 : 0;
+  }
+
+  void OnSchedule(const CompactionServiceJobInfo& info) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = jobs_.find({info.cf_id, static_cast<int>(info.job_id >> 32)});
+    ASSERT_NE(it, jobs_.end());
+    EXPECT_EQ(info.use_separate_remote_compaction_pool,
+              it->second.separate_pool);
+    ++scheduled_;
+  }
+
+  void OnSubcompactionBegin(const SubcompactionJobInfo& info) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = jobs_.find({info.cf_id, info.job_id});
+    ASSERT_NE(it, jobs_.end());
+    EXPECT_EQ(info.use_separate_remote_compaction_pool,
+              it->second.separate_pool);
+    ++it->second.begun;
+  }
+
+  void OnSubcompactionCompleted(const SubcompactionJobInfo& info) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = jobs_.find({info.cf_id, info.job_id});
+    ASSERT_NE(it, jobs_.end());
+    EXPECT_EQ(info.use_separate_remote_compaction_pool,
+              it->second.separate_pool);
+    ++it->second.completed;
+  }
+
+  void OnCompactionPreCommit(DB*, const CompactionJobInfo& info) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = jobs_.find({info.cf_id, info.job_id});
+    ASSERT_NE(it, jobs_.end());
+    EXPECT_EQ(info.use_separate_remote_compaction_pool,
+              it->second.separate_pool);
+    EXPECT_EQ(it->second.begun, 3);
+    EXPECT_EQ(it->second.completed, 3);
+    it->second.precommitted = true;
+  }
+
+  void OnCompactionCompleted(DB*, const CompactionJobInfo& info) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = jobs_.find({info.cf_id, info.job_id});
+    ASSERT_NE(it, jobs_.end());
+    EXPECT_EQ(info.use_separate_remote_compaction_pool,
+              it->second.separate_pool);
+    EXPECT_TRUE(it->second.precommitted);
+    jobs_.erase(it);
+    ++completed_;
+  }
+
+  void Verify() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    EXPECT_TRUE(jobs_.empty());
+    EXPECT_EQ(begun_, 2);
+    EXPECT_EQ(gated_jobs_, 1);
+    EXPECT_EQ(completed_, 2);
+    EXPECT_EQ(scheduled_, 6);
+  }
+
+ private:
+  struct Counts {
+    bool separate_pool;
+    int begun = 0;
+    int completed = 0;
+    bool precommitted = false;
+  };
+  std::mutex mutex_;
+  std::map<std::pair<uint32_t, int>, Counts> jobs_;
+  int gated_jobs_ = 0;
+  int begun_ = 0;
+  int completed_ = 0;
+  int scheduled_ = 0;
+};
+
+class CompactFilesPoolGateListener : public EventListener {
+ public:
+  explicit CompactFilesPoolGateListener(bool gate) : gate_(gate) {}
+  void OnCompactionBegin(DB*, const CompactionJobInfo&) override { ++parents; }
+  void OnSchedule(const CompactionServiceJobInfo& info) {
+    EXPECT_EQ(info.use_separate_remote_compaction_pool, gate_);
+    ++scheduled;
+  }
+  void OnSubcompactionBegin(const SubcompactionJobInfo& info) override {
+    EXPECT_EQ(info.use_separate_remote_compaction_pool, gate_);
+    ++begun;
+  }
+  void OnSubcompactionCompleted(const SubcompactionJobInfo& info) override {
+    EXPECT_EQ(info.use_separate_remote_compaction_pool, gate_);
+    ++completed;
+  }
+  std::atomic<int> parents{0};
+  std::atomic<int> scheduled{0};
+  std::atomic<int> begun{0};
+  std::atomic<int> completed{0};
+
+ private:
+  const bool gate_;
+};
+
 class DedicatedCompactionPoolTest : public CompactionServiceTest {
  protected:
   void SetUpCompactions(LocalRouting routing, int subcompactions = 1,
@@ -2151,6 +2270,9 @@ class DedicatedCompactionPoolTest : public CompactionServiceTest {
     options.disable_auto_compactions = true;
     options.enable_thread_tracking = thread_tracking;
     options.compaction_filter = compaction_filter;
+    if (extra_listener_) {
+      options.listeners.push_back(extra_listener_);
+    }
     if (pressure_listener_) {
       options.listeners.push_back(pressure_listener_);
     }
@@ -2528,6 +2650,7 @@ class DedicatedCompactionPoolTest : public CompactionServiceTest {
     CompactionServiceTest::TearDown();
   }
 
+  std::shared_ptr<EventListener> extra_listener_;
   std::shared_ptr<PoolTestCompactionService> service_;
   std::shared_ptr<PoolPressureListener> pressure_listener_;
   std::vector<std::unique_ptr<test::SleepingBackgroundTask>> blockers_;
@@ -2571,7 +2694,13 @@ TEST_P(RemoteCompactionPoolGateTest, RemoteSchedulingRespectsPoolGate) {
 }
 
 TEST_P(RemoteCompactionPoolGateTest, RuntimeSwitchPreservesScheduledJobs) {
+  auto listener = std::make_shared<CompactionContextListener>();
+  extra_listener_ = listener;
   SetUpCompactions(LocalRouting::kWait, 3, 1, 1, 7, GetParam());
+  service_->SetScheduleObserver(
+      [listener](const CompactionServiceJobInfo& info) {
+        listener->OnSchedule(info);
+      });
   BlockPool(Env::Priority::LOW);
   BlockPool(Env::Priority::BOTTOM);
   BlockLocalWork();
@@ -2602,8 +2731,31 @@ TEST_P(RemoteCompactionPoolGateTest, RuntimeSwitchPreservesScheduledJobs) {
     EXPECT_EQ(NumTableFilesAtLevel(0, cf), 0);
     EXPECT_EQ(Get(cf, Key(199)), std::string(1024, 'd'));
   }
+  listener->Verify();
   EXPECT_EQ(local_finished_, 3);
   EXPECT_EQ(peak_local_active_, 1);
+}
+
+TEST_P(RemoteCompactionPoolGateTest, CompactFilesCarriesSubcompactionGate) {
+  auto listener = std::make_shared<CompactFilesPoolGateListener>(GetParam());
+  extra_listener_ = listener;
+  SetUpCompactions(LocalRouting::kSchedule, 3, 1, 1, 7, GetParam());
+  service_->SetScheduleObserver(
+      [listener](const CompactionServiceJobInfo& info) {
+        listener->OnSchedule(info);
+      });
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  std::vector<std::string> inputs;
+  for (const auto& file : metadata.levels[0].files) {
+    inputs.push_back(file.db_path + "/" + file.name);
+  }
+  ASSERT_OK(db_->CompactFiles(CompactionOptions(), inputs, 1));
+  EXPECT_EQ(listener->parents.load(), 0);
+  EXPECT_EQ(listener->scheduled.load(), 3);
+  EXPECT_EQ(listener->begun.load(), 3);
+  EXPECT_EQ(listener->completed.load(), 3);
+  EXPECT_EQ(NumTableFilesAtLevel(0), 0);
 }
 
 INSTANTIATE_TEST_CASE_P(PoolGate, RemoteCompactionPoolGateTest,
