@@ -197,6 +197,16 @@ most processors made since roughly 2013.
   * Or install via [vcpkg](https://github.com/microsoft/vcpkg)
        * run `vcpkg install rocksdb:x64-windows`
 
+* **AIX 7.2**
+    * Install IBM Open XL C/C++ for AIX and XL C/C++
+    * Use CMake and run 
+    ```
+    cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DPORTABLE=1 \
+        -DCMAKE_C_COMPILER=ibm-clang \
+        -DCMAKE_CXX_COMPILER=ibm-clang++_r
+    cmake --build build --target install
+    ```
+
 * **AIX 6.1**
     * Install AIX Toolbox rpms with gcc
     * Use these environment variables:
