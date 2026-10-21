@@ -1,0 +1,1 @@
+Added `EncodeEntry()`, `PackSequenceAndType()`, and `UnPackSequenceAndType()` in `rocksdb/utilities/types_util.h` to construct internal keys and pack or unpack their sequence numbers and entry types. `kInternalKeyFooterSize` exposes the footer size in bytes.
