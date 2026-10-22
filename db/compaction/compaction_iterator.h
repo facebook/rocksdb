@@ -458,6 +458,8 @@ class CompactionIterator {
 
   static uint64_t ComputeBlobGarbageCollectionCutoffFileNumber(
       const CompactionProxy* compaction);
+  static bool ShouldPreserveSeqnoForFIFOGlobalRowCache(
+      const CompactionProxy* compaction);
   static std::unique_ptr<BlobFetcher> CreateBlobFetcherIfNeeded(
       const CompactionProxy* compaction, const Version* input_version,
       Env::IOActivity blob_read_io_activity);
@@ -488,6 +490,7 @@ class CompactionIterator {
   const std::atomic<bool>* shutting_down_;
   const std::atomic<bool>& manual_compaction_canceled_;
   const bool bottommost_level_;
+  const bool preserve_seqno_for_fifo_global_row_cache_;
   const bool visible_at_tip_;
   const SequenceNumber earliest_snapshot_;
 
