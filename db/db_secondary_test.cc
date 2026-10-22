@@ -933,6 +933,63 @@ TEST_F(DBSecondaryTest, OpenFilesAsync) {
   VerifySecondaryValue("key", "value3");
 }
 
+TEST_F(DBSecondaryTest, OpenFilesAsyncNonDefaultCfCatchUp) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  CreateAndReopenWithCF({"cf1"}, options);
+  // One open-time table in the non-default column family.
+  ASSERT_OK(Put(1, "key", "v1"));
+  ASSERT_OK(Flush(1));
+
+  Options secondary_options = options;
+  secondary_options.max_open_files = -1;
+  secondary_options.open_files_async = true;
+  secondary_options.skip_stats_update_on_db_open = true;
+
+  // Give the HIGH pool enough threads that holding the async opener back does
+  // not block the primary's own flushes.
+  const int original_high_threads =
+      env_->GetBackgroundThreads(Env::Priority::HIGH);
+  Defer restore_high_threads([&] {
+    env_->SetBackgroundThreads(original_high_threads, Env::Priority::HIGH);
+  });
+  env_->SetBackgroundThreads(4, Env::Priority::HIGH);
+
+  // Hold the background opener back so cf1's open-time table stays unpinned
+  // through catch-up.
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBSecondaryTest::OpenFilesAsyncNonDefaultCfCatchUp:Release",
+        "DBImpl::BGWorkAsyncFileOpen::Start"},
+       {"DBImpl::BGWorkAsyncFileOpen:Done",
+        "DBSecondaryTest::OpenFilesAsyncNonDefaultCfCatchUp:Done"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_point([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  OpenSecondaryWithColumnFamilies({"cf1"}, secondary_options);
+  ASSERT_EQ(2, handles_secondary_.size());
+
+  // The primary replaces cf1's open-time table and deletes it.
+  ASSERT_OK(Put(1, "key", "v2"));
+  ASSERT_OK(Flush(1));
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, handles_[1], nullptr, nullptr));
+  ASSERT_OK(db_->FlushWAL(/*sync=*/true));
+
+  // Before the fix, catch-up re-opened cf1's compacted-away open-time table and
+  // failed with PathNotFound, latching the tailer.
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  VerifySecondaryValue(handles_secondary_[1], "key", "v2");
+
+  // Let the held-back opener drain before teardown.
+  TEST_SYNC_POINT("DBSecondaryTest::OpenFilesAsyncNonDefaultCfCatchUp:Release");
+  TEST_SYNC_POINT("DBSecondaryTest::OpenFilesAsyncNonDefaultCfCatchUp:Done");
+  CloseSecondary();
+}
+
 TEST_F(DBSecondaryTest, OpenFilesAsyncRequiresSkipStatsUpdate) {
   Options options = CurrentOptions();
   options.open_files_async = true;
