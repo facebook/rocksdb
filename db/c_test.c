@@ -3630,6 +3630,42 @@ int main(int argc, char** argv) {
             bbo, &factory_name_len);
     CheckCondition(factory_name == NULL);
     CheckCondition(factory_name_len == 0);
+    CheckCondition(
+        rocksdb_block_based_options_get_use_udi_as_primary_index(bbo) == 0);
+    rocksdb_block_based_options_set_use_udi_as_primary_index(bbo, 1);
+    CheckCondition(
+        rocksdb_block_based_options_get_use_udi_as_primary_index(bbo) == 1);
+    rocksdb_block_based_options_set_use_udi_as_primary_index(bbo, 0);
+    CheckCondition(
+        rocksdb_block_based_options_get_use_udi_as_primary_index(bbo) == 0);
+    CheckCondition(
+        rocksdb_block_based_options_get_fail_if_no_udi_on_open(bbo) == 0);
+    rocksdb_block_based_options_set_fail_if_no_udi_on_open(bbo, 1);
+    CheckCondition(
+        rocksdb_block_based_options_get_fail_if_no_udi_on_open(bbo) == 1);
+    rocksdb_block_based_options_set_fail_if_no_udi_on_open(bbo, 0);
+    CheckCondition(
+        rocksdb_block_based_options_get_fail_if_no_udi_on_open(bbo) == 0);
+
+    // index_mode defaults to standard_default and tracks the deprecated
+    // bools until it is set explicitly; after that an explicit value wins no
+    // matter what order the deprecated setters are called in.
+    CheckCondition(rocksdb_block_based_table_index_mode_standard_default ==
+                   rocksdb_block_based_options_get_index_mode(bbo));
+    rocksdb_block_based_options_set_use_udi_as_primary_index(bbo, 1);
+    CheckCondition(rocksdb_block_based_table_index_mode_custom_default ==
+                   rocksdb_block_based_options_get_index_mode(bbo));
+    rocksdb_block_based_options_set_index_mode(
+        bbo, rocksdb_block_based_table_index_mode_custom_only);
+    CheckCondition(rocksdb_block_based_table_index_mode_custom_only ==
+                   rocksdb_block_based_options_get_index_mode(bbo));
+    rocksdb_block_based_options_set_index_mode(
+        bbo, rocksdb_block_based_table_index_mode_standard_only);
+    rocksdb_block_based_options_set_fail_if_no_udi_on_open(bbo, 1);
+    CheckCondition(rocksdb_block_based_table_index_mode_standard_only ==
+                   rocksdb_block_based_options_get_index_mode(bbo));
+    rocksdb_block_based_options_set_use_udi_as_primary_index(bbo, 0);
+    rocksdb_block_based_options_set_fail_if_no_udi_on_open(bbo, 0);
 
     rocksdb_block_based_options_destroy(bbo);
   }
@@ -4676,6 +4712,24 @@ int main(int argc, char** argv) {
         ro, &table_index_factory_name_len);
     CheckCondition(table_index_factory_name == NULL);
     CheckCondition(table_index_factory_name_len == 0);
+
+    // read_index: set_table_index_factory_from_string implies prefer_custom;
+    // clearing it returns to default; the explicit setter reaches builtin,
+    // which the legacy factory shim cannot express.
+    CheckCondition(rocksdb_readoptions_read_index_default ==
+                   rocksdb_readoptions_get_read_index(ro));
+    rocksdb_readoptions_set_read_index(ro,
+                                       rocksdb_readoptions_read_index_builtin);
+    CheckCondition(rocksdb_readoptions_read_index_builtin ==
+                   rocksdb_readoptions_get_read_index(ro));
+    rocksdb_readoptions_set_table_index_factory_from_string(ro, "trie_index",
+                                                            10, &err);
+    CheckNoError(err);
+    CheckCondition(rocksdb_readoptions_read_index_prefer_custom ==
+                   rocksdb_readoptions_get_read_index(ro));
+    rocksdb_readoptions_clear_table_index_factory(ro);
+    CheckCondition(rocksdb_readoptions_read_index_default ==
+                   rocksdb_readoptions_get_read_index(ro));
 
     // optimize_multiget_for_io defaults to true (1); flip to 0 to verify the
     // setter is wired through to the underlying C++ ReadOptions field.
