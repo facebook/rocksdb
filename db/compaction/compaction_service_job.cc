@@ -28,6 +28,14 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   assert(db_options_.compaction_service);
 
   const Compaction* compaction = sub_compact->compaction;
+  if (compaction->immutable_options().global_row_cache != nullptr &&
+      compaction->immutable_options().compaction_style ==
+          kCompactionStyleFIFO) {
+    // The remote worker reloads persisted options, which do not include the
+    // process-local GlobalRowCache. Keep this compaction local so the worker
+    // cannot squash sequence numbers needed by FIFO cache invalidation.
+    return CompactionServiceJobStatus::kUseLocal;
+  }
   CompactionServiceInput compaction_input;
   compaction_input.output_level = compaction->output_level();
   compaction_input.db_id = db_id_;
