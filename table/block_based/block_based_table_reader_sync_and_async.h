@@ -405,6 +405,7 @@ DEFINE_SYNC_AND_ASYNC(TBlockIter*, BlockBasedTable::NewDataBlockIterator)(
   // 2. it's pointing to immortal source. If own_bytes is true then we are
   //    not reading data from the original source, whether immortal or not.
   //    Otherwise, the block is pinned iff the source is immortal.
+  // Relied upon by BlockBasedTableIterator::IsDataBlockFromImmortalSource().
   const bool block_contents_pinned =
       block.IsCached() ||
       (!block.GetValue()->own_bytes() && rep_->immortal_table);
@@ -468,6 +469,7 @@ DEFINE_SYNC_AND_ASYNC(TBlockIter*, BlockBasedTable::NewDataBlockIterator)(
   // 2. it's pointing to immortal source. If own_bytes is true then we are
   //    not reading data from the original source, whether immortal or not.
   //    Otherwise, the block is pinned iff the source is immortal.
+  // Relied upon by BlockBasedTableIterator::IsDataBlockFromImmortalSource().
   const bool block_contents_pinned =
       block.IsCached() ||
       (!block.GetValue()->own_bytes() && rep_->immortal_table);

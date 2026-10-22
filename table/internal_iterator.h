@@ -179,6 +179,14 @@ class InternalIteratorBase : public Cleanable {
   // REQUIRES: Same as for value().
   virtual bool IsValuePinned() const { return false; }
 
+  // If true, no key() or value() slice this iterator has returned depends on
+  // memory it owns or keeps alive (e.g. through cleanups); the slices stay
+  // valid as long as the iterator's data source (e.g. the table reader) does,
+  // and that source is guaranteed to outlive the Version the iterator was
+  // created from. Such an iterator may be deleted while pinning is enabled
+  // instead of being handed to the PinnedIteratorsManager.
+  virtual bool IsSafeToDropWhilePinned() const { return false; }
+
   virtual Status GetProperty(std::string /*prop_name*/, std::string* /*prop*/) {
     return Status::NotSupported("");
   }

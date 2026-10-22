@@ -7,9 +7,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <atomic>
 #include <functional>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -24,6 +26,7 @@
 #include "rocksdb/io_dispatcher.h"
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/perf_context.h"
+#include "rocksdb/persistent_cache.h"
 #include "table/block_based/flush_block_policy_impl.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
@@ -2320,6 +2323,576 @@ TEST_P(DBIteratorTest, PinnedDataIteratorMultipleFiles) {
   ASSERT_OK(iter->status());
   delete iter;
 }
+
+// The PinnedDataIteratorImmortalMmap* tests below are heavy (thousands of
+// seeks plus full scans over a multi-level DB), so they are skipped under
+// Valgrind like the neighbouring PinnedDataIteratorRandomized tests.
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
+namespace {
+// Forces TableReaderOptions::immortal, like a wrapping factory may do for a
+// DB whose table files never go away.
+class ImmortalTableFactory : public TableFactory {
+ public:
+  explicit ImmortalTableFactory(std::shared_ptr<TableFactory> inner)
+      : inner_(std::move(inner)) {}
+  const char* Name() const override { return "ImmortalTableFactory"; }
+  using TableFactory::NewTableReader;
+  Status NewTableReader(const ReadOptions& ro, const TableReaderOptions& tro,
+                        std::unique_ptr<RandomAccessFileReader>&& file,
+                        uint64_t file_size,
+                        std::unique_ptr<TableReader>* table_reader,
+                        bool prefetch_index_and_filter) const override {
+    TableReaderOptions immortal_tro(tro);
+    immortal_tro.immortal = true;
+    return inner_->NewTableReader(ro, immortal_tro, std::move(file), file_size,
+                                  table_reader, prefetch_index_and_filter);
+  }
+  TableBuilder* NewTableBuilder(const TableBuilderOptions& tbo,
+                                WritableFileWriter* file) const override {
+    return inner_->NewTableBuilder(tbo, file);
+  }
+  std::unique_ptr<TableFactory> Clone() const override {
+    return std::make_unique<ImmortalTableFactory>(inner_->Clone());
+  }
+
+ private:
+  std::shared_ptr<TableFactory> inner_;
+};
+
+// Uncompressed persistent cache keeping about half of the blocks. Blocks
+// read back from it are heap-owned; the others keep coming from the file.
+class UncompressedPersistentCache : public PersistentCache {
+ public:
+  Status Insert(const Slice& key, const char* data, size_t size) override {
+    MutexLock l(&mu_);
+    if (std::hash<std::string>()(key.ToString()) % 2 == 0) {
+      data_[key.ToString()].assign(data, size);
+    }
+    return Status::OK();
+  }
+  Status Lookup(const Slice& key, std::unique_ptr<char[]>* data,
+                size_t* size) override {
+    MutexLock l(&mu_);
+    auto it = data_.find(key.ToString());
+    if (it == data_.end()) {
+      return Status::NotFound();
+    }
+    data->reset(new char[it->second.size()]);
+    memcpy(data->get(), it->second.data(), it->second.size());
+    *size = it->second.size();
+    return Status::OK();
+  }
+  bool IsCompressed() override { return false; }
+  StatsType Stats() override { return StatsType(); }
+  std::string GetPrintableOptions() const override { return ""; }
+  uint64_t NewId() override { return next_id_++; }
+
+ private:
+  port::Mutex mu_;
+  std::map<std::string, std::string> data_;
+  std::atomic<uint64_t> next_id_{1};
+};
+
+// Shared setup of the PinnedDataIteratorImmortalMmap* tests.
+constexpr int kImmortalKeys = 3000;
+constexpr int kImmortalKeysPerFile = 100;
+constexpr int kImmortalSeeks = 2000;
+constexpr int kImmortalRangeDelBegin = 1500;
+constexpr int kImmortalRangeDelEnd = 1560;
+
+// Counts how LevelIterator disposes of the file iterators it leaves and how
+// many data blocks BlockBasedTableIterator delegates to the
+// PinnedIteratorsManager.
+struct PinCounters {
+  std::atomic<int> pinned_file_iters{0};
+  std::atomic<int> dropped_file_iters{0};
+  std::atomic<int> delegated_blocks{0};
+  // Dropped iterators must never hold a cleanup (table cache handle).
+  std::atomic<int> dropped_with_cleanups{0};
+
+  PinCounters() {
+    SyncPoint::GetInstance()->SetCallBack(
+        "LevelIterator::SetFileIterator:PinIterator",
+        [this](void*) { pinned_file_iters++; });
+    SyncPoint::GetInstance()->SetCallBack(
+        "LevelIterator::SetFileIterator:DeleteIterator", [this](void* arg) {
+          if (arg != nullptr) {
+            dropped_file_iters++;
+            if (static_cast<InternalIterator*>(arg)->HasCleanups()) {
+              dropped_with_cleanups++;
+            }
+          }
+        });
+    SyncPoint::GetInstance()->SetCallBack(
+        "BlockBasedTableIterator::ResetDataIter:DelegateBlock",
+        [this](void*) { delegated_blocks++; });
+    SyncPoint::GetInstance()->EnableProcessing();
+  }
+  ~PinCounters() {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  }
+  void Reset() {
+    pinned_file_iters = 0;
+    dropped_file_iters = 0;
+    delegated_blocks = 0;
+    dropped_with_cleanups = 0;
+  }
+};
+
+// Writes Key(0) .. Key(kImmortalKeys - 1) interleaved into L3, L2 and L1
+// (key i goes to level (i % 3) + 1), several files per level, calling
+// before_level(level) first, e.g. to reopen with other table options. One L1
+// file also holds a range tombstone (within its own key range, so the files
+// still move down without being compacted) that deletes keys of all three
+// levels. true_data receives the surviving keys.
+void WriteInterleavedLevels(DBTestBase* t, Random* rnd,
+                            const std::function<void(int level)>& before_level,
+                            std::map<std::string, std::string>* true_data) {
+  for (int level = 3; level >= 1; level--) {
+    before_level(level);
+    for (int i = level - 1; i < kImmortalKeys; i += 3) {
+      if (level == 1 && i == kImmortalRangeDelEnd) {
+        ASSERT_OK(t->db_->DeleteRange(WriteOptions(),
+                                      t->db_->DefaultColumnFamily(),
+                                      DBTestBase::Key(kImmortalRangeDelBegin),
+                                      DBTestBase::Key(kImmortalRangeDelEnd)));
+        true_data->erase(
+            true_data->lower_bound(DBTestBase::Key(kImmortalRangeDelBegin)),
+            true_data->lower_bound(DBTestBase::Key(kImmortalRangeDelEnd)));
+      }
+      std::string k = DBTestBase::Key(i);
+      std::string v = rnd->RandomString(100);
+      ASSERT_OK(t->Put(k, v));
+      (*true_data)[k] = v;
+      if ((i / 3) % kImmortalKeysPerFile == kImmortalKeysPerFile - 1) {
+        ASSERT_OK(t->Flush());
+      }
+    }
+    ASSERT_OK(t->Flush());
+    t->MoveFilesToLevel(level);
+  }
+  for (int level = 1; level <= 3; level++) {
+    ASSERT_GT(t->NumTableFilesAtLevel(level), 4);
+  }
+  ASSERT_EQ(kImmortalKeys - (kImmortalRangeDelEnd - kImmortalRangeDelBegin),
+            true_data->size());
+}
+
+// A key/value pair as the iterator returned it, plus copies to compare
+// against after the iterator moved on (and, under ASan, to detect slices
+// into freed memory). Unpinned keys live in DBIter's buffer and are not
+// saved; values are always pinned.
+struct SavedEntry {
+  Slice key, value;
+  std::string key_copy, value_copy;
+};
+
+// Checks the iterator's current entry against true_data and the expected
+// is-key-pinned property (nullptr: varies by block), then saves it.
+// is-value-pinned is only reported in the forward direction.
+void CheckAndSave(Iterator* iter,
+                  const std::map<std::string, std::string>& true_data,
+                  const char* expected_keys_pinned, bool forward,
+                  std::vector<SavedEntry>* saved) {
+  ASSERT_TRUE(iter->Valid());
+  std::string prop;
+  ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop));
+  if (expected_keys_pinned != nullptr) {
+    ASSERT_EQ(expected_keys_pinned, prop);
+  }
+  const bool key_pinned = prop == "1";
+  if (forward) {
+    ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-value-pinned", &prop));
+    ASSERT_EQ("1", prop);
+  }
+  auto it = true_data.find(iter->key().ToString());
+  ASSERT_TRUE(it != true_data.end());
+  ASSERT_EQ(it->second, iter->value().ToString());
+  saved->push_back({key_pinned ? iter->key() : Slice(), iter->value(),
+                    key_pinned ? iter->key().ToString() : "",
+                    iter->value().ToString()});
+}
+
+// Random seeks with Next/Prev/Prev around each, then a full forward and a
+// full backward scan, saving every entry.
+void SeekAndScanAll(Iterator* iter, Random* rnd,
+                    const std::map<std::string, std::string>& true_data,
+                    const char* expected_keys_pinned,
+                    std::vector<SavedEntry>* saved) {
+  for (int i = 0; i < kImmortalSeeks; i++) {
+    // kImmortalKeys - 1 so that Next() stays valid.
+    iter->Seek(
+        DBTestBase::Key(static_cast<int>(rnd->Uniform(kImmortalKeys - 1))));
+    ASSERT_NO_FATAL_FAILURE(
+        CheckAndSave(iter, true_data, expected_keys_pinned, true, saved));
+    iter->Next();
+    ASSERT_NO_FATAL_FAILURE(
+        CheckAndSave(iter, true_data, expected_keys_pinned, true, saved));
+    iter->Prev();
+    iter->Prev();
+    if (iter->Valid()) {
+      ASSERT_NO_FATAL_FAILURE(
+          CheckAndSave(iter, true_data, expected_keys_pinned, false, saved));
+    }
+  }
+  size_t n = 0;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next(), n++) {
+    ASSERT_NO_FATAL_FAILURE(
+        CheckAndSave(iter, true_data, expected_keys_pinned, true, saved));
+  }
+  ASSERT_EQ(true_data.size(), n);
+  for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+    ASSERT_NO_FATAL_FAILURE(
+        CheckAndSave(iter, true_data, expected_keys_pinned, false, saved));
+  }
+  ASSERT_OK(iter->status());
+}
+
+void VerifySaved(const std::vector<SavedEntry>& saved) {
+  ASSERT_GT(saved.size(), 0u);
+  for (const SavedEntry& s : saved) {
+    ASSERT_EQ(s.key_copy, s.key.ToString());
+    ASSERT_EQ(s.value_copy, s.value.ToString());
+  }
+}
+}  // namespace
+
+// LevelIterator drops old file iterators instead of pinning them only for
+// immortal tables (ReadOnly with max_open_files=-1, or an immortal factory)
+// without table cache handles or first-key indexes, while positioned on no
+// block or on a block in the immortal source (mmap, uncompressed, no cache
+// handle). Owned blocks it left earlier (here: persistent cache hits, mixed
+// with mmap blocks in the same iterator) are delegated to the
+// PinnedIteratorsManager. Every other setup must keep pinning. Run under ASan
+// to check that saved slices stay valid.
+//
+// These tests use TEST_F(DBIteratorBaseTest) rather than the parameterized
+// DBIteratorTest fixture of their neighbours: the read_callback parameter is
+// irrelevant here and would only double an already heavy test's runtime.
+TEST_F(DBIteratorBaseTest, PinnedDataIteratorImmortalMmapNoPin) {
+  PinCounters counters;
+
+  // kNone: all dropped. kSome: pinned while on an owned block. kMost: most
+  // pinned, some dropped (e.g. exhausted ones). kAll: never dropped.
+  enum Pins { kNone, kSome, kMost, kAll };
+  struct Mode {
+    bool read_only, mmap, block_cache, persistent_cache, immortal_factory,
+        fill_cache;
+    int max_open_files;
+    Pins pins;
+    // Expected is-key-pinned, or nullptr if it varies by block.
+    const char* keys_pinned;
+  };
+  // {read_only, mmap, block_cache, persistent_cache, immortal_factory,
+  //  fill_cache, max_open_files, pins, keys_pinned}
+  const std::vector<Mode> kModes = {
+      // Immortal, mmap: dropped. The reader does not insert unowned (mmap,
+      // uncompressed) blocks into the block cache, so also with a cache.
+      {true, true, false, false, false, true, -1, kNone, "1"},
+      {true, true, true, false, false, true, -1, kNone, "1"},
+      {false, true, false, false, true, true, -1, kNone, "1"},
+      // fill_cache=false charges a placeholder for each block to the block
+      // cache through a cleanup on the block iterator; dropping the block
+      // releases it right away instead of keeping it until the iterator dies.
+      {true, true, true, false, false, false, -1, kNone, "1"},
+      // Immortal, mmap blocks mixed with owned persistent cache hits.
+      {true, true, false, true, false, true, -1, kSome, nullptr},
+      // Immortal, cached or heap-owned blocks.
+      {true, false, true, false, false, true, -1, kMost, "1"},
+      {true, false, false, false, false, true, -1, kMost, "0"},
+      // Not immortal: cached blocks pin through the handle; unowned mmap
+      // blocks are not pinned at all.
+      {false, false, true, false, false, true, -1, kAll, "1"},
+      {false, true, false, false, false, true, -1, kAll, "0"},
+      // Immortal with table cache handles (only files whose readers were
+      // preloaded into FileMetaData have none and are dropped).
+      {false, true, false, false, true, true, 20, kMost, "1"},
+  };
+  // Keys taken from index values: always pin.
+  const std::vector<Mode> kFirstKeyModes = {
+      {true, true, false, false, false, true, -1, kAll, "1"}};
+  for (bool first_key_index : {false, true}) {
+    Options options = CurrentOptions();
+    options.compression = kNoCompression;
+    options.disable_auto_compactions = true;
+    options.level_compaction_dynamic_level_bytes = false;
+    BlockBasedTableOptions table_options;
+    table_options.use_delta_encoding = false;
+    table_options.block_size = 1024;
+    if (first_key_index) {
+      table_options.index_type =
+          BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey;
+    }
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    DestroyAndReopen(options);
+
+    std::map<std::string, std::string> true_data;
+    Random rnd(301);
+    ASSERT_NO_FATAL_FAILURE(WriteInterleavedLevels(
+        this, &rnd, [](int /*level*/) {}, &true_data));
+
+    const std::vector<Mode>& modes = first_key_index ? kFirstKeyModes : kModes;
+    for (const Mode& mode : modes) {
+      SCOPED_TRACE(
+          "first_key_index=" + std::to_string(first_key_index) +
+          " read_only=" + std::to_string(mode.read_only) +
+          " mmap=" + std::to_string(mode.mmap) +
+          " block_cache=" + std::to_string(mode.block_cache) +
+          " persistent_cache=" + std::to_string(mode.persistent_cache) +
+          " immortal_factory=" + std::to_string(mode.immortal_factory) +
+          " fill_cache=" + std::to_string(mode.fill_cache) +
+          " max_open_files=" + std::to_string(mode.max_open_files));
+      options.allow_mmap_reads = mode.mmap;
+      options.max_open_files = mode.max_open_files;
+      std::shared_ptr<Cache> block_cache =
+          mode.block_cache ? NewLRUCache(32 << 20) : nullptr;
+      table_options.no_block_cache = !mode.block_cache;
+      table_options.block_cache = block_cache;
+      table_options.persistent_cache =
+          mode.persistent_cache
+              ? std::make_shared<UncompressedPersistentCache>()
+              : nullptr;
+      options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+      if (mode.immortal_factory) {
+        options.table_factory =
+            std::make_shared<ImmortalTableFactory>(options.table_factory);
+      }
+      if (mode.read_only) {
+        ASSERT_OK(ReadOnlyReopen(options));
+      } else {
+        Reopen(options);
+      }
+      counters.Reset();
+
+      ReadOptions ro;
+      ro.pin_data = true;
+      ro.fill_cache = mode.fill_cache;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+      std::vector<SavedEntry> saved;
+      ASSERT_NO_FATAL_FAILURE(SeekAndScanAll(iter.get(), &rnd, true_data,
+                                             mode.keys_pinned, &saved));
+#ifndef NDEBUG
+      ASSERT_EQ(0, counters.dropped_with_cleanups.load());
+#endif
+      if (!mode.fill_cache) {
+        // Placeholder charges of dropped blocks were released; only the
+        // blocks the live file iterators are on (one per level) may be
+        // charged, far below what pinning every block visited would cost.
+        ASSERT_NE(nullptr, block_cache);
+        ASSERT_LT(block_cache->GetUsage(), 16u << 10);
+      }
+      ASSERT_NO_FATAL_FAILURE(VerifySaved(saved));
+#ifndef NDEBUG
+      if (mode.pins == kAll || mode.pins == kMost) {
+        // Most seeks switch files at least once.
+        ASSERT_GT(counters.pinned_file_iters.load(), kImmortalSeeks / 2);
+        if (mode.pins == kAll) {
+          ASSERT_EQ(0, counters.dropped_file_iters.load());
+        } else {
+          ASSERT_GT(counters.dropped_file_iters.load(), 0);
+        }
+      } else if (mode.pins == kSome) {
+        // Owned blocks were delegated; iterators on an owned block were
+        // pinned, the others dropped.
+        ASSERT_GT(counters.delegated_blocks.load(), 0);
+        ASSERT_GT(counters.pinned_file_iters.load(), 0);
+        ASSERT_GT(counters.dropped_file_iters.load(), 0);
+      } else {
+        ASSERT_EQ(0, counters.pinned_file_iters.load());
+        ASSERT_EQ(0, counters.delegated_blocks.load());
+        ASSERT_GT(counters.dropped_file_iters.load(), kImmortalSeeks / 2);
+      }
+#endif
+    }
+  }
+}
+
+// The same column family with table options that changed between flushes:
+// L3 is plain (dropped), L2 has a first-key index (pinned), L1 has delta
+// encoding, a hash index and compression (its decompressed blocks are
+// heap-owned and delegated; keys are not pinned). Each file iterator is
+// judged by its own table's properties.
+TEST_F(DBIteratorBaseTest, PinnedDataIteratorImmortalMmapMixedTableOptions) {
+  PinCounters counters;
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.level_compaction_dynamic_level_bytes = false;
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 1024;
+  table_options.no_block_cache = true;
+  DestroyAndReopen(options);
+
+  std::map<std::string, std::string> true_data;
+  Random rnd(301);
+  ASSERT_NO_FATAL_FAILURE(WriteInterleavedLevels(
+      this, &rnd,
+      [&](int level) {
+        switch (level) {
+          case 3:
+            options.compression = kNoCompression;
+            table_options.use_delta_encoding = false;
+            break;
+          case 2:
+            table_options.index_type =
+                BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey;
+            break;
+          case 1:
+            options.compression =
+                Snappy_Supported() ? kSnappyCompression : kNoCompression;
+            table_options.index_type =
+                BlockBasedTableOptions::IndexType::kBinarySearch;
+            table_options.use_delta_encoding = true;
+            table_options.data_block_index_type =
+                BlockBasedTableOptions::kDataBlockBinaryAndHash;
+            break;
+        }
+        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+        Reopen(options);
+      },
+      &true_data));
+
+  options.allow_mmap_reads = true;
+  options.max_open_files = -1;
+  ASSERT_OK(ReadOnlyReopen(options));
+  counters.Reset();
+
+  ReadOptions ro;
+  ro.pin_data = true;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+  std::vector<SavedEntry> saved;
+  ASSERT_NO_FATAL_FAILURE(SeekAndScanAll(iter.get(), &rnd, true_data,
+                                         /*expected_keys_pinned=*/nullptr,
+                                         &saved));
+#ifndef NDEBUG
+  ASSERT_EQ(0, counters.dropped_with_cleanups.load());
+  ASSERT_GT(counters.pinned_file_iters.load(), 0);
+  ASSERT_GT(counters.dropped_file_iters.load(), 0);
+  if (Snappy_Supported()) {
+    ASSERT_GT(counters.delegated_blocks.load(), 0);
+  }
+#endif
+  ASSERT_NO_FATAL_FAILURE(VerifySaved(saved));
+}
+
+// A MultiScan iterator owns the ReadSet its blocks were read into, so it is
+// pinned like before even over an immortal mmap table.
+TEST_F(DBIteratorBaseTest, PinnedDataIteratorImmortalMmapMultiScan) {
+  PinCounters counters;
+
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.disable_auto_compactions = true;
+  options.level_compaction_dynamic_level_bytes = false;
+  BlockBasedTableOptions table_options;
+  table_options.use_delta_encoding = false;
+  table_options.block_size = 1024;
+  table_options.no_block_cache = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  std::map<std::string, std::string> true_data;
+  Random rnd(301);
+  ASSERT_NO_FATAL_FAILURE(WriteInterleavedLevels(
+      this, &rnd, [](int /*level*/) {}, &true_data));
+
+  options.allow_mmap_reads = true;
+  options.max_open_files = -1;
+  options.statistics = CreateDBStatistics();
+  ASSERT_OK(ReadOnlyReopen(options));
+  counters.Reset();
+
+  // Disjoint ranges, each spanning several files of every level; the second
+  // one covers the range tombstone. MultiScanArgs keeps Slices of the bounds.
+  const std::vector<std::pair<std::string, std::string>> kRanges = {
+      {Key(10), Key(400)}, {Key(1450), Key(1700)}, {Key(2200), Key(2990)}};
+  MultiScanArgs scan_opts(BytewiseComparator());
+  for (const auto& range : kRanges) {
+    scan_opts.insert(range.first, range.second);
+  }
+  ReadOptions ro;
+  ro.pin_data = true;
+  // A prepared iterator expects the upper bound to follow the ranges.
+  Slice upper_bound;
+  ro.iterate_upper_bound = &upper_bound;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+  iter->Prepare(scan_opts);
+  ASSERT_OK(iter->status());
+  std::vector<SavedEntry> saved;
+  for (const auto& range : kRanges) {
+    const std::string& limit = range.second;
+    upper_bound = limit;
+    auto expected = true_data.lower_bound(range.first);
+    for (iter->Seek(range.first); iter->Valid(); iter->Next(), ++expected) {
+      ASSERT_LT(iter->key().compare(limit), 0);
+      ASSERT_TRUE(expected != true_data.end());
+      ASSERT_EQ(expected->first, iter->key().ToString());
+      ASSERT_NO_FATAL_FAILURE(CheckAndSave(iter.get(), true_data,
+                                           /*expected_keys_pinned=*/nullptr,
+                                           /*forward=*/true, &saved));
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(expected == true_data.end() || expected->first >= limit);
+  }
+  // LevelIterator prepares its file iterators as it opens them.
+  ASSERT_GT(options.statistics->getTickerCount(MULTISCAN_PREPARE_CALLS), 0u);
+  ASSERT_EQ(0u, options.statistics->getTickerCount(MULTISCAN_PREPARE_ERRORS));
+#ifndef NDEBUG
+  ASSERT_EQ(0, counters.dropped_with_cleanups.load());
+  // Every file iterator the scan left was prepared and is pinned.
+  ASSERT_GT(counters.pinned_file_iters.load(), 0);
+  ASSERT_EQ(0, counters.dropped_file_iters.load());
+#endif
+  ASSERT_NO_FATAL_FAILURE(VerifySaved(saved));
+}
+
+// An immortal mmap table whose data-block keys are delta encoded: the values
+// still point into the mapping (so the file iterators are dropped), but keys
+// that are not at a restart point are reconstructed into the DBIter's buffer
+// and are not pinned. Checks that dropping the iterators while pinning leaves
+// both the saved values (pinned, in the mapping) and keys (copied out) valid.
+TEST_F(DBIteratorBaseTest, PinnedDataIteratorImmortalMmapDeltaEncodedKeys) {
+  PinCounters counters;
+
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.disable_auto_compactions = true;
+  options.level_compaction_dynamic_level_bytes = false;
+  BlockBasedTableOptions table_options;
+  table_options.use_delta_encoding = true;
+  table_options.index_type = BlockBasedTableOptions::IndexType::kBinarySearch;
+  table_options.block_size = 1024;
+  table_options.no_block_cache = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  std::map<std::string, std::string> true_data;
+  Random rnd(301);
+  ASSERT_NO_FATAL_FAILURE(WriteInterleavedLevels(
+      this, &rnd, [](int /*level*/) {}, &true_data));
+
+  options.allow_mmap_reads = true;
+  options.max_open_files = -1;
+  ASSERT_OK(ReadOnlyReopen(options));
+  counters.Reset();
+
+  ReadOptions ro;
+  ro.pin_data = true;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+  std::vector<SavedEntry> saved;
+  // is-key-pinned varies: restart-point keys are stored in full (pinned),
+  // delta-encoded keys are not.
+  ASSERT_NO_FATAL_FAILURE(SeekAndScanAll(iter.get(), &rnd, true_data,
+                                         /*expected_keys_pinned=*/nullptr,
+                                         &saved));
+#ifndef NDEBUG
+  ASSERT_EQ(0, counters.dropped_with_cleanups.load());
+  ASSERT_GT(counters.dropped_file_iters.load(), 0);
+#endif
+  ASSERT_NO_FATAL_FAILURE(VerifySaved(saved));
+}
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_P(DBIteratorTest, PinnedDataIteratorMergeOperator) {
   Options options = CurrentOptions();
