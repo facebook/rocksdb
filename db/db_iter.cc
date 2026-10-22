@@ -96,6 +96,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       trace_cf_id_(cfd != nullptr ? cfd->GetID() : 0),
       has_trace_state_(db_impl != nullptr && cfd != nullptr),
       ingest_sst_lock_(cfd != nullptr ? &cfd->GetIngestSstLock() : nullptr),
+      version_number_(version != nullptr ? version->GetVersionNumber() : 0),
       timestamp_ub_(read_options.timestamp),
       timestamp_lb_(read_options.iter_start_ts),
       timestamp_size_(timestamp_ub_ ? timestamp_ub_->size() : 0),
@@ -1833,7 +1834,7 @@ void DBIter::MaybeInsertRangeTombstone(const Slice& end_key) {
   assert(ingest_sst_lock_ != nullptr);
   if (active_mem_->AddLogicallyRedundantRangeTombstone(
           insert_seq, range_tomb_first_key_.GetUserKey(), end_key,
-          *ingest_sst_lock_)) {
+          version_number_, *ingest_sst_lock_)) {
     RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_INSERTED);
     ROCKS_LOG_DEBUG(logger_,
                     "Inserted range tombstone [%s, %s) @ seq %" PRIu64
