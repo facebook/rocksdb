@@ -4433,7 +4433,8 @@ TEST_F(DBFlushTest, FlushAfterReadPathRangeTombstoneInsertion) {
         // already immutable. Without the fix, this succeeds and creates
         // an entry count mismatch.
         cfh->cfd()->mem()->AddLogicallyRedundantRangeTombstone(
-            1 /* seq */, "b", "f", cfh->cfd()->GetIngestSstLock());
+            1 /* seq */, "b", "f", 0 /* version_number */,
+            cfh->cfd()->GetIngestSstLock());
       });
   SyncPoint::GetInstance()->EnableProcessing();
 

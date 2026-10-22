@@ -713,6 +713,8 @@ class DBIter final : public Iterator {
   uint32_t trace_cf_id_;
   bool has_trace_state_;
   port::RWMutex* ingest_sst_lock_;
+  // Number of the Version this iterator reads, or 0 if unknown.
+  const uint64_t version_number_;
   const Slice* const timestamp_ub_;
   const Slice* const timestamp_lb_;
   const size_t timestamp_size_;

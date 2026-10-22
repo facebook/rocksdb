@@ -1440,7 +1440,8 @@ struct AdvancedColumnFamilyOptions {
   //     and the snapshot seq is at or above its min uncommitted seq.
   //   * An IngestExternalFile call is currently in flight on this column
   //     family OR the inserted range tombstone seqno would be lower than the
-  //     ingested file seqno.
+  //     ingested file seqno OR the iterator's Version predates a file
+  //     ingested while the active memtable was current.
   //
   // Read-write iterators using ReadOptions::table_filter are rejected while
   // this option is enabled, see more details in ReadOptions::table_filter

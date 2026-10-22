@@ -8414,6 +8414,361 @@ TEST_P(ReadPathRangeTombstoneTest,
   db_->ReleaseSnapshot(snap);
 }
 
+// An ingested file that gets no new sequence number is invisible to an
+// iterator created before the ingestion. That iterator must not convert the
+// deleted keys around the file into a range tombstone that covers it.
+TEST_P(ReadPathRangeTombstoneTest, IngestedFileSurvivesOlderIterator) {
+  enum class IngestMode { kSeqnoZero, kIngestBehind, kDbGenerated };
+  for (IngestMode mode : {IngestMode::kSeqnoZero, IngestMode::kIngestBehind,
+                          IngestMode::kDbGenerated}) {
+    SCOPED_TRACE("ingest mode " + std::to_string(static_cast<int>(mode)));
+    Options options = CurrentOptions();
+    options.min_tombstones_for_range_conversion = 2;
+    options.disable_auto_compactions = true;
+    options.cf_allow_ingest_behind = mode == IngestMode::kIngestBehind;
+    DestroyAndReopen(options);
+
+    std::string file = dbname_ + "/ingest_c.sst";
+    SequenceNumber expected_file_seqno = 0;
+    if (mode == IngestMode::kDbGenerated) {
+      const std::string src_path = dbname_ + "_src";
+      ASSERT_OK(DestroyDB(src_path, options));
+      std::unique_ptr<DB> src;
+      ASSERT_OK(DB::Open(options, src_path, &src));
+      ASSERT_OK(src->Put(WriteOptions(), "c", "vc"));
+      ASSERT_OK(src->Flush(FlushOptions()));
+      std::vector<LiveFileMetaData> src_files;
+      src->GetLiveFilesMetaData(&src_files);
+      ASSERT_EQ(src_files.size(), 1);
+      expected_file_seqno = src_files[0].largest_seqno;
+      ASSERT_GT(expected_file_seqno, 0);
+      file = src_files[0].directory + "/" + src_files[0].relative_filename;
+      ASSERT_OK(src->Close());
+    } else {
+      SstFileWriter writer(EnvOptions(), options);
+      ASSERT_OK(writer.Open(file));
+      ASSERT_OK(writer.Put("c", "vc"));
+      ASSERT_OK(writer.Finish());
+    }
+
+    for (const char* key : {"a", "b", "d", "e", "f", "g"}) {
+      ASSERT_OK(Put(key, std::string("v") + key));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(Delete("b"));
+    ASSERT_OK(Delete("d"));
+    // The iterator sequence number must be above the DB-generated file's.
+    ASSERT_OK(Delete("f"));
+    ASSERT_GT(db_->GetLatestSequenceNumber(), expected_file_seqno);
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+
+    // "c" falls between the deleted keys and overlaps no key in the DB.
+    IngestExternalFileOptions ifo;
+    ifo.ingest_behind = mode == IngestMode::kIngestBehind;
+    ifo.allow_db_generated_files = mode == IngestMode::kDbGenerated;
+    ASSERT_OK(db_->IngestExternalFile({file}, ifo));
+    std::vector<LiveFileMetaData> files;
+    db_->GetLiveFilesMetaData(&files);
+    bool found = false;
+    for (const auto& f : files) {
+      if (f.smallestkey == "c") {
+        found = true;
+        ASSERT_EQ(f.level, options.num_levels - 1);
+        ASSERT_EQ(f.largest_seqno, expected_file_seqno);
+      }
+    }
+    ASSERT_TRUE(found);
+    ASSERT_EQ(Get("c"), "vc");
+
+    // The iterator predates the ingestion, so it sees b and d as one run of
+    // deleted keys.
+    attempted_insert_ranges_.clear();
+    if (Forward()) {
+      iter->SeekToFirst();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->key(), "a");
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->key(), "e");
+    } else {
+      iter->SeekToLast();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->key(), "g");
+      iter->Prev();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->key(), "e");
+      iter->Prev();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->key(), "a");
+    }
+    ASSERT_OK(iter->status());
+    iter.reset();
+    ASSERT_EQ(attempted_insert_ranges_.size(), 1);
+    AssertRange(0, "b", "e");
+
+    EXPECT_EQ(Get("c"), "vc");
+    VerifyIteration({"a", "c", "e", "g"});
+    ASSERT_OK(Flush());
+    Reopen(options);
+    EXPECT_EQ(Get("c"), "vc");
+  }
+}
+
+// NewIterator() references the SuperVersion before it reads the sequence
+// number. An ingestion plus a write in between gives the iterator a sequence
+// number above the ingested files' while its SuperVersion lacks them. It must
+// not convert the deleted keys around those files into a range tombstone.
+TEST_P(ReadPathRangeTombstoneTest,
+       IngestedFileSurvivesIteratorWithOlderSuperVersion) {
+  for (bool new_seqno : {false, true}) {
+    SCOPED_TRACE(new_seqno ? "ingested with a new seqno"
+                           : "ingested with seqno zero");
+    Options options = CurrentOptions();
+    options.min_tombstones_for_range_conversion = 2;
+    options.disable_auto_compactions = true;
+    DestroyAndReopen(options);
+
+    for (const char* key : {"a", "b", "d", "e"}) {
+      ASSERT_OK(Put(key, std::string("v") + key));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(Delete("b"));
+    ASSERT_OK(Delete("d"));
+    // The memtable stays empty, so the ingestion does not switch it.
+    ASSERT_OK(Flush());
+
+    // "c" alone overlaps no key, so it gets seqno zero. Adding "b" overlaps
+    // the deleted "b" in L0, so the file gets a new seqno.
+    const std::string file = dbname_ + "/ingest.sst";
+    SstFileWriter writer(EnvOptions(), options);
+    ASSERT_OK(writer.Open(file));
+    if (new_seqno) {
+      ASSERT_OK(writer.Put("b", "vb2"));
+    }
+    ASSERT_OK(writer.Put("c", "vc"));
+    ASSERT_OK(writer.Finish());
+
+    SyncPoint::GetInstance()->LoadDependency(
+        {{"DBImpl::NewIterator:1",
+          "ReadPathRangeTombstoneTest::OlderSuperVersion:Ingest"},
+         {"ReadPathRangeTombstoneTest::OlderSuperVersion:Written",
+          "DBImpl::NewIterator:2"}});
+    std::unique_ptr<Iterator> iter;
+    port::Thread reader([&]() { iter.reset(db_->NewIterator(ReadOptions())); });
+    TEST_SYNC_POINT("ReadPathRangeTombstoneTest::OlderSuperVersion:Ingest");
+    ASSERT_OK(db_->IngestExternalFile({file}, IngestExternalFileOptions()));
+    ASSERT_OK(Put("z", "vz"));
+    TEST_SYNC_POINT("ReadPathRangeTombstoneTest::OlderSuperVersion:Written");
+    reader.join();
+    SyncPoint::GetInstance()->ClearTrace();
+    SyncPoint::GetInstance()->LoadDependency({});
+
+    std::vector<LiveFileMetaData> files;
+    db_->GetLiveFilesMetaData(&files);
+    bool found = false;
+    for (const auto& f : files) {
+      if (f.largestkey == "c") {
+        found = true;
+        ASSERT_EQ(f.largest_seqno > 0, new_seqno);
+      }
+    }
+    ASSERT_TRUE(found);
+
+    // The iterator reads past the write of "z" but not the ingested file.
+    attempted_insert_ranges_.clear();
+    std::vector<std::string> seen;
+    if (Forward()) {
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        seen.push_back(iter->key().ToString());
+      }
+    } else {
+      for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+        seen.insert(seen.begin(), iter->key().ToString());
+      }
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(seen, std::vector<std::string>({"a", "e", "z"}));
+    iter.reset();
+    ASSERT_EQ(attempted_insert_ranges_.size(), 1);
+    AssertRange(0, "b", "e");
+
+    EXPECT_EQ(Get("c"), "vc");
+    EXPECT_EQ(Get("b"), new_seqno ? "vb2" : "NOT_FOUND");
+    ASSERT_OK(Flush());
+    Reopen(options);
+    EXPECT_EQ(Get("c"), "vc");
+  }
+}
+
+// One IngestExternalFiles() call installs files in two column families. Each
+// column family's older iterator must refuse its conversion.
+TEST_P(ReadPathRangeTombstoneTest, AtomicIngestionSurvivesOlderIterators) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 2;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+  std::vector<std::string> files;
+  for (int cf = 0; cf < 2; cf++) {
+    files.push_back(dbname_ + "/ingest_c" + std::to_string(cf) + ".sst");
+    SstFileWriter writer(EnvOptions(), options);
+    ASSERT_OK(writer.Open(files.back()));
+    ASSERT_OK(writer.Put("c", "vc"));
+    ASSERT_OK(writer.Finish());
+    for (const char* key : {"a", "b", "d", "e"}) {
+      ASSERT_OK(Put(cf, key, std::string("v") + key));
+    }
+    ASSERT_OK(Flush(cf));
+    ASSERT_OK(Delete(cf, "b"));
+    ASSERT_OK(Delete(cf, "d"));
+  }
+  std::unique_ptr<Iterator> it0(db_->NewIterator(ReadOptions(), handles_[0]));
+  std::unique_ptr<Iterator> it1(db_->NewIterator(ReadOptions(), handles_[1]));
+  std::vector<IngestExternalFileArg> args(2);
+  for (int cf = 0; cf < 2; cf++) {
+    args[cf].column_family = handles_[cf];
+    args[cf].external_files = {files[cf]};
+  }
+  ASSERT_OK(db_->IngestExternalFiles(args));
+
+  attempted_insert_ranges_.clear();
+  for (auto* it : {it0.get(), it1.get()}) {
+    if (Forward()) {
+      for (it->SeekToFirst(); it->Valid(); it->Next()) {
+      }
+    } else {
+      for (it->SeekToLast(); it->Valid(); it->Prev()) {
+      }
+    }
+    ASSERT_OK(it->status());
+  }
+  it0.reset();
+  it1.reset();
+  EXPECT_EQ(attempted_insert_ranges_.size(), 2);
+  EXPECT_EQ(Get(0, "c"), "vc");
+  EXPECT_EQ(Get(1, "c"), "vc");
+}
+
+// An iterator created after an ingestion sees the ingested files, so the
+// barrier must still let it convert.
+TEST_P(ReadPathRangeTombstoneTest, IteratorCreatedAfterIngestionConverts) {
+  for (bool seqno_zero : {true, false}) {
+    SCOPED_TRACE(seqno_zero ? "ingested with seqno zero"
+                            : "ingested with a new seqno");
+    Options options = CurrentOptions();
+    options.min_tombstones_for_range_conversion = 2;
+    options.disable_auto_compactions = true;
+    options.statistics = CreateDBStatistics();
+    DestroyAndReopen(options);
+
+    // "x" alone overlaps no key, so it gets seqno zero. Adding "e" overlaps
+    // the flushed "e", so the file gets a new seqno.
+    const std::string file = dbname_ + "/ingest_x.sst";
+    SstFileWriter writer(EnvOptions(), options);
+    ASSERT_OK(writer.Open(file));
+    if (!seqno_zero) {
+      ASSERT_OK(writer.Put("e", "ve2"));
+    }
+    ASSERT_OK(writer.Put("x", "vx"));
+    ASSERT_OK(writer.Finish());
+    for (const char* key : {"a", "b", "c", "d", "e"}) {
+      ASSERT_OK(Put(key, std::string("v") + key));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(Delete("b"));
+    ASSERT_OK(Delete("c"));
+    ASSERT_OK(Delete("d"));
+    IngestExternalFileOptions ifo;
+    ifo.allow_blocking_flush = false;
+    ASSERT_OK(db_->IngestExternalFile({file}, ifo));
+
+    {
+      std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+      for (it->SeekToFirst(); it->Valid(); it->Next()) {
+      }
+      ASSERT_OK(it->status());
+    }
+    EXPECT_EQ(TestGetTickerCount(options, READ_PATH_RANGE_TOMBSTONES_INSERTED),
+              1);
+    VerifyIteration({"a", "e", "x"});
+    EXPECT_EQ(Get("e"), seqno_zero ? "ve" : "ve2");
+  }
+}
+
+// A conversion that runs before an ingestion leaves a range tombstone in the
+// memtable over the gap where the file lands. The ingestion must either fail
+// or make the file visible, whatever the ingestion options.
+TEST_P(ReadPathRangeTombstoneTest, IngestionAfterConversionIsNeverHidden) {
+  enum class IngestMode {
+    kNoGlobalSeqnoNoFlush,
+    kNoGlobalSeqno,
+    kGlobalSeqno,
+    kDbGenerated
+  };
+  for (IngestMode mode :
+       {IngestMode::kNoGlobalSeqnoNoFlush, IngestMode::kNoGlobalSeqno,
+        IngestMode::kGlobalSeqno, IngestMode::kDbGenerated}) {
+    SCOPED_TRACE("ingest mode " + std::to_string(static_cast<int>(mode)));
+    Options options = CurrentOptions();
+    options.min_tombstones_for_range_conversion = 2;
+    options.disable_auto_compactions = true;
+    options.statistics = CreateDBStatistics();
+    DestroyAndReopen(options);
+
+    std::string file = dbname_ + "/ingest_c.sst";
+    if (mode == IngestMode::kDbGenerated) {
+      const std::string src_path = dbname_ + "_src";
+      ASSERT_OK(DestroyDB(src_path, options));
+      std::unique_ptr<DB> src;
+      ASSERT_OK(DB::Open(options, src_path, &src));
+      ASSERT_OK(src->Put(WriteOptions(), "c", "vc"));
+      ASSERT_OK(src->Flush(FlushOptions()));
+      std::vector<LiveFileMetaData> src_files;
+      src->GetLiveFilesMetaData(&src_files);
+      ASSERT_EQ(src_files.size(), 1);
+      file = src_files[0].directory + "/" + src_files[0].relative_filename;
+      ASSERT_OK(src->Close());
+    } else {
+      SstFileWriter writer(EnvOptions(), options);
+      ASSERT_OK(writer.Open(file));
+      ASSERT_OK(writer.Put("c", "vc"));
+      ASSERT_OK(writer.Finish());
+    }
+
+    for (const char* key : {"a", "b", "d", "e"}) {
+      ASSERT_OK(Put(key, std::string("v") + key));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(Delete("b"));
+    ASSERT_OK(Delete("d"));
+    attempted_insert_ranges_.clear();
+    VerifyIteration({"a", "e"});
+    ASSERT_EQ(TestGetTickerCount(options, READ_PATH_RANGE_TOMBSTONES_INSERTED),
+              1);
+    AssertRange(0, "b", "e");
+
+    IngestExternalFileOptions ifo;
+    ifo.allow_global_seqno = mode == IngestMode::kGlobalSeqno;
+    ifo.allow_blocking_flush = mode != IngestMode::kNoGlobalSeqnoNoFlush;
+    ifo.allow_db_generated_files = mode == IngestMode::kDbGenerated;
+    Status s = db_->IngestExternalFile({file}, ifo);
+    if (mode == IngestMode::kGlobalSeqno) {
+      ASSERT_OK(s);
+    } else {
+      ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+    }
+
+    const std::string expected_c = s.ok() ? "vc" : "NOT_FOUND";
+    EXPECT_EQ(Get("c"), expected_c);
+    VerifyIteration(s.ok() ? std::vector<std::string>{"a", "c", "e"}
+                           : std::vector<std::string>{"a", "e"});
+    ASSERT_OK(Flush());
+    Reopen(options);
+    EXPECT_EQ(Get("c"), expected_c);
+  }
+}
+
 // SeekForPrev uses the reverse path: PrevInternal -> FindValueForCurrentKey.
 // When a key has more versions than max_sequential_skip_in_iterations,
 // FindValueForCurrentKey delegates to FindValueForCurrentKeyUsingSeek which
