@@ -1,6 +1,6 @@
 # Point Lookup (Get)
 
-**Files:** `db/db_impl/db_impl.cc`, `db/db_impl/db_impl.h`, `include/rocksdb/db.h`, `include/rocksdb/options.h`
+**Files:** `db/db_impl/db_impl.cc`, `db/db_impl/db_impl_sync_and_async.h`, `db/db_impl/db_impl.h`, `include/rocksdb/db.h`, `include/rocksdb/options.h`
 
 ## Entry Point
 
@@ -17,6 +17,8 @@ Step 2a: **Timestamp history check** -- If user-defined timestamps are enabled a
 Step 2b: **Timestamp ReadCallback installation** -- When user-defined timestamps are enabled (comparator `timestamp_size() > 0`), `GetImpl()` installs a `GetWithTimestampReadCallback` that filters results by both sequence number AND timestamp visibility. This temporarily replaces any user-provided callback via a `SaveAndRestore` RAII pattern. Note: combining UDT with an existing `ReadCallback` (e.g., from transactions) is not supported.
 
 Step 3: **Determine snapshot sequence** -- If `ReadOptions::snapshot` is non-null, use the snapshot's sequence number. Otherwise, call `GetLastPublishedSequence()` to get the latest visible sequence. The snapshot is assigned AFTER SuperVersion acquisition to prevent a concurrent flush from compacting away data between the two steps.
+
+Step 3a: **Optional global row cache lookup** -- When `DBOptions::global_row_cache` is configured and the plain-value read is eligible, consult `GlobalRowCache` before memtables or SST files. A hit that passes snapshot and visibility checks supplies the value or `NotFound` and skips steps 5-7; misses, bypassed modes, and cache errors continue through the normal lookup layers. Cache errors disable caching without replacing the DB read's status.
 
 Step 4: **Construct LookupKey** -- Build a `LookupKey` from the user key, snapshot sequence, and optional timestamp. The `LookupKey` format is: `klength (varint32) | userkey (includes timestamp bytes if UDT enabled) | tag (sequence << 8 | type, 8 bytes)`. When UDT is enabled, timestamp bytes are appended to the user key bytes before the tag; the `user_key()` accessor returns both the original key and timestamp together as a single slice.
 
