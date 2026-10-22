@@ -117,13 +117,15 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                                      read_options.total_order_seek ||
                                      read_options.auto_prefix_mode),
       // Read-path range conversion assumes the scan can observe all interior
-      // live keys. table_filter can hide whole SSTs, and timestamp filtering
+      // live keys. table_filter can hide whole SSTs, read tiers other than
+      // kReadAllTier can skip SSTs or uncached blocks, and timestamp filtering
       // can hide newer UDT versions unless the read is at max timestamp with no
       // lower timestamp bound. Legacy prefix iterators without
       // prefix_same_as_start do not guarantee complete scans, so conversion
       // must stay disabled for the iterator lifetime.
       min_tombstones_for_range_conversion_(
           active_mem != nullptr && !HasTableFilter(read_options) &&
+                  read_options.read_tier == kReadAllTier &&
                   (expect_total_order_inner_iter_ || prefix_same_as_start_) &&
                   HasFullTimestampVisibility(read_options)
               ? mutable_cf_options.min_tombstones_for_range_conversion

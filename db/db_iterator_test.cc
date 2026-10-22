@@ -7555,8 +7555,9 @@ TEST_P(ReadPathRangeTombstoneTest, NoInsertionOnBlockCacheTierIncomplete) {
     ASSERT_TRUE(iter->status().IsIncomplete());
   }
 
-  // No range tombstone should have been inserted despite meeting threshold,
-  // because the iterator terminated with Incomplete (cache miss).
+  // No range tombstone should have been inserted despite meeting threshold:
+  // conversion is disabled for kBlockCacheTier, and the iterator terminated
+  // with Incomplete (cache miss).
   ASSERT_EQ(attempted_insert_ranges_.size(), 0);
   ASSERT_EQ(
       options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
@@ -7568,6 +7569,154 @@ TEST_P(ReadPathRangeTombstoneTest, NoInsertionOnBlockCacheTierIncomplete) {
   } else {
     ASSERT_EQ(Get("a"), "va");
   }
+}
+
+TEST_P(ReadPathRangeTombstoneTest, NoInsertionFromMemtableTierIterator) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 2;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  // "c" is live and only exists in an SST file, which a kMemtableTier
+  // iterator does not read.
+  ASSERT_OK(Put("c", "vc"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Delete("b"));
+  ASSERT_OK(Delete("d"));
+  ASSERT_OK(Put("e", "ve"));
+
+  {
+    ReadOptions ro;
+    ro.read_tier = kMemtableTier;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+    std::vector<std::string> seen;
+    if (Forward()) {
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        seen.push_back(iter->key().ToString());
+      }
+    } else {
+      for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+        seen.insert(seen.begin(), iter->key().ToString());
+      }
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(seen, std::vector<std::string>({"a", "e"}));
+  }
+
+  ASSERT_EQ(Get("c"), "vc");
+  ASSERT_EQ(attempted_insert_ranges_.size(), 0);
+  ASSERT_EQ(
+      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+      0);
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ(Get("c"), "vc");
+}
+
+TEST_P(ReadPathRangeTombstoneTest, PartialTierReadsAfterConversion) {
+  Options options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  table_options.flush_block_policy_factory =
+      std::make_shared<FlushBlockEveryKeyPolicyFactory>();
+  std::shared_ptr<Cache> block_cache = NewLRUCache(1 << 20);
+  table_options.block_cache = block_cache;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  // Conversion starts disabled so the reads recorded before it do not insert.
+  DestroyAndReopen(options);
+
+  for (char c = 'a'; c <= 'h'; c++) {
+    ASSERT_OK(Put(std::string(1, c), std::string("v") + c));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_OK(Delete("b"));
+  ASSERT_OK(Delete("c"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("a", "va2"));
+  ASSERT_OK(Delete("d"));
+  ASSERT_OK(Put("e", "ve2"));
+  ASSERT_OK(Delete("e"));
+
+  auto scan = [&](ReadTier tier) {
+    ReadOptions ro;
+    ro.read_tier = tier;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+    std::vector<std::string> out;
+    if (Forward()) {
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        out.push_back(iter->key().ToString() + "=" + iter->value().ToString());
+      }
+    } else {
+      for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+        out.insert(out.begin(),
+                   iter->key().ToString() + "=" + iter->value().ToString());
+      }
+    }
+    out.push_back(iter->status().ToString());
+    return out;
+  };
+  // kMemtableTier only affects iterators, so point reads compare
+  // kBlockCacheTier with kReadAllTier.
+  auto gets = [&](ReadTier tier) {
+    ReadOptions ro;
+    ro.read_tier = tier;
+    std::vector<std::string> out;
+    for (char c = 'a'; c <= 'h'; c++) {
+      std::string value;
+      Status s = db_->Get(ro, std::string(1, c), &value);
+      out.push_back(std::string(1, c) + ":" + (s.ok() ? value : s.ToString()));
+    }
+    return out;
+  };
+
+  const auto cold_cache_scan_before = scan(kBlockCacheTier);
+  const auto cold_cache_gets_before = gets(kBlockCacheTier);
+  const std::string incomplete =
+      Status::Incomplete("no blocking io").ToString();
+  ASSERT_EQ(cold_cache_scan_before.back(), incomplete);
+  ASSERT_EQ(cold_cache_gets_before[1], "b:" + incomplete);
+  ASSERT_EQ(cold_cache_gets_before[2], "c:" + incomplete);
+
+  // A full scan with conversion disabled reads every block into the cache.
+  const std::vector<std::string> full_view = {"a=va2", "f=vf", "g=vg", "h=vh",
+                                              "OK"};
+  ASSERT_EQ(scan(kReadAllTier), full_view);
+  ASSERT_EQ(attempted_insert_ranges_.size(), 0);
+
+  const auto mem_scan_before = scan(kMemtableTier);
+  ASSERT_EQ(mem_scan_before, std::vector<std::string>({"a=va2", "OK"}));
+  const auto warm_cache_scan_before = scan(kBlockCacheTier);
+  ASSERT_EQ(warm_cache_scan_before, full_view);
+  const auto warm_cache_gets_before = gets(kBlockCacheTier);
+  const auto full_gets = gets(kReadAllTier);
+  ASSERT_EQ(warm_cache_gets_before, full_gets);
+
+  ASSERT_OK(db_->SetOptions({{"min_tombstones_for_range_conversion", "2"}}));
+  // A complete kBlockCacheTier scan does not convert. Only kReadAllTier does.
+  ASSERT_EQ(scan(kBlockCacheTier), warm_cache_scan_before);
+  ASSERT_EQ(attempted_insert_ranges_.size(), 0);
+  ASSERT_EQ(scan(kReadAllTier), full_view);
+  ASSERT_EQ(attempted_insert_ranges_.size(), 1);
+  AssertRange(0, "b", "f");
+  ASSERT_EQ(
+      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+      1);
+
+  ASSERT_EQ(scan(kMemtableTier), mem_scan_before);
+  ASSERT_EQ(scan(kBlockCacheTier), warm_cache_scan_before);
+  ASSERT_EQ(gets(kBlockCacheTier), warm_cache_gets_before);
+
+  // With a cold cache, Gets of the covered keys "b" and "c" now stop at the
+  // memtable range tombstone and return the full-tier NotFound instead of
+  // Incomplete. No read returns a different value.
+  block_cache->EraseUnRefEntries();
+  ASSERT_EQ(scan(kBlockCacheTier), cold_cache_scan_before);
+  auto expected_cold_cache_gets = cold_cache_gets_before;
+  expected_cold_cache_gets[1] = full_gets[1];
+  expected_cold_cache_gets[2] = full_gets[2];
+  ASSERT_EQ(gets(kBlockCacheTier), expected_cold_cache_gets);
 }
 
 TEST_P(ReadPathRangeTombstoneTest, SkipInsertionWhenCoveredByExistingRange) {
