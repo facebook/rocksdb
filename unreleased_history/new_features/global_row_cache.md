@@ -1,0 +1,1 @@
+Added an experimental `GlobalRowCache` interface for caching sequence-aware logical row results across memtables and SST files on the `Get()` path, with ordered point-mutation and range-deletion hooks.
