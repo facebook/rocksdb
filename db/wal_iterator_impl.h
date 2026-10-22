@@ -10,6 +10,7 @@
 
 #include "db/log_reader.h"
 #include "db/version_set.h"
+#include "db/wal_manager.h"
 #include "file/filename.h"
 #include "logging/logging.h"
 #include "options/db_options.h"
@@ -93,7 +94,8 @@ class WalIteratorImpl : public WalIterator {
       VersionSet const* const versions, const bool seq_per_batch,
       const std::shared_ptr<IOTracer>& io_tracer,
       std::shared_ptr<WalRecoverySequenceTracker> recovery_sequence_tracker,
-      uint64_t recovery_sequence_generation);
+      uint64_t recovery_sequence_generation,
+      NextWalForTailFn next_wal_for_tail_fn);
 
   bool Valid() override;
 
@@ -116,6 +118,10 @@ class WalIteratorImpl : public WalIterator {
   std::shared_ptr<IOTracer> io_tracer_;
   std::shared_ptr<WalRecoverySequenceTracker> recovery_sequence_tracker_;
   uint64_t recovery_sequence_generation_;
+  // Used at the tail of files_ to look for a WAL beyond the ones this iterator
+  // was built with. Null when DBOptions::wal_iterator_tail_rotations is off,
+  // in which case running out of files_ always ends the run.
+  NextWalForTailFn next_wal_for_tail_fn_;
 
   // State variables
   bool started_;
