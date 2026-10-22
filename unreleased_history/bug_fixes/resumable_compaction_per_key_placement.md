@@ -1,0 +1,1 @@
+Fixed resuming a remote compaction with per-key placement (`preclude_last_level_data_seconds`) failing with `Corruption: Not able to resume due to table property reading error`. Progress could be saved while the other output level still had an unfinished output file, which the resumed compaction could not read.

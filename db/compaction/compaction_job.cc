@@ -2276,13 +2276,13 @@ Status CompactionJob::FinishCompactionOutputFile(
     }
   }
 
+  outputs.ResetBuilder();
   if (s.ok() && ShouldUpdateSubcompactionProgress(sub_compact, c_iter,
                                                   prev_iter_output_internal_key,
                                                   next_table_min_key, meta)) {
     UpdateSubcompactionProgress(c_iter, next_table_min_key, sub_compact);
     s = PersistSubcompactionProgress(sub_compact);
   }
-  outputs.ResetBuilder();
   return s;
 }
 
@@ -2303,6 +2303,13 @@ bool CompactionJob::ShouldUpdateSubcompactionProgress(
 
   // TODO(hx235): save progress even on the last output file
   if (next_table_min_internal_key.empty()) {
+    return false;
+  }
+
+  // LIMITATION: With per-key placement, the other output level can still be
+  // writing a file that holds keys before this boundary. Progress only records
+  // finished output files, so it is not saved until no output file is open.
+  if (sub_compact->HasOpenOutputFile()) {
     return false;
   }
 
@@ -3148,6 +3155,9 @@ Status CompactionJob::MaybeResumeSubcompactionProgressOnInputIterator(
 
     const auto& output_files =
         subcompaction_progress_per_level.GetOutputFiles();
+    if (output_files.empty()) {
+      continue;
+    }
 
     std::vector<std::shared_ptr<const TableProperties>>
         output_files_table_properties;

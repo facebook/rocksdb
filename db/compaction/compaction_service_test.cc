@@ -3774,6 +3774,52 @@ TEST_F(ResumableCompactionKeyTypeTest, CancelAndResumeWithDeleteAtBottomLevel) {
   VerifyResumeBytes();
 }
 
+// Cancel a per-key placement compaction right before key "d". Keys "a", "b",
+// "d" and "f" go to the last level and the newer keys "c" and "e" go to the
+// proximal level. When the last level file holding "b" is finished at "d", the
+// proximal level file holding "c" is still open, so progress must not be saved
+// there. Compaction resumes from the boundary at "b" instead.
+TEST_F(ResumableCompactionKeyTypeTest, CancelAndResumeWithPerKeyPlacement) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = 7;
+  options.last_level_temperature = Temperature::kCold;
+
+  SetupResumableCompactionService(options, "d");
+
+  ASSERT_OK(Put("a", "val_a"));
+  ASSERT_OK(Put("b", "val_b"));
+  ASSERT_OK(Put("d", "val_d"));
+  ASSERT_OK(Put("f", "val_f"));
+  ASSERT_OK(Flush());
+  const SequenceNumber proximal_after_seqno = db_->GetLatestSequenceNumber();
+  ASSERT_OK(Put("c", "val_c"));
+  ASSERT_OK(Put("e", "val_e"));
+  ASSERT_OK(Flush());
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "Compaction::SupportsPerKeyPlacement:Enabled",
+      [&](void* arg) { *static_cast<bool*>(arg) = true; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::PrepareTimes():preclude_last_level_min_seqno",
+      [&](void* arg) {
+        *static_cast<SequenceNumber*>(arg) = proximal_after_seqno;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ResetStatistics();
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  ASSERT_EQ("0,0,0,0,0,2,4", FilesPerLevel());
+  ASSERT_EQ(Get("a"), "val_a");
+  ASSERT_EQ(Get("b"), "val_b");
+  ASSERT_EQ(Get("c"), "val_c");
+  ASSERT_EQ(Get("d"), "val_d");
+  ASSERT_EQ(Get("e"), "val_e");
+  ASSERT_EQ(Get("f"), "val_f");
+  VerifyResumeBytes();
+}
+
 // Cancel compaction right before processing key "c" to test resumption at a
 // merge operand. When resumed, compaction will continue from the last saved
 // progress point before the merge operand.
