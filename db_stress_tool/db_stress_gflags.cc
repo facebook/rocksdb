@@ -391,6 +391,17 @@ DEFINE_int32(clear_column_family_one_in, 1000000,
              "it again. If N == 0, never drop/create column families. "
              "When test_batches_snapshots is true, this flag has no effect");
 
+DEFINE_bool(test_cf_lifecycle, false,
+            "Run bounded column-family lifecycle stress. This mode uses two "
+            "column families so a failed replacement create can be recovered "
+            "without changing expected-state slot ordering.");
+
+DEFINE_int32(
+    cf_lifecycle_fault_target, 0,
+    "Target the replacement CreateColumnFamily persistence path with an "
+    "injected error: 0=none, 1=OPTIONS, 2=MANIFEST. Requires "
+    "--test_cf_lifecycle and tracked OPTIONS.");
+
 DEFINE_int32(
     get_live_files_apis_one_in, 1000000,
     "With a chance of 1/N, call GetLiveFiles(), GetLiveFilesMetaData() and "
