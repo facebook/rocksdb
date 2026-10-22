@@ -436,6 +436,7 @@ default_params = {
     ),
     # 0 = never (used by some), 10 = often (for threading bugs), 600 = default
     "stats_dump_period_sec": lambda: random.choice([0, 10, 600]),
+    "mutex_hold_log_threshold_us": lambda: random.choice([0, 100000, 25000, 500000]),
     "compaction_ttl": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
     "fifo_allow_compaction": lambda: random.randint(0, 1),
     # TODO(T260692223): FIFO compaction drops old SST files when total size

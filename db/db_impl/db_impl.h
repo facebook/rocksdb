@@ -1319,6 +1319,12 @@ class DBImpl : public DB
   void SetRecoverableStatePreReleaseCallback(PreReleaseCallback* callback);
 
   InstrumentedMutex* mutex() const { return &mutex_; }
+  const std::atomic<uint64_t>* GetMutexHoldLogThreshold() const {
+    return &mutex_hold_log_threshold_us_;
+  }
+  const std::shared_ptr<SlowMutexLoggingContext>& GetSlowMutexLogging() const {
+    return slow_mutex_logging_;
+  }
 
   // Initialize a brand new DB. The DB directory is expected to be empty before
   // calling it. Push new manifest file name into `new_filenames`.
@@ -1673,6 +1679,8 @@ class DBImpl : public DB
   FileSystemPtr fs_;
   MutableDBOptions mutable_db_options_;
   Statistics* stats_;
+  std::atomic<uint64_t> mutex_hold_log_threshold_us_;
+  std::shared_ptr<SlowMutexLoggingContext> slow_mutex_logging_;
   RecoveredTransactionMap recovered_transactions_;
   std::unique_ptr<Tracer> tracer_;
   InstrumentedMutex trace_mutex_;

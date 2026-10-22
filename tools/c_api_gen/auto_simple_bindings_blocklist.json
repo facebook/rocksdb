@@ -70,6 +70,11 @@
       "name": "DBOptions",
       "entries": [
         {
+          "field": "mutex_hold_log_threshold_us",
+          "policy": "deferred",
+          "reason": "Experimental mutex diagnostics are configured through the existing DB option string API until the behavior and overhead are qualified."
+        },
+        {
           "field": "env",
           "policy": "manual",
           "reason": "Stores external objects, callback collections, or nested aggregates that need explicit C ownership and lifetime policy."

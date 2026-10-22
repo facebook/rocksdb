@@ -1565,6 +1565,11 @@ DEFINE_bool(
     "be preserved similarly under `FLAGS_expected_values_dir/unverified` when "
     "`--expected_values_dir` is nonempty.");
 
+DEFINE_uint64(mutex_hold_log_threshold_us,
+              ROCKSDB_NAMESPACE::Options().mutex_hold_log_threshold_us,
+              "Completed global mutex hold threshold in microseconds; 0 "
+              "disables hold logs.");
+
 DEFINE_uint64(stats_dump_period_sec,
               ROCKSDB_NAMESPACE::Options().stats_dump_period_sec,
               "Gap between printing stats to log in seconds");

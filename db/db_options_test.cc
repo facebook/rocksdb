@@ -6,6 +6,9 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+#include <atomic>
+#include <cstring>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <string>
@@ -29,6 +32,19 @@
 #include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+class SlowRecordCallbackLogger : public Logger {
+ public:
+  using Logger::Logv;
+  void Logv(const char* format, va_list /*ap*/) override {
+    if (std::strstr(format, "SLOW_GLOBAL_MUTEX") != nullptr &&
+        !seen.exchange(true)) {
+      on_slow_record();
+    }
+  }
+  std::atomic<bool> seen{false};
+  std::function<void()> on_slow_record;
+};
 
 class DBOptionsTest : public DBTestBase {
  public:
@@ -87,6 +103,86 @@ class DBOptionsTest : public DBTestBase {
     return GetMutableDBOptionsMap(sanitized_options);
   }
 };
+
+TEST_F(DBOptionsTest, MutableMutexHoldLogThreshold) {
+  Options options = CurrentOptions();
+  ASSERT_EQ(options.mutex_hold_log_threshold_us, 0);
+  options.mutex_hold_log_threshold_us = 25000;
+  Reopen(options);
+  ASSERT_EQ(dbfull()->GetDBOptions().mutex_hold_log_threshold_us, 25000);
+  ASSERT_EQ(dbfull()->GetMutexHoldLogThreshold()->load(), 25000);
+  for (uint64_t threshold : {uint64_t{500000}, uint64_t{0}, uint64_t{100000}}) {
+    ASSERT_OK(dbfull()->SetDBOptions(
+        {{"mutex_hold_log_threshold_us", std::to_string(threshold)}}));
+    ASSERT_EQ(dbfull()->GetDBOptions().mutex_hold_log_threshold_us, threshold);
+    ASSERT_EQ(dbfull()->GetMutexHoldLogThreshold()->load(), threshold);
+  }
+  ASSERT_FALSE(
+      dbfull()
+          ->SetDBOptions({{"mutex_hold_log_threshold_us", "not-an-integer"}})
+          .ok());
+  ASSERT_EQ(dbfull()->GetMutexHoldLogThreshold()->load(), 100000);
+  DBOptions parsed;
+  ASSERT_OK(GetDBOptionsFromString(ConfigOptions(), DBOptions(),
+                                   "mutex_hold_log_threshold_us=50000",
+                                   &parsed));
+  ASSERT_EQ(parsed.mutex_hold_log_threshold_us, 50000);
+}
+
+TEST_F(DBOptionsTest, SlowSetOptionsRecordCanReenterDBOptions) {
+  Options options = CurrentOptions();
+  options.mutex_hold_log_threshold_us = 100000;
+  options.statistics = CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
+  std::shared_ptr<SlowRecordCallbackLogger> logger =
+      std::make_shared<SlowRecordCallbackLogger>();
+  options.info_log = logger;
+  Reopen(options);
+  env_->SetMockSleep(true);
+  options.statistics->set_stats_level(StatsLevel::kAll);
+  std::shared_ptr<Status> nested_status = std::make_shared<Status>();
+  logger->on_slow_record = [&, nested_status] {
+    *nested_status =
+        db_->SetDBOptions({{"mutex_hold_log_threshold_us", "500000"}});
+  };
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SetOptions:dummy_edit",
+      [&](void*) { env_->MockSleepForMicroseconds(200000); });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Status status = db_->SetOptions({{"write_buffer_size", "1048576"}});
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_OK(status);
+  ASSERT_TRUE(logger->seen.load());
+  ASSERT_OK(*nested_status);
+  ASSERT_EQ(db_->GetDBOptions().mutex_hold_log_threshold_us, 500000);
+  options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
+  logger->on_slow_record = [] {};
+}
+
+TEST_F(DBOptionsTest, CloseDropsDeferredOwnedLoggerRecord) {
+  Options options = CurrentOptions();
+  options.mutex_hold_log_threshold_us = 100000;
+  options.info_log.reset();
+  options.statistics = CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
+  Reopen(options);
+  env_->SetMockSleep(true);
+  options.statistics->set_stats_level(StatsLevel::kAll);
+  std::shared_ptr<SlowMutexLoggingContext> context =
+      dbfull()->GetSlowMutexLogging();
+  ASSERT_NE(context, nullptr);
+  {
+    SlowMutexLogScope defer_logs(true);
+    dbfull()->mutex()->Lock();
+    env_->MockSleepForMicroseconds(200000);
+    dbfull()->mutex()->Unlock();
+    ASSERT_OK(db_->Close());
+    ASSERT_TRUE(context->stopped.load());
+  }
+  ASSERT_EQ(options.statistics->get_stats_level(), StatsLevel::kAll);
+  ASSERT_EQ(context->threshold_us->load(), 100000);
+}
 
 TEST_F(DBOptionsTest, ImmutableTrackAndVerifyWalsInManifest) {
   Options options;

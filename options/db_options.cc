@@ -93,6 +93,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableDBOptions, stats_dump_period_sec),
           OptionType::kUInt, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"mutex_hold_log_threshold_us",
+         {offsetof(struct MutableDBOptions, mutex_hold_log_threshold_us),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"stats_persist_period_sec",
          {offsetof(struct MutableDBOptions, stats_persist_period_sec),
           OptionType::kUInt, OptionVerificationType::kNormal,
@@ -1114,38 +1118,39 @@ const std::string& ImmutableDBOptions::GetWalDir(
 MutableDBOptions::MutableDBOptions() : MutableDBOptions(DBOptions{}) {}
 
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
-    : max_background_jobs(options.max_background_jobs),
-      max_background_compactions(options.max_background_compactions),
-      max_subcompactions(options.max_subcompactions),
-      avoid_flush_during_shutdown(options.avoid_flush_during_shutdown),
-      writable_file_max_buffer_size(options.writable_file_max_buffer_size),
+    : writable_file_max_buffer_size(options.writable_file_max_buffer_size),
       delayed_write_rate(options.delayed_write_rate),
       max_total_wal_size(options.max_total_wal_size),
       delete_obsolete_files_period_micros(
           options.delete_obsolete_files_period_micros),
-      stats_dump_period_sec(options.stats_dump_period_sec),
-      stats_persist_period_sec(options.stats_persist_period_sec),
+      mutex_hold_log_threshold_us(options.mutex_hold_log_threshold_us),
       stats_history_buffer_size(options.stats_history_buffer_size),
-      max_open_files(options.max_open_files),
       bytes_per_sync(options.bytes_per_sync),
       wal_bytes_per_sync(options.wal_bytes_per_sync),
-      strict_bytes_per_sync(options.strict_bytes_per_sync),
       compaction_readahead_size(options.compaction_readahead_size),
-      max_background_flushes(options.max_background_flushes),
       max_manifest_file_size(options.max_manifest_file_size),
-      max_manifest_space_amp_pct(options.max_manifest_space_amp_pct),
       manifest_preallocation_size(options.manifest_preallocation_size),
+      max_compaction_trigger_wakeup_seconds(
+          options.max_compaction_trigger_wakeup_seconds),
+      daily_offpeak_time_utc(options.daily_offpeak_time_utc),
+      max_background_jobs(options.max_background_jobs),
+      max_background_compactions(options.max_background_compactions),
+      max_subcompactions(options.max_subcompactions),
+      stats_dump_period_sec(options.stats_dump_period_sec),
+      stats_persist_period_sec(options.stats_persist_period_sec),
+      max_open_files(options.max_open_files),
+      max_background_flushes(options.max_background_flushes),
+      max_manifest_space_amp_pct(options.max_manifest_space_amp_pct),
+      periodic_compaction_phase_recovery_percent(
+          options.periodic_compaction_phase_recovery_percent),
+      avoid_flush_during_shutdown(options.avoid_flush_during_shutdown),
+      strict_bytes_per_sync(options.strict_bytes_per_sync),
       verify_manifest_content_on_close(
           options.verify_manifest_content_on_close),
       optimize_manifest_for_recovery(options.optimize_manifest_for_recovery),
       fast_sst_open(options.fast_sst_open),
       remote_compaction_manifest_floor(
-          options.remote_compaction_manifest_floor),
-      daily_offpeak_time_utc(options.daily_offpeak_time_utc),
-      max_compaction_trigger_wakeup_seconds(
-          options.max_compaction_trigger_wakeup_seconds),
-      periodic_compaction_phase_recovery_percent(
-          options.periodic_compaction_phase_recovery_percent) {}
+          options.remote_compaction_manifest_floor) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.max_background_jobs: %d",
@@ -1168,6 +1173,8 @@ void MutableDBOptions::Dump(Logger* log) const {
       delete_obsolete_files_period_micros);
   ROCKS_LOG_HEADER(log, "                  Options.stats_dump_period_sec: %u",
                    stats_dump_period_sec);
+  ROCKS_LOG_HEADER(log, "Options.mutex_hold_log_threshold_us: %" PRIu64,
+                   mutex_hold_log_threshold_us);
   ROCKS_LOG_HEADER(log, "                Options.stats_persist_period_sec: %d",
                    stats_persist_period_sec);
   ROCKS_LOG_HEADER(

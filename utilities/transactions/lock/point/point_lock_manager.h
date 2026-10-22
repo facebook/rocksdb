@@ -192,6 +192,7 @@ class PointLockManager : public LockManager {
 
   // Must be held when modifying wait_txn_map_ and rev_wait_txn_map_.
   std::mutex wait_txn_map_mutex_;
+  std::unique_ptr<SlowMutexTimer> wait_txn_map_timer_;
 
   // Maps from waitee -> number of waiters.
   HashMap<TransactionID, int> rev_wait_txn_map_;

@@ -201,6 +201,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       fs_(immutable_db_options_.fs, io_tracer_),
       mutable_db_options_(initial_db_options_),
       stats_(immutable_db_options_.stats),
+      mutex_hold_log_threshold_us_(
+          initial_db_options_.mutex_hold_log_threshold_us),
 #ifdef COERCE_CONTEXT_SWITCH
       mutex_(stats_, immutable_db_options_.clock, DB_MUTEX_WAIT_MICROS, &bg_cv_,
              immutable_db_options_.use_adaptive_mutex),
@@ -271,6 +273,16 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   table_cache_ = NewLRUCache(co);
   SetDbSessionId();
   assert(!db_session_id_.empty());
+
+  if (stats_ != nullptr && immutable_db_options_.info_log != nullptr) {
+    slow_mutex_logging_ = std::make_shared<SlowMutexLoggingContext>(
+        stats_, immutable_db_options_.clock, env_,
+        immutable_db_options_.info_log, GetMutexHoldLogThreshold());
+    mutex_.ConfigureSlowHoldLogging(slow_mutex_logging_, "DBImpl::mutex_");
+    wal_write_mutex_.ConfigureSlowHoldLogging(slow_mutex_logging_,
+                                              "DBImpl::wal_write_mutex_");
+    logs_with_prep_tracker_.ConfigureSlowHoldLogging(slow_mutex_logging_);
+  }
 
   if (write_buffer_manager_ != nullptr && !read_only_) {
     wbm_flush_initiator_ = std::make_unique<WBMFlushInitiator>(
@@ -1318,6 +1330,9 @@ Status DBImpl::CloseHelper() {
     sfm->Close();
   }
 
+  if (slow_mutex_logging_) {
+    slow_mutex_logging_->stopped.store(true, std::memory_order_relaxed);
+  }
   if (immutable_db_options_.info_log && own_info_log_) {
     Status s = immutable_db_options_.info_log->Close();
     if (!s.ok() && !s.IsNotSupported() && ret.ok()) {
@@ -1353,6 +1368,7 @@ DBImpl::~DBImpl() {
   // TODO: remove this.
   init_logger_creation_s_.PermitUncheckedError();
 
+  SlowMutexLoggingPause pause_logging(slow_mutex_logging_);
   InstrumentedMutexLock closing_lock_guard(&closing_mutex_);
   if (!closed_) {
     closed_ = true;
@@ -1905,7 +1921,9 @@ Status DBImpl::SetOptions(
          &cf_opts.second});
   }
 
-  InstrumentedMutexLock ol(&options_mutex_);
+  DeferredInstrumentedMutexLock ol(
+      &options_mutex_,
+      stats_ != nullptr && immutable_db_options_.info_log != nullptr);
   autovector<MutableCFOptions>
       new_options_copy;  // For logging outside of DB mutex
   Status s;
@@ -2063,7 +2081,9 @@ Status DBImpl::SetDBOptions(
     return Status::InvalidArgument("empty input");
   }
 
-  InstrumentedMutexLock ol(&options_mutex_);
+  DeferredInstrumentedMutexLock ol(
+      &options_mutex_,
+      stats_ != nullptr && immutable_db_options_.info_log != nullptr);
   MutableDBOptions new_options;
   Status s;
   Status persist_options_status = Status::OK();
@@ -2191,6 +2211,8 @@ Status DBImpl::SetDBOptions(
       wal_size_option_changed = mutable_db_options_.max_total_wal_size !=
                                 new_options.max_total_wal_size;
       mutable_db_options_ = new_options;
+      mutex_hold_log_threshold_us_.store(
+          new_options.mutex_hold_log_threshold_us, std::memory_order_relaxed);
       file_options_for_compaction_ = FileOptions(new_db_options);
       file_options_for_compaction_ = fs_->OptimizeForCompactionTableWrite(
           file_options_for_compaction_, immutable_db_options_);
@@ -4530,7 +4552,9 @@ Status DBImpl::CreateColumnFamily(const ReadOptions& read_options,
                                   const std::string& column_family,
                                   ColumnFamilyHandle** handle) {
   assert(handle != nullptr);
-  InstrumentedMutexLock ol(&options_mutex_);
+  DeferredInstrumentedMutexLock ol(
+      &options_mutex_,
+      stats_ != nullptr && immutable_db_options_.info_log != nullptr);
   Status s = CreateColumnFamilyImpl(read_options, write_options, cf_options,
                                     column_family, handle);
   if (s.ok()) {
@@ -4545,7 +4569,9 @@ Status DBImpl::CreateColumnFamilies(
     const std::vector<std::string>& column_family_names,
     std::vector<ColumnFamilyHandle*>* handles) {
   assert(handles != nullptr);
-  InstrumentedMutexLock ol(&options_mutex_);
+  DeferredInstrumentedMutexLock ol(
+      &options_mutex_,
+      stats_ != nullptr && immutable_db_options_.info_log != nullptr);
   std::vector<ColumnFamilyDescriptor> column_families;
   column_families.reserve(column_family_names.size());
   for (const auto& name : column_family_names) {
@@ -4564,7 +4590,9 @@ Status DBImpl::CreateColumnFamilies(
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles) {
   assert(handles != nullptr);
-  InstrumentedMutexLock ol(&options_mutex_);
+  DeferredInstrumentedMutexLock ol(
+      &options_mutex_,
+      stats_ != nullptr && immutable_db_options_.info_log != nullptr);
   Status s = CreateColumnFamiliesImpl(read_options, write_options,
                                       column_families, handles);
   std::vector<const ColumnFamilyOptions*> cf_opts;
@@ -4778,7 +4806,9 @@ Status DBImpl::CreateColumnFamilyWithPreparedOptions(
 
 Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
   assert(column_family != nullptr);
-  InstrumentedMutexLock ol(&options_mutex_);
+  DeferredInstrumentedMutexLock ol(
+      &options_mutex_,
+      stats_ != nullptr && immutable_db_options_.info_log != nullptr);
   Status s = DropColumnFamilyImpl(column_family);
   if (s.ok()) {
     if (immutable_db_options_.track_options_file_number_in_manifest) {
@@ -4793,7 +4823,9 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
 
 Status DBImpl::DropColumnFamilies(
     const std::vector<ColumnFamilyHandle*>& column_families) {
-  InstrumentedMutexLock ol(&options_mutex_);
+  DeferredInstrumentedMutexLock ol(
+      &options_mutex_,
+      stats_ != nullptr && immutable_db_options_.info_log != nullptr);
   Status s;
   bool success_once = false;
   std::vector<ColumnFamilyHandle*> validated_column_families;
@@ -6582,6 +6614,7 @@ Status DB::DestroyColumnFamilyHandle(ColumnFamilyHandle* column_family) {
 DB::~DB() = default;
 
 Status DBImpl::Close() {
+  SlowMutexLoggingPause pause_logging(slow_mutex_logging_);
   InstrumentedMutexLock closing_lock_guard(&closing_mutex_);
   if (closed_) {
     return closing_status_;

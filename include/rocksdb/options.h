@@ -1240,6 +1240,15 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   unsigned int stats_dump_period_sec = 600;
 
+  // Minimum completed DB-wide mutex hold duration for sampled INFO logging,
+  // in microseconds. Requires Statistics::kAll and an info logger. Zero
+  // disables these hold probes without disabling existing statistics timers.
+  // Updates apply when a tracked ownership interval ends; previously untracked
+  // intervals cannot be reconstructed. Default: 0 (disabled). Set to 100000
+  // for a 100 ms investigation threshold.
+  // Dynamically changeable through SetDBOptions().
+  uint64_t mutex_hold_log_threshold_us = 0;
+
   // if not zero, dump rocksdb.stats to RocksDB every stats_persist_period_sec
   // Default: 600
   unsigned int stats_persist_period_sec = 600;

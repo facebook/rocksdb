@@ -2765,7 +2765,10 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 
   impl->wal_in_db_path_ = impl->immutable_db_options_.IsWalDirSameAsDBPath();
   RecoveryContext recovery_ctx;
-  impl->options_mutex_.Lock();
+  DeferredInstrumentedMutexLock options_lock(
+      &impl->options_mutex_,
+      impl->stats_ != nullptr &&
+          impl->immutable_db_options_.info_log != nullptr);
   impl->mutex_.Lock();
 
   // Handles create_if_missing, error_if_exists
@@ -3067,7 +3070,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok()) {
     s = impl->RegisterRecordSeqnoTimeWorker();
   }
-  impl->options_mutex_.Unlock();
+  options_lock.Unlock();
   if (cleanup_obsolete_options_files) {
     Status obsolete_options_status =
         impl->DeleteObsoleteOptionsFiles(/*schedule_only=*/s.ok());

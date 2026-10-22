@@ -218,6 +218,7 @@ DECLARE_bool(statistics);
 DECLARE_bool(sync);
 DECLARE_bool(use_fsync);
 DECLARE_uint64(stats_dump_period_sec);
+DECLARE_uint64(mutex_hold_log_threshold_us);
 DECLARE_uint64(max_compaction_trigger_wakeup_seconds);
 DECLARE_int32(periodic_compaction_phase_recovery_percent);
 DECLARE_uint64(bytes_per_sync);

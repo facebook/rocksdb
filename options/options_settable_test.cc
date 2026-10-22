@@ -485,6 +485,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "manifest_preallocation_size=1222;"
       "allow_mmap_writes=false;"
       "stats_dump_period_sec=70127;"
+      "mutex_hold_log_threshold_us=76543;"
       "stats_persist_period_sec=54321;"
       "persist_stats_to_disk=true;"
       "stats_history_buffer_size=14159;"
