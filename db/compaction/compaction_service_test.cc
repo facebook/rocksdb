@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "db/db_test_util.h"
+#include "env/composite_env_wrapper.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "port/stack_trace.h"
@@ -17,6 +18,7 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_util.h"
 #include "table/unique_id_impl.h"
+#include "test_util/mock_time_env.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -2173,6 +2175,76 @@ TEST_F(CompactionServiceTest, Snapshot) {
   db_->ReleaseSnapshot(s1);
 }
 
+// With the real preclude_last_level_data_seconds option, recently written data
+// stays out of the last level, in a remote compaction as in a local one.
+TEST_F(CompactionServiceTest, PrecludeLastLevelKeepsRecentData) {
+  const int kNumTrigger = 4;
+  const int kNumKeys = 100;
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.last_level_temperature = Temperature::kCold;
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.num_levels = 7;
+  options.preclude_last_level_data_seconds = 10000;
+
+  auto write_and_compact = [&]() {
+    for (int i = 0; i < kNumTrigger; i++) {
+      for (int j = 0; j < kNumKeys; j++) {
+        ASSERT_OK(Put(Key(j * kNumTrigger + i), "v" + std::to_string(i)));
+      }
+      ASSERT_OK(Flush());
+    }
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  };
+
+  DestroyAndReopen(options);
+  write_and_compact();
+  ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
+
+  ReopenWithCompactionService(&options);
+  write_and_compact();
+  ASSERT_GE(GetCompactionService()->GetCompactionNum(), 1);
+  ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
+}
+
+// With preserve_internal_time_seconds, a remote compaction keeps the sequence
+// numbers of recent writes in the bottommost level, as a local one does.
+TEST_F(CompactionServiceTest, PreserveInternalTimeKeepsRecentSeqnos) {
+  Options options = CurrentOptions();
+  options.preserve_internal_time_seconds = 10000;
+
+  auto write_and_compact = [&](SequenceNumber* largest_seqno) {
+    for (int i = 0; i < 10; i++) {
+      ASSERT_OK(Put(Key(i), "value"));
+    }
+    ASSERT_OK(Flush());
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+    std::vector<LiveFileMetaData> files;
+    db_->GetLiveFilesMetaData(&files);
+    *largest_seqno = 0;
+    for (const auto& f : files) {
+      if (f.column_family_name == kDefaultColumnFamilyName) {
+        *largest_seqno = std::max(*largest_seqno, f.largest_seqno);
+      }
+    }
+  };
+
+  DestroyAndReopen(options);
+  SequenceNumber local_largest_seqno = 0;
+  write_and_compact(&local_largest_seqno);
+  ASSERT_GT(local_largest_seqno, 0U);
+
+  ReopenWithCompactionService(&options);
+  SequenceNumber remote_largest_seqno = 0;
+  write_and_compact(&remote_largest_seqno);
+  ASSERT_GE(GetCompactionService()->GetCompactionNum(), 1);
+  ASSERT_GT(remote_largest_seqno, 0U);
+}
+
 TEST_F(CompactionServiceTest, PrecludeLastLevel) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
@@ -4271,6 +4343,92 @@ TEST_F(SessionTmpDirTest, CompactionUsesSessionTmpDir) {
   for (int i = 0; i < 20; i++) {
     ASSERT_EQ(Get(Key(i)), (i % 2 ? "value" : "value_new") + std::to_string(i));
   }
+}
+
+// A bottommost file written before preserve_internal_time_seconds was enabled
+// has an empty seqno->time mapping. Once the DB-wide mapping ages it out of the
+// preserve window, the file is marked for a kBottommostFiles compaction. The
+// remote compaction of it must zero its sequence numbers as a local one does,
+// or the file is marked again after every rewrite.
+TEST_F(CompactionServiceTest, BottommostFileWithEmptySeqnoTimeMapping) {
+  auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+  mock_clock->SetCurrentTime(10000000);
+  mock_clock->InstallTimedWaitFixCallback();
+  std::unique_ptr<Env> mock_env(new CompositeEnvWrapper(env_, mock_clock));
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::StartPeriodicTaskScheduler:Init", [&](void* arg) {
+        static_cast<PeriodicTaskScheduler*>(arg)->TEST_OverrideTimer(
+            mock_clock.get());
+      });
+
+  const int kNumLevels = 7;
+  Options options = CurrentOptions();
+  options.env = mock_env.get();
+  options.num_levels = kNumLevels;
+  options.level0_file_num_compaction_trigger = 4;
+  std::shared_ptr<Statistics> compactor_statistics = CreateDBStatistics();
+  auto compaction_service = std::make_shared<MyTestCompactionService>(
+      dbname_, options, compactor_statistics, remote_listeners,
+      remote_table_properties_collector_factories);
+  options.compaction_service = compaction_service;
+  SyncPoint::GetInstance()->EnableProcessing();
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("keeplow", "v"));
+  const Snapshot* protect = db_->GetSnapshot();
+  ASSERT_OK(Put("aged", "v"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(kNumLevels - 1);
+  ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 1));
+
+  ASSERT_OK(db_->SetOptions({{"preserve_internal_time_seconds", "10000"}}));
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put("hot", "v" + std::to_string(i)));
+    dbfull()->TEST_WaitForPeriodicTaskRun(
+        [&] { mock_clock->MockSleepForSeconds(200); });
+  }
+
+  std::atomic<int> bottommost_compactions{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        auto* c = static_cast<Compaction*>(arg);
+        if (c != nullptr &&
+            c->compaction_reason() == CompactionReason::kBottommostFiles) {
+          bottommost_compactions.fetch_add(1);
+        }
+      });
+  const int compactions_before = compaction_service->GetCompactionNum();
+  db_->ReleaseSnapshot(protect);
+
+  // A looping file is compacted again and again, so wait in real time with a
+  // bound instead of TEST_WaitForCompact().
+  for (int i = 0; i < 100 && bottommost_compactions.load() < 10; i++) {
+    uint64_t running = 0;
+    uint64_t pending = 0;
+    ASSERT_TRUE(
+        db_->GetIntProperty(DB::Properties::kNumRunningCompactions, &running));
+    ASSERT_TRUE(
+        db_->GetIntProperty(DB::Properties::kCompactionPending, &pending));
+    if (bottommost_compactions.load() > 0 && running == 0 && pending == 0) {
+      break;
+    }
+    env_->SleepForMicroseconds(100 * 1000);
+  }
+  ASSERT_OK(db_->SetOptions({{"disable_auto_compactions", "true"}}));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  ASSERT_EQ(bottommost_compactions.load(), 1);
+  ASSERT_EQ(compaction_service->GetCompactionNum(), compactions_before + 1);
+  std::vector<LiveFileMetaData> files;
+  db_->GetLiveFilesMetaData(&files);
+  for (const auto& f : files) {
+    if (f.level == kNumLevels - 1) {
+      ASSERT_EQ(f.largest_seqno, 0U);
+    }
+  }
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  Close();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

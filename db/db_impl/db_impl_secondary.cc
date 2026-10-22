@@ -1809,7 +1809,11 @@ Status DBImplSecondary::CompactWithoutInstallation(
   }
   Status s;
 
-  const auto& mutable_cf_options = cfd->GetLatestMutableCFOptions();
+  MutableCFOptions mutable_cf_options = cfd->GetLatestMutableCFOptions();
+  mutable_cf_options.preserve_internal_time_seconds =
+      input.preserve_internal_time_seconds;
+  mutable_cf_options.preclude_last_level_data_seconds =
+      input.preclude_last_level_data_seconds;
 
   // TODO(hx235): Resuming compaction is currently incompatible with
   // output hash verification (enabled via paranoid_file_checks=true or

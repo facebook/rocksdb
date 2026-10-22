@@ -240,6 +240,10 @@ class CompactionJob {
 
   CompactionJobStats* job_stats_;
 
+  // Lower bound for the minimal sequence number whose write time is
+  // preserved. See Prepare().
+  SequenceNumber preserve_time_min_seqno_floor_ = 0;
+
  private:
   friend class CompactionJobTestBase;
 
@@ -623,6 +627,15 @@ struct CompactionServiceInput {
   // See DBOptions::remote_compaction_manifest_floor.
   uint64_t min_manifest_file_number = 0;
   uint64_t min_manifest_file_size = 0;
+
+  // The primary's values. The worker opens the DB as a secondary, which
+  // sanitizes them to 0 as a read-only DB.
+  uint64_t preserve_internal_time_seconds = 0;
+  uint64_t preclude_last_level_data_seconds = 0;
+  // The primary's lower bound for the minimal sequence number whose write time
+  // is preserved: the version-carried preserve boundary for a kBottommostFiles
+  // compaction, 0 otherwise.
+  SequenceNumber preserve_time_min_seqno_floor = 0;
 
   // serialization interface to read and write the object
   static Status Read(const std::string& data_str, CompactionServiceInput* obj);

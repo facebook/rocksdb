@@ -407,11 +407,14 @@ void CompactionJob::Prepare(
   // being re-marked forever (infinite compaction loop). Other compaction
   // reasons keep the per-input-file boundary so their seqno-zeroing behavior is
   // unchanged. When preserve/preclude is inactive the version value is
-  // kMaxSequenceNumber, making this a no-op.
+  // kMaxSequenceNumber, making this a no-op. A remote compaction worker does
+  // not know the reason or the live mapping; it gets this boundary from the
+  // primary in CompactionServiceInput.
   if (c->compaction_reason() == CompactionReason::kBottommostFiles) {
-    preserve_time_min_seqno = std::max(preserve_time_min_seqno,
-                                       storage_info->GetPreserveTimeMinSeqno());
+    preserve_time_min_seqno_floor_ = storage_info->GetPreserveTimeMinSeqno();
   }
+  preserve_time_min_seqno =
+      std::max(preserve_time_min_seqno, preserve_time_min_seqno_floor_);
 
   // Preserve sequence numbers for preserved write times and snapshots, though
   // the specific sequence number of the earliest snapshot can be zeroed.
