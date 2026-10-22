@@ -2221,6 +2221,15 @@ DEFINE_uint64(
     "Limits cumulative compressed data block size pinned per SST file. "
     "0 means unlimited.");
 
+DEFINE_bool(
+    multiscan_rolling_prefetch, false,
+    "Enable rolling prefetch with multiscan_rolling_prefetch_window_size-byte "
+    "windows and multiscan_max_prefetch_size as its maximum batch budget.");
+
+DEFINE_uint64(multiscan_rolling_prefetch_window_size, 0,
+              "Physical span and initial batch budget for rolling prefetch. "
+              "Must be nonzero when multiscan_rolling_prefetch is enabled.");
+
 DEFINE_bool(use_multiscan, true,
             "If true, multiscanrandom uses MultiScan API. If false, uses "
             "normal iterators (Seek + Next) for each range.");
@@ -4799,6 +4808,11 @@ class Benchmark {
                 FLAGS_io_dispatcher_max_prefetch_memory_bytes);
         fprintf(stderr, "multiscan_max_prefetch_size = %" PRIu64 "\n",
                 FLAGS_multiscan_max_prefetch_size);
+        fprintf(stderr, "multiscan_rolling_prefetch = %s\n",
+                FLAGS_multiscan_rolling_prefetch ? "true" : "false");
+        fprintf(stderr,
+                "multiscan_rolling_prefetch_window_size = %" PRIu64 "\n",
+                FLAGS_multiscan_rolling_prefetch_window_size);
         fprintf(stderr, "reverse_iterator = %s\n",
                 FLAGS_reverse_iterator ? "true" : "false");
         method = &Benchmark::MultiScan;
@@ -4814,6 +4828,11 @@ class Benchmark {
                 FLAGS_io_dispatcher_max_prefetch_memory_bytes);
         fprintf(stderr, "multiscan_max_prefetch_size = %" PRIu64 "\n",
                 FLAGS_multiscan_max_prefetch_size);
+        fprintf(stderr, "multiscan_rolling_prefetch = %s\n",
+                FLAGS_multiscan_rolling_prefetch ? "true" : "false");
+        fprintf(stderr,
+                "multiscan_rolling_prefetch_window_size = %" PRIu64 "\n",
+                FLAGS_multiscan_rolling_prefetch_window_size);
         fprintf(stderr, "multiscan_use_async_io = %s\n",
                 FLAGS_multiscan_use_async_io ? "true" : "false");
         fprintf(stderr, "use_multiscan = %s\n",
@@ -8799,6 +8818,9 @@ class Benchmark {
       opts.io_coalesce_threshold = FLAGS_multiscan_coalesce_threshold;
       opts.use_async_io = FLAGS_multiscan_use_async_io;
       opts.max_prefetch_size = FLAGS_multiscan_max_prefetch_size;
+      opts.rolling_prefetch = FLAGS_multiscan_rolling_prefetch;
+      opts.rolling_prefetch_window_size =
+          FLAGS_multiscan_rolling_prefetch_window_size;
       opts.reverse = FLAGS_reverse_iterator;
       if (io_dispatcher) {
         opts.io_dispatcher = io_dispatcher;
@@ -8935,6 +8957,9 @@ class Benchmark {
         opts.io_coalesce_threshold = FLAGS_multiscan_coalesce_threshold;
         opts.use_async_io = FLAGS_multiscan_use_async_io;
         opts.max_prefetch_size = FLAGS_multiscan_max_prefetch_size;
+        opts.rolling_prefetch = FLAGS_multiscan_rolling_prefetch;
+        opts.rolling_prefetch_window_size =
+            FLAGS_multiscan_rolling_prefetch_window_size;
         opts.reverse = FLAGS_reverse_iterator;
         if (io_dispatcher) {
           opts.io_dispatcher = io_dispatcher;
