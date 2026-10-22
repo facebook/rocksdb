@@ -22,8 +22,7 @@ class FileSystem;
 class Statistics;
 
 // Forward declaration for internal implementation
-struct IODispatcherImplData;
-struct PendingPrefetchRequest;
+class PrefetchScheduler;
 
 // EXPERIMENTAL
 // The interface defined in this file is experimental and the behavior and
@@ -253,9 +252,10 @@ class ReadSet {
   // blocks are coalesced into a single IO request.
   std::unordered_map<size_t, std::shared_ptr<AsyncIOState>> async_io_map_;
 
-  // For memory release notifications back to dispatcher (weak ref to avoid
-  // cycles)
-  std::weak_ptr<IODispatcherImplData> dispatcher_data_;
+  // Owns the configured scheduling policy and its per-ReadSet state when the
+  // ReadSet has uncached work. I/O buffers and asynchronous operations remain
+  // owned by ReadSet.
+  std::shared_ptr<PrefetchScheduler> prefetch_scheduler_;
 
   // Size of each block (parallel to pinned_blocks_) for memory accounting
   std::vector<size_t> block_sizes_;
@@ -289,15 +289,6 @@ class ReadSet {
   // Perform synchronous read for a specific block
   Status SyncRead(size_t block_index);
 
-  // Remove a block from pending prefetch (called by ReadIndex/ReleaseBlock)
-  void RemoveFromPending(size_t block_index);
-
-  // Atomic flags indicating if block is pending prefetch (lock-free check)
-  std::unique_ptr<std::atomic<bool>[]> pending_prefetch_flags_;
-  size_t pending_prefetch_flags_size_ = 0;
-
-  // Reference to pending request (for removal notification)
-  std::shared_ptr<PendingPrefetchRequest> pending_request_;
 };
 
 /*
