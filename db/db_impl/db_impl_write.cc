@@ -629,6 +629,12 @@ Status DBImpl::MaybeTransformBatchForBlobDirectWrite(
   Status s = BlobWriteBatchTransformer::TransformBatch(
       write_options, *batch, transformed_storage, partition_mgr_provider,
       settings_provider, &transformed, &batch_managers, &batch_rollbacks);
+  // TransformBatch returns every physical blob append completed before an
+  // error. Publish those records to the rollback guard before inspecting the
+  // status so a partially transformed logical write cannot leak live bytes.
+  blob_direct_write_ctx->rollback_infos.insert(
+      blob_direct_write_ctx->rollback_infos.end(), batch_rollbacks.begin(),
+      batch_rollbacks.end());
   if (!s.ok()) {
     return s;
   }
@@ -636,9 +642,6 @@ Status DBImpl::MaybeTransformBatchForBlobDirectWrite(
     *batch = transformed_storage;
     blob_direct_write_ctx->touched_managers.insert(batch_managers.begin(),
                                                    batch_managers.end());
-    blob_direct_write_ctx->rollback_infos.insert(
-        blob_direct_write_ctx->rollback_infos.end(), batch_rollbacks.begin(),
-        batch_rollbacks.end());
   }
   return Status::OK();
 }
@@ -1216,6 +1219,7 @@ Status DBImpl::WriteImpl(
   Status pre_release_cb_status;
   size_t seq_inc = 0;
   uint64_t wal_write_number = 0;
+  bool callbacks_checked_before_blob_direct_write = false;
   if (status.ok()) {
     if (deferred_put_entities != nullptr) {
       my_batch->Clear();
@@ -1241,6 +1245,15 @@ Status DBImpl::WriteImpl(
     if (UNLIKELY(maybe_use_blob_direct_write) &&
         !immutable_db_options_.unordered_write &&
         !immutable_db_options_.enable_pipelined_write) {
+      // Callback-failed writers are not part of the logical write group. Run
+      // callbacks before producing any blob records so the shared rollback
+      // guard contains only records belonging to writers that can commit.
+      callbacks_checked_before_blob_direct_write = true;
+      for (auto* writer : write_group) {
+        assert(writer != nullptr);
+        writer->CheckCallback(this);
+      }
+
       // PreprocessWrite() may switch memtables in order to schedule pending
       // flushes. Defer the blob direct-write transformation until after that
       // point so the blob file generation matches the memtable that will store
@@ -1289,7 +1302,10 @@ Status DBImpl::WriteImpl(
     size_t pre_release_callback_cnt = 0;
     for (auto* writer : write_group) {
       assert(writer);
-      if (writer->CheckCallback(this)) {
+      const bool callback_ok = callbacks_checked_before_blob_direct_write
+                                   ? !writer->CallbackFailed()
+                                   : writer->CheckCallback(this);
+      if (callback_ok) {
         valid_batches += writer->batch_cnt;
         if (writer->ShouldWriteToMemtable()) {
           total_count += WriteBatchInternal::Count(writer->batch);
@@ -1585,9 +1601,16 @@ Status DBImpl::WriteImpl(
   }
 
   if (status.ok()) {
+    // Every transformed writer whose callback succeeded has committed when the
+    // group status is OK. The leader's own FinalStatus() may still be its
+    // callback failure, but that leader was skipped before transformation and
+    // must not cause successful followers' blob records to be rolled back.
+    if (w.status.ok() && blob_write_rollback_guard.has_value()) {
+      blob_write_rollback_guard->Dismiss();
+    }
     status = w.FinalStatus();
   }
-  return finish_write(status);
+  return status;
 }
 
 Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
@@ -3567,7 +3590,14 @@ Status DBImpl::SwitchMemtableImpl(ColumnFamilyData* cfd, WriteContext* context,
   }
 
   if (cfd->blob_partition_manager() != nullptr) {
-    cfd->blob_partition_manager()->RotateCurrentGeneration();
+    // Flush preparation holds the manager mutex while finalizing files and can
+    // invoke a callback that acquires the DB mutex. The write-thread barrier
+    // still prevents a new write from crossing this generation boundary, so
+    // rotate without holding the DB mutex to avoid the inverse lock order.
+    const uint64_t memtable_id = cfd->mem()->GetID();
+    mutex_.Unlock();
+    cfd->blob_partition_manager()->RotateCurrentGeneration(memtable_id);
+    mutex_.Lock();
   }
 
   cfd->mem()->SetNextLogNumber(cur_wal_number_);

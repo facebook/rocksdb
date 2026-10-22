@@ -46,11 +46,59 @@ class BlobFileCompletionCallback {
                              const std::string& checksum_value,
                              const std::string& checksum_method,
                              uint64_t blob_count, uint64_t blob_bytes) {
-    Status s;
+    return OnBlobFileCompletedImpl(
+        file_name, column_family_name, job_id, file_number, creation_reason,
+        report_status, checksum_value, checksum_method, blob_count, blob_bytes,
+        /*report_registration_failure=*/true);
+  }
 
+  // Reports successful physical creation even if SstFileManager registration
+  // fails. Blob direct write uses this exactly-once notification before
+  // retrying only the idempotent registration phase.
+  Status OnBlobFilePhysicallyCompleted(
+      const std::string& file_name, const std::string& column_family_name,
+      int job_id, uint64_t file_number, BlobFileCreationReason creation_reason,
+      const Status& report_status, const std::string& checksum_value,
+      const std::string& checksum_method, uint64_t blob_count,
+      uint64_t blob_bytes) {
+    return OnBlobFileCompletedImpl(
+        file_name, column_family_name, job_id, file_number, creation_reason,
+        report_status, checksum_value, checksum_method, blob_count, blob_bytes,
+        /*report_registration_failure=*/false);
+  }
+
+  // Physical file creation is reported to listeners exactly once. If only the
+  // SstFileManager registration failed, retry that idempotent phase without
+  // emitting another creation-finished event.
+  Status RetrySstFileManagerRegistration(const std::string& file_name) {
+    return RegisterWithSstFileManager(file_name);
+  }
+
+ private:
+  Status OnBlobFileCompletedImpl(
+      const std::string& file_name, const std::string& column_family_name,
+      int job_id, uint64_t file_number, BlobFileCreationReason creation_reason,
+      const Status& report_status, const std::string& checksum_value,
+      const std::string& checksum_method, uint64_t blob_count,
+      uint64_t blob_bytes, bool report_registration_failure) {
+    Status s = RegisterWithSstFileManager(file_name);
+
+    // Notify the listeners.
+    EventHelpers::LogAndNotifyBlobFileCreationFinished(
+        event_logger_, listeners_, dbname_, column_family_name, file_name,
+        job_id, file_number, creation_reason,
+        (report_registration_failure && report_status.ok() ? s : report_status),
+        (checksum_value.empty() ? kUnknownFileChecksum : checksum_value),
+        (checksum_method.empty() ? kUnknownFileChecksumFuncName
+                                 : checksum_method),
+        blob_count, blob_bytes);
+    return s;
+  }
+
+  Status RegisterWithSstFileManager(const std::string& file_name) {
+    Status s;
     auto sfm = static_cast<SstFileManagerImpl*>(sst_file_manager_);
     if (sfm) {
-      // Report new blob files to SstFileManagerImpl
       s = sfm->OnAddFile(file_name);
       if (sfm->IsMaxAllowedSpaceReached()) {
         s = Status::SpaceLimit("Max allowed space was reached");
@@ -60,20 +108,9 @@ class BlobFileCompletionCallback {
         error_handler_->SetBGError(s, BackgroundErrorReason::kFlush);
       }
     }
-
-    // Notify the listeners.
-    EventHelpers::LogAndNotifyBlobFileCreationFinished(
-        event_logger_, listeners_, dbname_, column_family_name, file_name,
-        job_id, file_number, creation_reason,
-        (!report_status.ok() ? report_status : s),
-        (checksum_value.empty() ? kUnknownFileChecksum : checksum_value),
-        (checksum_method.empty() ? kUnknownFileChecksumFuncName
-                                 : checksum_method),
-        blob_count, blob_bytes);
     return s;
   }
 
- private:
   SstFileManager* sst_file_manager_;
   InstrumentedMutex* mutex_;
   ErrorHandler* error_handler_;

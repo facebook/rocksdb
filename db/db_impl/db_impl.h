@@ -85,6 +85,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class Arena;
 class ArenaWrappedDBIter;
+class BlobFilePartitionManager;
 class Cleanable;
 class FileIngestionHandleImpl;
 class SameFileBlobReader;
@@ -2551,10 +2552,19 @@ class DBImpl : public DB
       const WriteOptions& write_options,
       const std::vector<const ColumnFamilyOptions*>& cf_options);
 
-  Status DropColumnFamilyImpl(ColumnFamilyHandle* column_family);
-  Status DropColumnFamilyWithOptionsFile(ColumnFamilyHandle* column_family,
-                                         uint64_t options_file_number,
-                                         uint64_t options_file_size);
+  struct DroppedBlobManager {
+    ColumnFamilyData* cfd = nullptr;
+    BlobFilePartitionManager* manager = nullptr;
+  };
+  Status DropColumnFamilyImpl(
+      ColumnFamilyHandle* column_family,
+      std::vector<DroppedBlobManager>* dropped_blob_managers);
+  void DetachDroppedBlobManagers(
+      std::vector<DroppedBlobManager>* dropped_blob_managers);
+  Status DropColumnFamilyWithOptionsFile(
+      ColumnFamilyHandle* column_family, uint64_t options_file_number,
+      uint64_t options_file_size,
+      std::vector<DroppedBlobManager>* dropped_blob_managers);
 
   // Delete any unneeded files and stale in-memory entries.
   void DeleteObsoleteFiles();
