@@ -1,6 +1,6 @@
 # MultiGet Optimizations
 
-**Files:** `db/db_impl/db_impl.cc`, `db/db_impl/db_impl.h`, `table/multiget_context.h`, `db/version_set.cc`, `db/version_set_sync_and_async.h`, `table/block_based/block_based_table_reader.cc`, `table/block_based/block_based_table_reader_sync_and_async.h`, `db/table_cache_sync_and_async.h`
+**Files:** `db/db_impl/db_impl.cc`, `db/db_impl/db_impl_sync_and_async.h`, `db/db_impl/db_impl.h`, `table/multiget_context.h`, `db/version_set.cc`, `db/version_set_sync_and_async.h`, `table/block_based/block_based_table_reader.cc`, `table/block_based/block_based_table_reader_sync_and_async.h`, `db/table_cache_sync_and_async.h`
 
 ## Overview
 
@@ -21,7 +21,7 @@ Each key's state is tracked in a `KeyContext` struct (see `KeyContext` in `table
 
 `Range` (see `MultiGetContext::Range` in `table/multiget_context.h`) is a view over a slice of sorted keys combined with the three bitmasks above. Its Iterator skips any key whose bit is set in `value_mask_ | skip_mask_ | invalid_mask_`, so each lookup layer automatically sees only unresolved keys — no copying or allocation needed.
 
-The same `Range` flows through all lookup layers in `MultiGetImpl()`: first `mem->MultiGet()`, then `imm->MultiGet()`, then `Version::MultiGet()`. When a layer resolves a key, it calls `MarkKeyDone()` which sets that key's bit in the shared `value_mask_`. Subsequent layers skip it automatically. Within SST lookup, `FilePickerMultiGet` further narrows the Range per-file using `invalid_mask_` (keys outside the file's key range) and bloom filter checks set `skip_mask_` (keys definitely absent). If all keys are resolved before reaching lower levels, remaining levels are skipped entirely.
+For eligible plain-value reads with `DBOptions::global_row_cache` configured, `MultiGetImpl()` first stages `GlobalRowCache` lookups and validates snapshot and entry visibility before marking cache hits done. The same `Range` then flows through the normal lookup layers for unresolved keys: `mem->MultiGet()`, `imm->MultiGet()`, then `Version::MultiGet()`. When a layer resolves a key, it calls `MarkKeyDone()` which sets that key's bit in the shared `value_mask_`. Subsequent layers skip it automatically. Within SST lookup, `FilePickerMultiGet` further narrows the Range per-file using `invalid_mask_` (keys outside the file's key range) and bloom filter checks set `skip_mask_` (keys definitely absent). If all keys are resolved before reaching lower levels, remaining levels are skipped entirely.
 
 ## Batching Strategy
 
@@ -30,6 +30,8 @@ The same `Range` flows through all lookup layers in `MultiGetImpl()`: first `mem
 Step 1: **Sort keys** -- `PrepareMultiGetKeys()` sorts keys by `(column_family_id, user_key)` via `CompareKeyContext`. Sorted order is critical: it enables sequential index seeks and adjacent-block detection.
 
 Step 2: **Group by column family** -- Keys are partitioned so each batch targets a single column family, sharing a single SuperVersion acquisition.
+
+Step 2a: **Optional global row cache lookup** -- Eligible plain-value batches consult `GlobalRowCache` before memtable or SST lookup. Validated hits supply values or `NotFound` and skip the normal lookup layers. Misses and bypassed modes follow the existing flow. A cache lookup or visibility error disables caching and discards staged hits for the affected batch; the normal read still determines the DB result.
 
 Step 3: **MemTable lookup** -- `MultiGetImpl()` calls `mem->MultiGet()` then `imm->MultiGet()`. Keys resolved in memtables are marked done via `MarkKeyDone`, and remaining keys proceed to SST lookup.
 

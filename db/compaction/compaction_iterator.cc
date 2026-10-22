@@ -122,6 +122,16 @@ size_t CompactionBlobResolver::NumColumns() const {
   return columns_->size();
 }
 
+bool CompactionIterator::ShouldPreserveSeqnoForFIFOGlobalRowCache(
+    const CompactionProxy* compaction) {
+  const Compaction* const real_compaction =
+      compaction == nullptr ? nullptr : compaction->real_compaction();
+  return real_compaction != nullptr &&
+         real_compaction->immutable_options().global_row_cache != nullptr &&
+         real_compaction->immutable_options().compaction_style ==
+             kCompactionStyleFIFO;
+}
+
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
     SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
@@ -189,6 +199,8 @@ CompactionIterator::CompactionIterator(
       manual_compaction_canceled_(manual_compaction_canceled),
       bottommost_level_(compaction_ && compaction_->bottommost_level() &&
                         !compaction_->allow_ingest_behind()),
+      preserve_seqno_for_fifo_global_row_cache_(
+          ShouldPreserveSeqnoForFIFOGlobalRowCache(compaction_.get())),
       // snapshots_ cannot be nullptr, but we will assert later in the body of
       // the constructor.
       visible_at_tip_(snapshots_ ? snapshots_->empty() : false),
@@ -1233,6 +1245,7 @@ void CompactionIterator::NextFromInput() {
         at_next_ = true;
       }
     } else if (ikey_.type == kTypeValuePreferredSeqno &&
+               !preserve_seqno_for_fifo_global_row_cache_ &&
                DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
                (bottommost_level_ ||
                 (compaction_ != nullptr &&
@@ -1908,6 +1921,7 @@ void CompactionIterator::PrepareOutput() {
     // Can we do the same for levels above bottom level as long as
     // KeyNotExistsBeyondOutputLevel() return true?
     if (Valid() && bottommost_level_ &&
+        !preserve_seqno_for_fifo_global_row_cache_ &&
         DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
         ikey_.type != kTypeMerge && current_key_committed_ && !is_range_del_) {
       assert(compaction_ != nullptr && !compaction_->allow_ingest_behind());

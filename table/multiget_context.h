@@ -34,7 +34,10 @@ struct KeyContext {
   ColumnFamilyHandle* column_family;
   Status* s;
   MergeContext merge_context;
+  SequenceNumber sequence;
   SequenceNumber max_covering_tombstone_seq;
+  uint64_t global_row_cache_fill_token;
+  bool global_row_cache_miss;
   bool key_exists;
   bool is_blob_index;
   bool newer_version_present;
@@ -51,7 +54,10 @@ struct KeyContext {
         lkey(nullptr),
         column_family(col_family),
         s(stat),
+        sequence(kMaxSequenceNumber),
         max_covering_tombstone_seq(0),
+        global_row_cache_fill_token(0),
+        global_row_cache_miss(false),
         key_exists(false),
         is_blob_index(false),
         newer_version_present(false),
@@ -201,8 +207,8 @@ class MultiGetContext {
   class Range {
    public:
     // MultiGetContext::Range::Iterator - A forward iterator that iterates over
-    // non-skippable keys in a Range, as well as keys whose final value has been
-    // found. The latter is tracked by MultiGetContext::value_mask_
+    // non-skippable keys in a Range, excluding keys whose final value has been
+    // found. The latter is tracked by MultiGetContext::value_mask_.
     class Iterator {
      public:
       // -- iterator traits

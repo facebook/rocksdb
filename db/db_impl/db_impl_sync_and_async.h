@@ -329,14 +329,100 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
   TEST_SYNC_POINT("DBImpl::GetImpl:3");
   TEST_SYNC_POINT("DBImpl::GetImpl:4");
 
+  Status s;
+  bool done = false;
+  bool global_row_cache_miss = false;
+  uint64_t global_row_cache_fill_token = 0;
+  SequenceNumber result_sequence = kMaxSequenceNumber;
+  const bool global_row_cache_eligible =
+      IsGlobalRowCacheEnabled() && own_super_version &&
+      get_impl_options.value != nullptr &&
+      get_impl_options.columns == nullptr && get_impl_options.get_value &&
+      get_impl_options.get_merge_operands_options == nullptr &&
+      get_impl_options.newer_version_present == nullptr &&
+      get_impl_options.callback == nullptr &&
+      get_impl_options.is_blob_index == nullptr &&
+      read_options.timestamp == nullptr &&
+      read_options.read_tier == kReadAllTier &&
+      !read_options.ignore_range_deletions &&
+      !read_options.merge_operand_count_threshold.has_value() &&
+      read_options.table_filter == nullptr &&
+      read_options.custom_context == nullptr;
+  if (global_row_cache_eligible) {
+    GlobalRowCacheLookupResult cache_result;
+    Status cache_status = immutable_db_options_.global_row_cache->Lookup(
+        global_row_cache_id_, cfd->GetID(), key, snapshot,
+        get_impl_options.value, &cache_result);
+    if (!cache_status.ok()) {
+      get_impl_options.value->Reset();
+      DisableGlobalRowCache(cache_status);
+    } else if (!IsGlobalRowCacheEnabled()) {
+      // A mutation hook failed while Lookup() was in flight. The cache is no
+      // longer authoritative, so ignore even a successful lookup.
+      get_impl_options.value->Reset();
+    } else if (cache_result.state == GlobalRowCacheLookupResult::State::kMiss) {
+      get_impl_options.value->Reset();
+      global_row_cache_miss = true;
+      global_row_cache_fill_token = cache_result.fill_token;
+    } else if (cache_result.sequence > snapshot) {
+      get_impl_options.value->Reset();
+      DisableGlobalRowCache(Status::Corruption(
+          "global row cache returned an invalid sequence number"));
+    } else if (cache_result.state !=
+                   GlobalRowCacheLookupResult::State::kValue &&
+               cache_result.state !=
+                   GlobalRowCacheLookupResult::State::kNotFound) {
+      get_impl_options.value->Reset();
+      DisableGlobalRowCache(
+          Status::Corruption("global row cache returned an invalid state"));
+    } else {
+      const GlobalRowCacheMutationType type =
+          cache_result.state == GlobalRowCacheLookupResult::State::kValue
+              ? GlobalRowCacheMutationType::kValue
+              : GlobalRowCacheMutationType::kDeletion;
+      const Slice cache_value = type == GlobalRowCacheMutationType::kValue
+                                    ? Slice(*get_impl_options.value)
+                                    : Slice();
+      bool visible =
+          cache_result.sequence >= sv->global_row_cache_sequence_floor;
+      if (visible) {
+        cache_status = immutable_db_options_.global_row_cache->IsEntryVisible(
+            key, cache_result.sequence, cache_result.generation, type,
+            cache_value, sv->global_row_cache_sequence_floor, &visible);
+      }
+      if (!cache_status.ok()) {
+        get_impl_options.value->Reset();
+        DisableGlobalRowCache(cache_status);
+      } else if (!IsGlobalRowCacheEnabled()) {
+        get_impl_options.value->Reset();
+      } else if (!visible) {
+        get_impl_options.value->Reset();
+        global_row_cache_miss = true;
+        global_row_cache_fill_token = cache_result.fill_token;
+      } else if (type == GlobalRowCacheMutationType::kValue) {
+        s = Status::OK();
+        done = true;
+        result_sequence = cache_result.sequence;
+        if (get_impl_options.value_found != nullptr) {
+          *get_impl_options.value_found = true;
+        }
+      } else {
+        get_impl_options.value->Reset();
+        s = Status::NotFound();
+        done = true;
+        result_sequence = cache_result.sequence;
+      }
+    }
+  }
+
   // Prepare to store a list of merge operations if merge occurs.
   MergeContext merge_context;
   merge_context.get_merge_operands_options =
       get_impl_options.get_merge_operands_options;
   SequenceNumber max_covering_tombstone_seq = 0;
 
-  Status s;
-  // First look in the memtable, then in the immutable memtable (if any).
+  // After a global row cache miss or bypass, first look in the memtable, then
+  // in the immutable memtable (if any).
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // merge_operands will contain the sequence of merges in the latter case.
   LookupKey lkey(key, lookup_snapshot, read_options.timestamp);
@@ -344,7 +430,6 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
 
   bool skip_memtable = (read_options.read_tier == kPersistedTier &&
                         has_unpersisted_data_.load(std::memory_order_relaxed));
-  bool done = false;
   bool is_blob_index = false;
   bool* is_blob_ptr = get_impl_options.is_blob_index;
   auto* partition_mgr = cfd->blob_partition_manager();
@@ -368,18 +453,22 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
   }
   const BlobFetcher* memtable_blob_fetcher_ptr =
       memtable_blob_fetcher ? &*memtable_blob_fetcher : nullptr;
+
   if (!skip_memtable) {
     // Get value associated with key
     if (get_impl_options.get_value) {
-      if (sv->mem->Get(lkey,
+      SequenceNumber memtable_sequence = kMaxSequenceNumber;
+      if (!done &&
+          sv->mem->Get(lkey,
                        get_impl_options.value
                            ? get_impl_options.value->GetSelf()
                            : nullptr,
                        get_impl_options.columns, timestamp, &s, &merge_context,
-                       &max_covering_tombstone_seq, read_options,
-                       false /* immutable_memtable */,
+                       &max_covering_tombstone_seq, &memtable_sequence,
+                       read_options, false /* immutable_memtable */,
                        get_impl_options.callback, is_blob_ptr,
                        /*do_merge=*/true, memtable_blob_fetcher_ptr)) {
+        result_sequence = memtable_sequence;
         done = true;
         PostprocessDirectWriteValueRead(
             read_options, key, timestamp, resolve_direct_write_value,
@@ -388,23 +477,33 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
             get_impl_options.value_found);
 
         RecordTick(stats_, MEMTABLE_HIT);
-      } else if ((s.ok() || s.IsMergeInProgress()) &&
-                 sv->imm->Get(lkey,
-                              get_impl_options.value
-                                  ? get_impl_options.value->GetSelf()
-                                  : nullptr,
-                              get_impl_options.columns, timestamp, &s,
-                              &merge_context, &max_covering_tombstone_seq,
-                              read_options, get_impl_options.callback,
-                              is_blob_ptr, memtable_blob_fetcher_ptr)) {
-        done = true;
-        PostprocessDirectWriteValueRead(
-            read_options, key, timestamp, resolve_direct_write_value,
-            memtable_blob_fetcher_ptr, get_impl_options.value,
-            get_impl_options.columns, &s, &is_blob_index,
-            get_impl_options.value_found);
+      } else if (!done && (s.ok() || s.IsMergeInProgress())) {
+        if (memtable_sequence != kMaxSequenceNumber) {
+          result_sequence = memtable_sequence;
+        }
+        SequenceNumber immutable_sequence = kMaxSequenceNumber;
+        if (sv->imm->Get(
+                lkey,
+                get_impl_options.value ? get_impl_options.value->GetSelf()
+                                       : nullptr,
+                get_impl_options.columns, timestamp, &s, &merge_context,
+                &max_covering_tombstone_seq, &immutable_sequence, read_options,
+                get_impl_options.callback, is_blob_ptr,
+                memtable_blob_fetcher_ptr)) {
+          if (result_sequence == kMaxSequenceNumber) {
+            result_sequence = immutable_sequence;
+          }
+          done = true;
+          PostprocessDirectWriteValueRead(
+              read_options, key, timestamp, resolve_direct_write_value,
+              memtable_blob_fetcher_ptr, get_impl_options.value,
+              get_impl_options.columns, &s, &is_blob_index,
+              get_impl_options.value_found);
 
-        RecordTick(stats_, MEMTABLE_HIT);
+          RecordTick(stats_, MEMTABLE_HIT);
+        } else if (result_sequence == kMaxSequenceNumber) {
+          result_sequence = immutable_sequence;
+        }
       }
     } else {
       // Get Merge Operands associated with key, Merge Operands should not be
@@ -434,16 +533,21 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
   PinnedIteratorsManager pinned_iters_mgr;
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
+    const SequenceNumber sequence_from_memtables = result_sequence;
     CO_AWAIT(
         sv->current->Get, read_options, lkey, get_impl_options.value,
         get_impl_options.columns, timestamp, &s, &merge_context,
         &max_covering_tombstone_seq, &pinned_iters_mgr,
         get_impl_options.get_value ? get_impl_options.value_found : nullptr,
-        nullptr, nullptr,
+        nullptr, global_row_cache_miss ? &result_sequence : nullptr,
         get_impl_options.get_value ? get_impl_options.callback : nullptr,
         get_impl_options.get_value ? is_blob_ptr : nullptr,
         get_impl_options.get_value,
         get_impl_options.lazy_columns_same_file_reader);
+    if (global_row_cache_miss &&
+        sequence_from_memtables != kMaxSequenceNumber) {
+      result_sequence = sequence_from_memtables;
+    }
     if (get_impl_options.get_value && resolve_direct_write_value) {
       assert(memtable_blob_fetcher_ptr != nullptr);
       std::string blob_lookup_key_storage;
@@ -544,6 +648,35 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
       PERF_COUNTER_ADD(get_read_bytes, size);
     }
 
+    if (global_row_cache_miss && read_options.fill_cache &&
+        IsGlobalRowCacheEnabled()) {
+      if (max_covering_tombstone_seq > 0 &&
+          (result_sequence == kMaxSequenceNumber ||
+           max_covering_tombstone_seq > result_sequence)) {
+        result_sequence = max_covering_tombstone_seq;
+      }
+      if (result_sequence != kMaxSequenceNumber && (s.ok() || s.IsNotFound())) {
+        TEST_SYNC_POINT("DBImpl::GetImpl:BeforeGlobalRowCacheInsert");
+        TEST_SYNC_POINT("DBImpl::GetImpl:AllowGlobalRowCacheInsert");
+        const GlobalRowCacheMutationType type =
+            s.ok() ? GlobalRowCacheMutationType::kValue
+                   : GlobalRowCacheMutationType::kDeletion;
+        const Slice cache_value =
+            s.ok() ? Slice(*get_impl_options.value) : Slice();
+        uint64_t generation = 0;
+        if (ComputeGlobalRowCacheEntryGeneration(key, result_sequence, type,
+                                                 cache_value, &generation)) {
+          Status cache_status =
+              immutable_db_options_.global_row_cache->InsertReadResult(
+                  global_row_cache_id_, cfd->GetID(), key, result_sequence,
+                  generation, type, cache_value, global_row_cache_fill_token);
+          if (!cache_status.ok()) {
+            DisableGlobalRowCache(cache_status);
+          }
+        }
+      }
+    }
+
     if (get_impl_options.lazy_columns_version != nullptr && s.ok()) {
       // Lazy result (GetEntityLazy / MultiGetEntityLazy): the entity's blob
       // references were left unresolved. Hand back the Version they must be
@@ -573,12 +706,15 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
 //
 // The per key status is returned in the KeyContext structures pointed to by
 // sorted_keys. An overall Status is also returned, with the only possible
-// values being Status::OK() and Status::TimedOut(). The latter indicates
-// that the call exceeded read_options.deadline
+// values being Status::OK(), Status::TimedOut(), and Status::Aborted().
+// TimedOut indicates that the call exceeded read_options.deadline. Aborted
+// indicates that the value-size soft limit was exceeded or the query was
+// aborted.
 DEFINE_SYNC_AND_ASYNC(Status, DBImpl::MultiGetImpl)
 (const ReadOptions& read_options, size_t start_key, size_t num_keys,
  autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
- SuperVersion* super_version, SequenceNumber snapshot, ReadCallback* callback) {
+ SuperVersion* super_version, SequenceNumber snapshot, ReadCallback* callback,
+ bool use_global_row_cache) {
 #if defined(WITHOUT_COROUTINES)
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
 #endif  // defined(WITHOUT_COROUTINES)
@@ -602,6 +738,18 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::MultiGetImpl)
   const BlobFetcher* memtable_blob_fetcher_ptr =
       memtable_blob_fetcher ? &*memtable_blob_fetcher : nullptr;
 
+  const bool global_row_cache_eligible =
+      use_global_row_cache && IsGlobalRowCacheEnabled() &&
+      callback == nullptr && (*sorted_keys)[start_key]->value != nullptr &&
+      read_options.timestamp == nullptr &&
+      read_options.read_tier == kReadAllTier &&
+      !read_options.ignore_range_deletions &&
+      read_options.value_size_soft_limit ==
+          std::numeric_limits<uint64_t>::max() &&
+      !read_options.merge_operand_count_threshold.has_value() &&
+      read_options.table_filter == nullptr &&
+      read_options.custom_context == nullptr;
+
 #ifdef WITH_COROUTINES
   constexpr bool kUseCoroRead = true;
 #else
@@ -617,8 +765,8 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::MultiGetImpl)
     }
   }
 
-  // For each of the given keys, apply the entire "get" process as follows:
-  // First look in the memtable, then in the immutable memtable (if any).
+  // After a global row cache miss or bypass, apply the normal "get" process:
+  // first look in the memtable, then in the immutable memtable (if any).
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // merge_operands will contain the sequence of merges in the latter case.
   size_t keys_left = num_keys;
@@ -641,6 +789,106 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::MultiGetImpl)
     MultiGetRange range = ctx.GetMultiGetRange();
     range.AddValueSize(curr_value_size);
     bool lookup_current = true;
+
+    if (global_row_cache_eligible && IsGlobalRowCacheEnabled()) {
+      std::array<PinnableSlice, MultiGetContext::MAX_BATCH_SIZE> cache_values;
+      std::array<GlobalRowCacheLookupResult, MultiGetContext::MAX_BATCH_SIZE>
+          cache_results;
+      bool cache_results_valid = true;
+      for (size_t i = 0; i < batch_size; ++i) {
+        KeyContext* key = (*sorted_keys)[start_key + num_keys - keys_left + i];
+        Status cache_status = immutable_db_options_.global_row_cache->Lookup(
+            global_row_cache_id_, cfd->GetID(), *key->key, snapshot,
+            &cache_values[i], &cache_results[i]);
+        if (!cache_status.ok()) {
+          DisableGlobalRowCache(cache_status);
+          cache_results_valid = false;
+          break;
+        }
+        if (!IsGlobalRowCacheEnabled()) {
+          cache_results_valid = false;
+          break;
+        }
+        if (cache_results[i].state ==
+            GlobalRowCacheLookupResult::State::kMiss) {
+          cache_values[i].Reset();
+          continue;
+        }
+        if (cache_results[i].sequence > snapshot) {
+          DisableGlobalRowCache(Status::Corruption(
+              "global row cache returned an invalid sequence number"));
+          cache_results_valid = false;
+          break;
+        }
+        if (cache_results[i].state !=
+                GlobalRowCacheLookupResult::State::kValue &&
+            cache_results[i].state !=
+                GlobalRowCacheLookupResult::State::kNotFound) {
+          DisableGlobalRowCache(
+              Status::Corruption("global row cache returned an invalid state"));
+          cache_results_valid = false;
+          break;
+        }
+
+        const GlobalRowCacheMutationType type =
+            cache_results[i].state == GlobalRowCacheLookupResult::State::kValue
+                ? GlobalRowCacheMutationType::kValue
+                : GlobalRowCacheMutationType::kDeletion;
+        const Slice cache_value = type == GlobalRowCacheMutationType::kValue
+                                      ? Slice(cache_values[i])
+                                      : Slice();
+        bool visible = cache_results[i].sequence >=
+                       super_version->global_row_cache_sequence_floor;
+        if (visible) {
+          cache_status = immutable_db_options_.global_row_cache->IsEntryVisible(
+              *key->key, cache_results[i].sequence, cache_results[i].generation,
+              type, cache_value, super_version->global_row_cache_sequence_floor,
+              &visible);
+        }
+        if (!cache_status.ok()) {
+          DisableGlobalRowCache(cache_status);
+          cache_results_valid = false;
+          break;
+        }
+        if (!IsGlobalRowCacheEnabled()) {
+          cache_results_valid = false;
+          break;
+        }
+        if (!visible) {
+          cache_values[i].Reset();
+          cache_results[i].state = GlobalRowCacheLookupResult::State::kMiss;
+        }
+      }
+
+      if (cache_results_valid && IsGlobalRowCacheEnabled()) {
+        size_t cache_index = 0;
+        for (auto iter = range.begin(); iter != range.end();
+             ++iter, ++cache_index) {
+          const auto& cache_result = cache_results[cache_index];
+          if (cache_result.state == GlobalRowCacheLookupResult::State::kMiss) {
+            iter->global_row_cache_miss = true;
+            iter->global_row_cache_fill_token = cache_result.fill_token;
+            continue;
+          }
+
+          iter->sequence = cache_result.sequence;
+          if (cache_result.state == GlobalRowCacheLookupResult::State::kValue) {
+            if (cache_values[cache_index].IsPinned()) {
+              *iter->value = std::move(cache_values[cache_index]);
+            } else {
+              // Preserve a caller-supplied backing string for unpinned hits.
+              iter->value->PinSelf(cache_values[cache_index]);
+            }
+            *iter->s = Status::OK();
+            range.AddValueSize(iter->value->size());
+          } else {
+            iter->value->Reset();
+            *iter->s = Status::NotFound();
+          }
+          range.MarkKeyDone(iter);
+        }
+      }
+    }
 
     keys_left -= batch_size;
     for (auto mget_iter = range.begin(); mget_iter != range.end();
@@ -745,7 +993,40 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::MultiGetImpl)
           key->merge_context.GetNumOperands() > merge_threshold) {
         *(key->s) = Status::OkMergeOperandThresholdExceeded();
       }
+    }
 
+    if (key->global_row_cache_miss && read_options.fill_cache &&
+        IsGlobalRowCacheEnabled()) {
+      SequenceNumber result_sequence = key->sequence;
+      if (key->max_covering_tombstone_seq > 0 &&
+          (result_sequence == kMaxSequenceNumber ||
+           key->max_covering_tombstone_seq > result_sequence)) {
+        result_sequence = key->max_covering_tombstone_seq;
+      }
+      if (result_sequence != kMaxSequenceNumber &&
+          (key->s->ok() || key->s->IsNotFound())) {
+        TEST_SYNC_POINT("DBImpl::MultiGetImpl:BeforeGlobalRowCacheInsert");
+        TEST_SYNC_POINT("DBImpl::MultiGetImpl:AllowGlobalRowCacheInsert");
+        const GlobalRowCacheMutationType type =
+            key->s->ok() ? GlobalRowCacheMutationType::kValue
+                         : GlobalRowCacheMutationType::kDeletion;
+        const Slice cache_value = key->s->ok() ? Slice(*key->value) : Slice();
+        uint64_t generation = 0;
+        if (ComputeGlobalRowCacheEntryGeneration(
+                *key->key, result_sequence, type, cache_value, &generation)) {
+          Status cache_status =
+              immutable_db_options_.global_row_cache->InsertReadResult(
+                  global_row_cache_id_, cfd->GetID(), *key->key,
+                  result_sequence, generation, type, cache_value,
+                  key->global_row_cache_fill_token);
+          if (!cache_status.ok()) {
+            DisableGlobalRowCache(cache_status);
+          }
+        }
+      }
+    }
+
+    if (key->s->ok()) {
       if (key->value) {
         bytes_read += key->value->size();
       } else {
@@ -929,7 +1210,8 @@ DEFINE_SYNC_AND_ASYNC(void, DBImpl::MultiGetCommon)
          cf_sv_pair_iter != cf_sv_pairs.end()) {
     s = CO_AWAIT(MultiGetImpl, read_options, key_range_per_cf_iter->start,
                  key_range_per_cf_iter->num_keys, &sorted_keys,
-                 cf_sv_pair_iter->super_version, lookup_seqnum, read_callback);
+                 cf_sv_pair_iter->super_version, lookup_seqnum, read_callback,
+                 /*use_global_row_cache=*/true);
     if (!s.ok()) {
       break;
     }
