@@ -12,7 +12,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -28,6 +30,7 @@
 #include "rocksdb/perf_level.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
+#include "rocksdb/threadpool.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_reader.h"
@@ -46,6 +49,19 @@ static constexpr bool kIOUringPresent = false;
 #endif
 
 namespace ROCKSDB_NAMESPACE {
+
+class ScopedSyncPointCallbacks {
+ public:
+  explicit ScopedSyncPointCallbacks(SyncPoint* sync_point)
+      : sync_point_(sync_point) {}
+  ~ScopedSyncPointCallbacks() {
+    sync_point_->DisableProcessing();
+    sync_point_->ClearAllCallBacks();
+  }
+
+ private:
+  SyncPoint* sync_point_;
+};
 
 // Represents a single read operation recorded by the tracking file system
 struct ReadOp {
@@ -354,6 +370,7 @@ class ControlledAsyncFS : public ReadTrackingFS {
 
   IOStatus Poll(std::vector<void*>& io_handles,
                 size_t /*min_completions*/) override {
+    poll_thread_ = std::this_thread::get_id();
     assert(!io_handles.empty());
     if (poll_delay_us_ > 0) {
       Env::Default()->SleepForMicroseconds(poll_delay_us_);
@@ -430,6 +447,7 @@ class ControlledAsyncFS : public ReadTrackingFS {
 
   size_t abort_count() const { return abort_count_; }
   size_t stray_completion_count() const { return stray_completion_count_; }
+  std::thread::id poll_thread() const { return poll_thread_; }
 
  private:
   void CompleteHandle(ControlledAsyncHandle* handle) {
@@ -453,6 +471,7 @@ class ControlledAsyncFS : public ReadTrackingFS {
   int poll_delay_us_ = 0;
   size_t abort_count_ = 0;
   size_t stray_completion_count_ = 0;
+  std::thread::id poll_thread_;
 };
 
 IOStatus ControlledAsyncRandomAccessFile::ReadAsync(
@@ -1077,6 +1096,126 @@ TEST_F(IODispatcherTest,
   EXPECT_EQ(statistics->getTickerCount(BLOCK_CHECKSUM_MISMATCH_COUNT), 1);
   EXPECT_EQ(read_set->GetNumAsyncReads(), 2);
   EXPECT_EQ(read_set->GetNumSyncReads(), 1);
+}
+
+TEST_F(IODispatcherTest, ZeroThreadPoolPreservesInlineMaterialization) {
+  auto controlled_fs = std::make_shared<ControlledAsyncFS>(base_fs_);
+  controlled_fs->SetCompleteStrayFirst(false);
+  tracking_fs_ = controlled_fs;
+  std::unique_ptr<Env> controlled_env = NewCompositeEnv(controlled_fs);
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(1, &table, &block_handles, nullptr, false,
+                             kNoCompression, false, controlled_env.get()));
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = true;
+
+  auto pool = std::shared_ptr<ThreadPool>(
+      NewThreadPool(0), [](ThreadPool* thread_pool) {
+        thread_pool->WaitForJobsAndJoinAllThreads();
+        delete thread_pool;
+      });
+  IODispatcherOptions options;
+  options.async_decompression_pool = pool;
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(options));
+  std::shared_ptr<ReadSet> read_set;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+
+  std::atomic<bool> parallel_materialization_seen{false};
+  auto* sync_point = SyncPoint::GetInstance();
+  ScopedSyncPointCallbacks sync_point_callbacks(sync_point);
+  sync_point->SetCallBack("ParallelAsyncIOMaterializer::MaterializeBlock",
+                          [&](void*) { parallel_materialization_seen = true; });
+  sync_point->EnableProcessing();
+
+  const std::thread::id reader_thread = std::this_thread::get_id();
+  CachableEntry<Block> block;
+  ASSERT_OK(read_set->ReadIndex(0, &block));
+  EXPECT_NE(block.GetValue(), nullptr);
+  EXPECT_EQ(controlled_fs->poll_thread(), reader_thread);
+  EXPECT_FALSE(parallel_materialization_seen);
+}
+
+TEST_F(IODispatcherTest, ParallelMaterializationUsesWorkersAndJoins) {
+  auto controlled_fs = std::make_shared<ControlledAsyncFS>(base_fs_);
+  controlled_fs->SetCompleteStrayFirst(false);
+  tracking_fs_ = controlled_fs;
+  std::unique_ptr<Env> controlled_env = NewCompositeEnv(controlled_fs);
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(4, &table, &block_handles, nullptr, false,
+                             kNoCompression, false, controlled_env.get()));
+  ASSERT_EQ(block_handles.size(), 4);
+
+  std::promise<void> all_workers_entered;
+  auto all_workers_entered_future = all_workers_entered.get_future();
+  std::promise<void> allow_materialization;
+  auto allow_materialization_future =
+      allow_materialization.get_future().share();
+  std::atomic<size_t> workers_entered{0};
+  auto* sync_point = SyncPoint::GetInstance();
+  ScopedSyncPointCallbacks sync_point_callbacks(sync_point);
+  sync_point->SetCallBack("ParallelAsyncIOMaterializer::MaterializeBlock",
+                          [&](void*) {
+                            if (workers_entered.fetch_add(1) + 1 == 4) {
+                              all_workers_entered.set_value();
+                            }
+                            allow_materialization_future.wait();
+                          });
+  sync_point->EnableProcessing();
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = true;
+  job->job_options.io_coalesce_threshold = 1024 * 1024;
+
+  auto pool = std::shared_ptr<ThreadPool>(
+      NewThreadPool(4), [](ThreadPool* thread_pool) {
+        thread_pool->WaitForJobsAndJoinAllThreads();
+        delete thread_pool;
+      });
+  IODispatcherOptions options;
+  options.async_decompression_pool = pool;
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(options));
+  std::shared_ptr<ReadSet> read_set;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  ASSERT_EQ(controlled_fs->GetReadAsyncCount(), 1);
+
+  std::promise<std::thread::id> reader_thread;
+  auto reader_thread_future = reader_thread.get_future();
+  auto read_result = std::async(std::launch::async, [&]() {
+    reader_thread.set_value(std::this_thread::get_id());
+    CachableEntry<Block> block;
+    Status status = read_set->ReadIndex(0, &block);
+    return std::make_pair(std::move(status), block.GetValue() != nullptr);
+  });
+
+  const auto entered_status =
+      all_workers_entered_future.wait_for(std::chrono::seconds(10));
+  if (entered_status != std::future_status::ready) {
+    allow_materialization.set_value();
+  }
+  ASSERT_EQ(entered_status, std::future_status::ready);
+  EXPECT_EQ(read_result.wait_for(std::chrono::seconds(0)),
+            std::future_status::timeout);
+
+  allow_materialization.set_value();
+  auto [status, has_block] = read_result.get();
+  ASSERT_OK(status);
+  EXPECT_TRUE(has_block);
+  EXPECT_EQ(controlled_fs->poll_thread(), reader_thread_future.get());
+
+  for (size_t i = 1; i < block_handles.size(); ++i) {
+    CachableEntry<Block> block;
+    ASSERT_OK(read_set->ReadIndex(i, &block));
+    EXPECT_NE(block.GetValue(), nullptr);
+  }
 }
 
 // Verifies that setting a read-scoped provider makes IODispatcher data-block

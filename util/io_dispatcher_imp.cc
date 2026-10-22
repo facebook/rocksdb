@@ -36,6 +36,7 @@
 #include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
 #include "util/io_prefetch_scheduler.h"
+#include "util/parallel_async_io_materializer.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -362,9 +363,12 @@ Status ReadSet::ReadIndex(size_t block_index, CachableEntry<Block>* out) {
       // (since PollAndProcessAsyncIO will remove entries from the map)
       size_t num_blocks_in_request = async_state->block_indices.size();
       bool poll_stalled = false;
-      if (Status s =
-              PollAndProcessAsyncIO(std::move(async_state), &poll_stalled);
-          !s.ok()) {
+      Status s =
+          parallel_materializer_ != nullptr
+              ? PollAndProcessAsyncIOInParallel(std::move(async_state),
+                                                &poll_stalled)
+              : PollAndProcessAsyncIO(std::move(async_state), &poll_stalled);
+      if (!s.ok()) {
         return s;
       }
       if (poll_stalled && prefetch_scheduler_) {
@@ -599,6 +603,83 @@ Status ReadSet::PollAndProcessAsyncIO(std::shared_ptr<AsyncIOState> async_state,
   return Status::OK();
 }
 
+Status ReadSet::PollAndProcessAsyncIOInParallel(
+    std::shared_ptr<AsyncIOState> async_state, bool* poll_stalled) {
+  if (async_state->blocks.empty()) {
+    return PollAndProcessAsyncIO(std::move(async_state), poll_stalled);
+  }
+
+  auto* rep = job_->table->get_rep();
+
+  std::vector<void*> io_handles = {async_state->io_handle};
+  const bool completed_before_poll =
+      async_state->completed.load(std::memory_order_acquire);
+  const uint64_t poll_start_time_ns =
+      async_state->clock != nullptr ? async_state->clock->NowNanos() : 0;
+  const uint64_t poll_start_time_us =
+      GetIODispatcherNowMicros(async_state->clock);
+  RecordIODispatcherTime(async_state->statistics,
+                         IO_DISPATCHER_ASYNC_READ_PREFETCH_LEAD_MICROS,
+                         async_state->submit_time_us, poll_start_time_us);
+  IOStatus io_s = rep->ioptions.env->GetFileSystem()->Poll(io_handles, 1);
+  const uint64_t poll_end_time_ns =
+      async_state->clock != nullptr ? async_state->clock->NowNanos() : 0;
+  if (poll_stalled != nullptr) {
+    *poll_stalled =
+        !completed_before_poll && poll_start_time_ns != 0 &&
+        poll_end_time_ns >= poll_start_time_ns &&
+        poll_end_time_ns - poll_start_time_ns >= kRollingPrefetchPollStallNanos;
+  }
+  RecordIODispatcherTime(
+      async_state->statistics, IO_DISPATCHER_ASYNC_READ_POLL_WAIT_MICROS,
+      poll_start_time_us, GetIODispatcherNowMicros(async_state->clock));
+  if (!io_s.ok()) {
+    return io_s;
+  }
+  if (!async_state->read_req.status.ok()) {
+    return async_state->read_req.status;
+  }
+
+  const Slice& buffer_data = async_state->read_req.result;
+  SharedCleanablePtr read_buffer_cleanup;
+  if (async_state->read_scoped_buf_lease.cleanup.get() != nullptr) {
+    read_buffer_cleanup = std::move(async_state->read_scoped_buf_lease.cleanup);
+  }
+
+  std::vector<CachableEntry<Block>> materialized_blocks(
+      async_state->blocks.size());
+  std::vector<uint8_t> failed_blocks(async_state->blocks.size(), 0);
+  parallel_materializer_->Materialize(
+      async_state->blocks.size(), [&](size_t begin, size_t end) {
+        for (size_t i = begin; i < end; ++i) {
+          TEST_SYNC_POINT_CALLBACK(
+              "ParallelAsyncIOMaterializer::MaterializeBlock", &i);
+          Status status = CreateAndPinBlockFromBuffer(
+              job_, async_state->blocks[i], async_state->offset, buffer_data,
+              read_buffer_cleanup, async_state->read_buffer_requires_cleanup,
+              materialized_blocks[i]);
+          if (!status.ok()) {
+            materialized_blocks[i].Reset();
+            failed_blocks[i] = 1;
+          }
+        }
+      });
+
+  DeleteAsyncIOHandle(async_state);
+
+  for (size_t i = 0; i < async_state->block_indices.size(); ++i) {
+    const size_t block_index = async_state->block_indices[i];
+    async_io_map_.erase(block_index);
+    if (failed_blocks[i]) {
+      ReleasePrefetchMemory(block_index);
+      continue;
+    }
+    pinned_blocks_[block_index] = std::move(materialized_blocks[i]);
+  }
+
+  return Status::OK();
+}
+
 // Perform synchronous read for a specific block
 // This performs a direct synchronous read from disk when the block is not in
 // cache
@@ -682,10 +763,12 @@ struct IODispatcherImpl::Impl : public PrefetchDispatchTarget,
                           bool require_async_io) override;
 
   std::shared_ptr<PrefetchSchedulerFactory> scheduler_factory_;
+  std::shared_ptr<ThreadPool> async_decompression_pool_;
 };
 
 IODispatcherImpl::Impl::Impl(const IODispatcherOptions& options)
-    : scheduler_factory_(NewPrefetchSchedulerFactory(options)) {}
+    : scheduler_factory_(NewPrefetchSchedulerFactory(options)),
+      async_decompression_pool_(options.async_decompression_pool) {}
 
 IODispatcherImpl::Impl::~Impl() {}
 
@@ -782,6 +865,8 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
   // Initialize ReadSet
   rs->job_ = job;
   rs->fs_ = job->table->get_rep()->ioptions.env->GetFileSystem();
+  rs->parallel_materializer_ =
+      ParallelAsyncIOMaterializer::Create(async_decompression_pool_);
   rs->pinned_blocks_.resize(job->block_handles.size());
   rs->block_sizes_.resize(job->block_handles.size(), 0);
 

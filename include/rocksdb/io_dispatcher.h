@@ -19,7 +19,9 @@
 namespace ROCKSDB_NAMESPACE {
 
 class FileSystem;
+class ParallelAsyncIOMaterializer;
 class Statistics;
+class ThreadPool;
 
 // Forward declaration for internal implementation
 class PrefetchScheduler;
@@ -37,6 +39,11 @@ struct IODispatcherOptions {
 
   // Optional statistics for tracking memory limiter metrics
   Statistics* statistics = nullptr;
+
+  // Optional executor for materializing asynchronously read data blocks,
+  // including decompression. A null pool or a pool with no workers preserves
+  // inline materialization.
+  std::shared_ptr<ThreadPool> async_decompression_pool;
 };
 
 /*
@@ -249,6 +256,10 @@ class ReadSet {
   // FileSystem for calling AbortIO in destructor
   std::shared_ptr<FileSystem> fs_;
 
+  // Null unless parallel materialization was enabled when this ReadSet was
+  // created. All other async I/O state remains owned by the existing path.
+  std::shared_ptr<ParallelAsyncIOMaterializer> parallel_materializer_;
+
   // Storage for pinned blocks (one per block handle in the job)
   std::vector<CachableEntry<Block>> pinned_blocks_;
 
@@ -286,6 +297,10 @@ class ReadSet {
   // async_io_map_ entries can be erased without destroying the state mid-loop.
   Status PollAndProcessAsyncIO(std::shared_ptr<AsyncIOState> async_state,
                                bool* poll_stalled);
+
+  // Fork of PollAndProcessAsyncIO that only parallelizes block materialization.
+  Status PollAndProcessAsyncIOInParallel(
+      std::shared_ptr<AsyncIOState> async_state, bool* poll_stalled);
 
   // Release memory budget acquired for a prefetched block.
   void ReleasePrefetchMemory(size_t block_index);
