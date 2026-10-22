@@ -1427,6 +1427,7 @@ struct AdvancedColumnFamilyOptions {
   // * prefix extractor reads that are neither total-order
   //   (ReadOptions::total_order_seek / ReadOptions::auto_prefix_mode) nor
   //   bounded by ReadOptions::prefix_same_as_start
+  // * reads with ReadOptions::read_tier other than kReadAllTier
   //
   // Even if the above restrictions are met, there are still scenarios where a
   // converted range tombstone may be discarded:
