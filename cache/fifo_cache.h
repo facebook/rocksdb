@@ -27,6 +27,7 @@
 #include "util/autovector.h"
 #include "util/distributed_mutex.h"
 #include "util/hash.h"
+#include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace fifo_cache {
@@ -310,6 +311,10 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   // threadsafe beyond the shard lock taken inside.
   size_t TEST_GetProbationBudget() const;
 
+  // Test-only: slots in the ghost queue, an upper bound on the keys it
+  // remembers. Not threadsafe beyond the shard lock taken inside.
+  size_t TEST_GetGhostSize() const;
+
   // Probation list only; resident entries are not visible here. Walk it
   // with TEST_Next.
   void TEST_GetFIFOList(FIFOHandle** fifo);
@@ -409,7 +414,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   bool TableAboveInitialLength() const {
     return used_length_ > std::min(kInitialLength, max_length_);
   }
-  // Insert an item into the hash table and append it to probation.
+  // Insert an item into the hash table and append it to probation, or to
+  // resident if its key is in the ghost queue (consuming the ghost).
   // Older unpinned items are evicted as necessary. Frees heap_key on a
   // non-OK status.
   Status InsertItem(const Slice& key, HashCref hash,
@@ -467,6 +473,9 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   void RemoveFromTable(FIFOHandle* e);
   // The resident entry after e in clock order, skipping the dummy head.
   FIFOHandle* ResidentNext(FIFOHandle* e);
+  // Whether e is a zero-charge kNoopCacheItemHelper entry, as
+  // CacheWithSecondaryAdapter inserts to record recent use of a key.
+  bool IsPlaceholder(const FIFOHandle* e) const;
   // Keeps over_capacity_ equal to usage_ > capacity_. Needs mutex_.
   void SyncOverCapacity();
 
@@ -491,11 +500,10 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   // entries aside.
   static constexpr size_t kPinnedRotationsPerPass = 64;
   static constexpr int kAsideChecksPerEviction = 2;
-  // The probation budget, 12% of the shard's capacity by charge. It only
-  // chooses which queue evicts (see EvictFromQueues): eviction never takes
-  // probation below it, so probation shrinks toward it only as entries are
-  // promoted, and on a warm shard whose hot set is already resident it can
-  // stay well above it. Shard-internal: not an option. On shards small enough
+  // The probation budget, 12% of the shard's capacity by charge. It is not
+  // a partition: it chooses which queue evicts first (see EvictFromQueues),
+  // and probation settles near it as entries are promoted and ghost hits go
+  // straight to resident. Shard-internal: not an option. On shards small enough
   // that the share rounds to zero the budget is zero, so any non-empty
   // probation is over budget and eviction keeps the old probation-first order.
   // Why 12%: S3-FIFO (SOSP '23) sizes its small queue at 10% of the cache.
@@ -551,8 +559,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
 
   // One sweep over probation from the head: unpinned entries at or above
   // kPromoteThreshold move to the resident tail (counter reset), unpinned
-  // entries below it are evicted, pinned entries move to the probation
-  // tail, so long-lived pins
+  // entries below it are evicted and their keys recorded in the ghost
+  // queue, pinned entries move to the probation tail, so long-lived pins
   // are not re-walked by every eviction, or aside once the pass has
   // rotated kPinnedRotationsPerPass of them.
   // Stops once data is Done. Returns whether it promoted anything. Not
@@ -568,6 +576,22 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   // Stops once data is Done or the idle-pass bound is hit. Not thread
   // safe - call with mutex_ held.
   void EvictFromResident(EvictionData* data, autovector<FIFOHandle*>* deleted);
+
+  // The 32 bits of an entry's hash the ghost queue remembers.
+  static uint32_t GhostHash(HashCref hash) { return Lower32of64(hash[0]); }
+  // Records a probation victim's ghost hash in the ghost queue, dropping
+  // the oldest ghosts beyond the bound. Call before removing the victim
+  // from the table so that a full shard of N entries keeps N ghosts.
+  void GhostRecord(uint32_t hash);
+
+  // Forgets a ghost hash: drops it from the index, so its ring slot is skipped
+  // when trimmed. Returns whether it was remembered.
+  bool GhostTake(uint32_t hash);
+  // Drops the oldest ghosts while the queue is over its bound. Called when a
+  // ghost is recorded and after SetCapacity, which can lower the bound.
+  // Erasing entries leaves the ghost as is: it adds no victims, and the
+  // ghost stays within the table's past size.
+  void GhostTrim();
 
   void NotifyEvicted(const autovector<FIFOHandle*>& evicted_handles);
 
@@ -755,9 +779,10 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   // just before the hand, and the hand moves past an entry that leaves, so
   // the order is the FIFO-reinsertion order. The resident dummy head when
   // resident is empty.
-  // New entries enter probation; probation victims with enough frequency
-  // are promoted to resident. The 12% budget (kProbationPercent) decides
-  // which of the two queues evicts, not how much each holds.
+  // New entries enter probation unless readmitted from the ghost queue;
+  // probation victims with enough frequency are promoted to resident. The
+  // 12% budget (kProbationPercent) decides which queue evicts first, not
+  // how much each holds.
   // Together they contain all in-cache items, pinned and unpinned.
   FIFOHandle* resident_hand_;
 
@@ -773,6 +798,45 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   // short then returns every unpinned aside entry (see EvictNeed), so a
   // released burst of pins does not stay out of eviction's reach.
   std::atomic<bool> aside_unpinned_;
+
+  // Ghost queue: ghost hashes (GhostHash) of keys recently evicted from
+  // probation, no values. Re-inserting a remembered key goes straight to
+  // resident, so an entry whose reuse distance exceeds probation but not
+  // the whole shard is still recognised as reused. Resident victims are
+  // never recorded: they already had their chance. A hash collision only
+  // admits one entry to resident at freq 0, where it is evicted on its
+  // first visit.
+  // Bound: at most occupancy_ slots, oldest dropped first, i.e. reuse is
+  // remembered over about one shard's worth of evictions, and ghost memory
+  // stays proportional to the table it shadows. Not charged to usage_:
+  // about 4 bytes of ring plus one index entry per remembered key.
+  // The bound is enforced when a ghost is recorded and after SetCapacity
+  // (GhostTrim). Erasing entries does not trim, so after erases ghost_size_
+  // can exceed occupancy_ until one of those runs.
+  // Placeholder inserts (zero charge, kNoopCacheItemHelper, as
+  // CacheWithSecondaryAdapter uses to record recent use) neither take nor
+  // leave a ghost, so readmission credit reaches the real entry.
+  // ghost_index_ maps a hash to the sequence number of its latest slot, so
+  // a stale slot (consumed by readmission, or superseded) is skipped when
+  // it reaches the head; stale slots still count toward the bound.
+  // Slots live in a power-of-two ring addressed by sequence number, so the
+  // ring allocates nothing once it has grown to the bound, and growing
+  // never moves a slot to another sequence number. ghost_index_ is
+  // allocation-free with folly (F14); std::unordered_map, used without
+  // USE_FOLLY, allocates a node per recorded ghost.
+  std::unique_ptr<uint32_t[]> ghost_ring_;
+  // Ring length, 0 or a power of two. Grows to the slot bound and never
+  // shrinks.
+  size_t ghost_ring_length_;
+  // Sequence number of the oldest slot; slots are ghost_head_seq_ up to
+  // ghost_head_seq_ + ghost_size_.
+  uint64_t ghost_head_seq_;
+  size_t ghost_size_;
+  using GhostIndex = UnorderedMap<uint32_t, uint64_t>;
+  GhostIndex ghost_index_;
+  // Bumped by every GhostRecord, so InsertItem can tell whether an iterator
+  // into ghost_index_ survived its eviction.
+  uint64_t ghost_records_;
 
   // We don't count mutex_ as the cache's internal state so semantically we
   // don't mind mutex_ invoking the non-const actions.

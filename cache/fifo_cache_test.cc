@@ -2178,6 +2178,238 @@ TEST_F(FIFOCacheTest, SecondaryCacheWrapped) {
   }
 }
 
+// R1/R3: a probation victim re-inserted lands in resident, so the same
+// pressure that evicted it once no longer does. Resident holds only a, so
+// probation stays over budget and every eviction draws from probation.
+TEST_F(FIFOCacheTest, GhostReadmitsProbationVictimToResident) {
+  NewCache(/*capacity*/ 100);
+  EXPECT_OK(Insert("a"));
+  InsertN("c", 99);
+  EXPECT_EQ(100, cache_->GetUsage());
+  EXPECT_OK(Insert("x"));
+  EXPECT_FALSE(ContainsForTest("a"));
+  // Evicts c0; a goes to resident.
+  EXPECT_OK(Insert("a"));
+  EXPECT_TRUE(ContainsForTest("a"));
+  EXPECT_FALSE(InProbationForTest("a"));
+  // A full probation's worth of cold inserts: in probation, a would go.
+  InsertN("d", 100);
+  EXPECT_TRUE(ContainsForTest("a"));
+  EXPECT_EQ(100, cache_->GetUsage());
+}
+
+// R2: a resident victim is not remembered and re-enters probation, while a
+// probation victim from the same run is readmitted to resident.
+TEST_F(FIFOCacheTest, GhostIgnoresResidentVictims) {
+  NewCache(/*capacity*/ 100);
+  EXPECT_OK(Insert("big", /*charge*/ 87));
+  HitNTimes("big", 2);
+  EXPECT_OK(Insert("a"));
+  HitNTimes("a", 2);
+  InsertN("p", 12);
+  EXPECT_EQ(100, cache_->GetUsage());
+  // Promotes big and a, evicts p0 from probation.
+  EXPECT_OK(Insert("t"));
+  EXPECT_FALSE(ContainsForTest("p0"));
+  EXPECT_EQ(12, cache_->TEST_GetProbationUsage());
+  HitNTimes("big", 1);
+  // Probation at budget: resident first. big spends its hit; a is evicted.
+  EXPECT_OK(Insert("u"));
+  EXPECT_FALSE(ContainsForTest("a"));
+  EXPECT_TRUE(ContainsForTest("big"));
+  EXPECT_OK(Insert("a"));
+  EXPECT_TRUE(InProbationForTest("a"));
+  EXPECT_OK(Insert("p0"));
+  EXPECT_TRUE(ContainsForTest("p0"));
+  EXPECT_FALSE(InProbationForTest("p0"));
+}
+
+// R3: readmission consumes the ghost. After a is readmitted and then
+// evicted from resident, a third insert goes to probation.
+TEST_F(FIFOCacheTest, GhostForgetsReadmittedKey) {
+  NewCache(/*capacity*/ 100);
+  EXPECT_OK(Insert("big", /*charge*/ 87));
+  HitNTimes("big", 2);
+  EXPECT_OK(Insert("a"));
+  InsertN("p", 12);
+  EXPECT_EQ(100, cache_->GetUsage());
+  // Promotes big, evicts a from probation.
+  EXPECT_OK(Insert("t"));
+  EXPECT_FALSE(ContainsForTest("a"));
+  // Evicts p0; a is readmitted to resident.
+  EXPECT_OK(Insert("a"));
+  EXPECT_TRUE(ContainsForTest("a"));
+  EXPECT_FALSE(InProbationForTest("a"));
+  EXPECT_EQ(12, cache_->TEST_GetProbationUsage());
+  HitNTimes("big", 1);
+  // Probation at budget: resident first. big spends its hit; a is evicted.
+  EXPECT_OK(Insert("u"));
+  EXPECT_FALSE(ContainsForTest("a"));
+  EXPECT_TRUE(ContainsForTest("big"));
+  EXPECT_OK(Insert("a"));
+  EXPECT_TRUE(InProbationForTest("a"));
+}
+
+// A slot left stale by readmission must not drop a newer record of the same
+// key when it reaches the head of the ghost queue.
+TEST_F(FIFOCacheTest, GhostStaleSlotKeepsNewerRecord) {
+  NewCache(/*capacity*/ 10);
+  EXPECT_OK(Insert("a"));
+  InsertN("c", 9);
+  // Evicts a. Ghost: [a].
+  EXPECT_OK(Insert("x"));
+  // Evicts c0, then readmits a. Ghost: [stale a, c0].
+  EXPECT_OK(Insert("a"));
+  EXPECT_FALSE(InProbationForTest("a"));
+  Erase("a");
+  Erase("x");
+  for (int i = 1; i < 9; i++) {
+    Erase("c" + std::to_string(i));
+  }
+  EXPECT_EQ(0, cache_->GetUsage());
+  EXPECT_OK(Insert("a"));
+  // e9 evicts a from probation. Ghost: [stale a, c0, a].
+  InsertN("e", 10);
+  EXPECT_FALSE(ContainsForTest("a"));
+  EXPECT_EQ(3, cache_->TEST_GetGhostSize());
+  for (int i = 3; i < 10; i++) {
+    Erase("e" + std::to_string(i));
+  }
+  // Evicts e0 with 3 entries in the table, dropping the stale slot; the
+  // trim after SetCapacity then drops c0 for the 2 entries left.
+  cache_->SetCapacity(2);
+  EXPECT_EQ(2, cache_->TEST_GetGhostSize());
+  cache_->SetCapacity(10);
+  EXPECT_OK(Insert("a"));
+  EXPECT_TRUE(ContainsForTest("a"));
+  EXPECT_FALSE(InProbationForTest("a"));
+}
+
+// R4: under a long unique-key workload the ghost queue holds exactly as
+// many keys as the shard holds entries, and follows the shard when it
+// shrinks.
+TEST_F(FIFOCacheTest, GhostBoundedByOccupancy) {
+  NewCache(/*capacity*/ 100);
+  InsertN("k", 10000);
+  EXPECT_EQ(100, cache_->GetOccupancyCount());
+  EXPECT_EQ(100, cache_->TEST_GetGhostSize());
+  cache_->SetCapacity(50);
+  InsertN("j", 10000);
+  EXPECT_EQ(50, cache_->GetOccupancyCount());
+  EXPECT_EQ(50, cache_->TEST_GetGhostSize());
+}
+
+// The ghost queue keeps its bound (no more ghosts than entries in the table,
+// and from D123489073 no more charge than capacity) after SetCapacity lowers
+// it, even when the shrink evicts nothing, not only when the next victim is
+// recorded.
+TEST_F(FIFOCacheTest, GhostBoundHoldsAfterCapacityShrink) {
+  NewCache(/*capacity*/ 10);
+  InsertN("a", 10);
+  // Evicts a0..a5 from probation; their keys go to the ghost.
+  InsertN("b", 6);
+  ASSERT_EQ(6, cache_->TEST_GetGhostSize());
+  // Erasing adds no victims, so the ghost keeps its six keys.
+  for (int i = 6; i < 10; ++i) {
+    Erase("a" + std::to_string(i));
+  }
+  for (int i = 0; i < 4; ++i) {
+    Erase("b" + std::to_string(i));
+  }
+  ASSERT_EQ(2, cache_->GetOccupancyCount());
+  ASSERT_EQ(6, cache_->TEST_GetGhostSize());
+  // Usage 2 fits capacity 3, so nothing is evicted and no ghost recorded;
+  // the trim alone brings the ghost within the bound.
+  cache_->SetCapacity(3);
+  EXPECT_EQ(2, cache_->GetOccupancyCount());
+  EXPECT_LE(cache_->TEST_GetGhostSize(), 2);
+}
+
+// The ghost ring keeps the newest records across growth and many wraps:
+// after 100 probation victims with room for 40, the newest victim is
+// readmitted to resident and one dropped earlier is not.
+TEST_F(FIFOCacheTest, GhostRingWrapsKeepingNewestRecords) {
+  NewCache(/*capacity*/ 40);
+  InsertN("k", 40);
+  InsertN("m", 100);
+  // Victims k0..k39 then m0..m59; the ghost remembers m20..m59.
+  EXPECT_EQ(40, cache_->TEST_GetGhostSize());
+  EXPECT_OK(Insert("m59"));
+  EXPECT_TRUE(ContainsForTest("m59"));
+  EXPECT_FALSE(InProbationForTest("m59"));
+  EXPECT_OK(Insert("m19"));
+  EXPECT_TRUE(InProbationForTest("m19"));
+}
+
+// The ghost is keyed on the shard hash, so a different key with a
+// remembered hash is readmitted to resident, at freq 0.
+TEST_F(FIFOCacheTest, GhostHashCollisionAdmitsToResident) {
+  NewCache(/*capacity*/ 10);
+  constexpr UniqueId64x2 kHash = {12345, 0};
+  auto insert_with_hash = [&](const std::string& key) {
+    return cache_->Insert(key, kHash, nullptr, &kNoopCacheItemHelper, 1,
+                          nullptr, Cache::Priority::LOW);
+  };
+  EXPECT_OK(insert_with_hash("a"));
+  InsertN("c", 9);
+  // Evicts a, remembering kHash.
+  EXPECT_OK(Insert("x"));
+  EXPECT_FALSE(ContainsForTest("a"));
+  EXPECT_OK(insert_with_hash("b"));
+  EXPECT_TRUE(ContainsForTest("b"));
+  EXPECT_FALSE(InProbationForTest("b"));
+}
+
+// A placeholder insert (zero charge, kNoopCacheItemHelper), as
+// CacheWithSecondaryAdapter uses to record recent use, neither takes nor
+// leaves a ghost: readmission credit waits for the real entry.
+TEST_F(FIFOCacheTest, GhostIgnoresPlaceholderInserts) {
+  NewCache(/*capacity*/ 10);
+  EXPECT_OK(Insert("a"));
+  InsertN("c", 9);
+  // Evicts a, remembering it.
+  EXPECT_OK(Insert("x"));
+  EXPECT_FALSE(ContainsForTest("a"));
+  EXPECT_OK(Insert("a", /*charge*/ 0));
+  EXPECT_TRUE(InProbationForTest("a"));
+  Erase("a");
+  EXPECT_OK(Insert("a"));
+  EXPECT_TRUE(ContainsForTest("a"));
+  EXPECT_FALSE(InProbationForTest("a"));
+}
+
+// End to end through the Cache interface: a key read once per scan longer
+// than the cache misses forever without the ghost queue. With it, the
+// second miss lands in resident and every later read hits despite scans.
+TEST_F(FIFOCacheTest, GhostKeepsSlowReuseKeyAcrossScans) {
+  FIFOCacheOptions opts(/*capacity*/ 100, /*num_shard_bits*/ 0,
+                        /*strict_capacity_limit*/ false, nullptr,
+                        kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  std::shared_ptr<Cache> cache = opts.MakeSharedCache();
+  ASSERT_NE(nullptr, cache);
+  auto access = [&](const std::string& key) {
+    Cache::Handle* h = cache->Lookup(key);
+    if (h != nullptr) {
+      cache->Release(h);
+      return true;
+    }
+    EXPECT_OK(cache->Insert(key, nullptr, &kNoopCacheItemHelper, 1));
+    return false;
+  };
+  int hits = 0;
+  int scanned = 0;
+  for (int round = 0; round < 5; round++) {
+    if (access("hot")) {
+      hits++;
+    }
+    for (int i = 0; i < 150; i++) {
+      EXPECT_FALSE(access("s" + std::to_string(scanned++)));
+    }
+  }
+  // Misses in rounds 0 and 1, hits in rounds 2 to 4.
+  EXPECT_EQ(3, hits);
+}
+
 // Values that detect use after free and double free: the deleter marks the
 // value dead before freeing it, and holders check that what they read is
 // alive and belongs to the key they looked up. LiveValues() counts the
