@@ -13,9 +13,6 @@
 #include <cstdint>
 
 #include "db/db_impl/db_impl_metadata.h"
-#ifdef OS_SOLARIS
-#include <alloca.h>
-#endif
 
 #include <cinttypes>
 #include <cstdio>

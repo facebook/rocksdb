@@ -1629,8 +1629,7 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
   // Create file.
   {
     std::unique_ptr<WritableFile> wfile;
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
-    !defined(OS_AIX)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_AIX)
     if (soptions.use_direct_writes) {
       soptions.use_direct_writes = false;
     }
@@ -1674,8 +1673,7 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
       data.emplace_back(NewAligned(kSectorSize, 0));
       reqs[i].scratch = data.back().get();
     }
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
-    !defined(OS_AIX)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_AIX)
     if (soptions.use_direct_reads) {
       soptions.use_direct_reads = false;
     }
@@ -1806,8 +1804,8 @@ TEST_F(EnvPosixTest, NonAlignedDirectIOMultiReadBeyondFileSize) {
     ASSERT_OK(wfile->Close());
   }
 
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
-    !defined(OS_AIX) && !defined(OS_OPENBSD) && !defined(OS_FREEBSD)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_AIX) && \
+    !defined(OS_OPENBSD) && !defined(OS_FREEBSD)
   if (soptions.use_direct_reads) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "NewRandomAccessFile:O_DIRECT", [&](void* arg) {
@@ -2137,8 +2135,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
   // Create file.
   {
     std::unique_ptr<WritableFile> wfile;
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
-    !defined(OS_AIX)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_AIX)
     if (soptions.use_direct_writes) {
       soptions.use_direct_writes = false;
     }
@@ -2154,8 +2151,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
     std::unique_ptr<RandomAccessFile> file;
     auto scratch = NewAligned(kSectorSize, 0);
     Slice result;
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
-    !defined(OS_AIX)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_AIX)
     if (soptions.use_direct_reads) {
       soptions.use_direct_reads = false;
     }
@@ -2172,8 +2168,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
     std::unique_ptr<SequentialFile> file;
     auto scratch = NewAligned(kSectorSize, 0);
     Slice result;
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
-    !defined(OS_AIX)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_AIX)
     if (soptions.use_direct_reads) {
       soptions.use_direct_reads = false;
     }
@@ -2317,8 +2312,8 @@ TEST_P(EnvPosixTestWithParam, Preallocation) {
   std::unique_ptr<WritableFile> srcfile;
   EnvOptions soptions;
   soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
-    !defined(OS_AIX) && !defined(OS_OPENBSD) && !defined(OS_FREEBSD)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_AIX) && \
+    !defined(OS_OPENBSD) && !defined(OS_FREEBSD)
   if (soptions.use_direct_writes) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "NewWritableFile:O_DIRECT", [&](void* arg) {
@@ -2381,8 +2376,8 @@ TEST_P(EnvPosixTestWithParam, ConsistentChildrenAttributes) {
   for (int i = 0; i < kNumChildren; ++i) {
     const std::string path = test_base_dir + "/testfile_" + std::to_string(i);
     std::unique_ptr<WritableFile> file;
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
-    !defined(OS_AIX) && !defined(OS_OPENBSD) && !defined(OS_FREEBSD)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_AIX) && \
+    !defined(OS_OPENBSD) && !defined(OS_FREEBSD)
     if (soptions.use_direct_writes) {
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
           "NewWritableFile:O_DIRECT", [&](void* arg) {

@@ -1883,7 +1883,6 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
 }
 #endif  // OS_LINUX
 
-#if !defined OS_SOLARIS
 TEST_F(DBTest2, PersistentCache) {
   int num_iter = 80;
 
@@ -1946,7 +1945,6 @@ TEST_F(DBTest2, PersistentCache) {
     }
   }
 }
-#endif  // !defined OS_SOLARIS
 
 namespace {
 void CountSyncPoint() {
@@ -2084,7 +2082,6 @@ TEST_F(DBTest2, ReadAmpBitmap) {
   }
 }
 
-#ifndef OS_SOLARIS  // GetUniqueIdFromFile is not implemented
 TEST_F(DBTest2, ReadAmpBitmapLiveInCacheAfterDBClose) {
   {
     const int kIdBufLen = 100;
@@ -2197,7 +2194,6 @@ TEST_F(DBTest2, ReadAmpBitmapLiveInCacheAfterDBClose) {
     }
   }
 }
-#endif  // !OS_SOLARIS
 
 TEST_F(DBTest2, AutomaticCompactionOverlapManualCompaction) {
   Options options = CurrentOptions();
