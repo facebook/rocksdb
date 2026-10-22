@@ -2462,7 +2462,7 @@ void WriteInterleavedLevels(DBTestBase* t, Random* rnd,
             true_data->lower_bound(DBTestBase::Key(kImmortalRangeDelEnd)));
       }
       std::string k = DBTestBase::Key(i);
-      std::string v = rnd->RandomString(100);
+      std::string v = test::CompressibleString(rnd, 0.5, 100);
       ASSERT_OK(t->Put(k, v));
       (*true_data)[k] = v;
       if ((i / 3) % kImmortalKeysPerFile == kImmortalKeysPerFile - 1) {
@@ -2571,11 +2571,16 @@ void VerifySaved(const std::vector<SavedEntry>& saved) {
 // DBIteratorTest fixture of their neighbours: the read_callback parameter is
 // irrelevant here and would only double an already heavy test's runtime.
 TEST_F(DBIteratorBaseTest, PinnedDataIteratorImmortalMmapNoPin) {
+  if (encrypted_env_) {
+    ROCKSDB_GTEST_BYPASS("Test requires mmap reads");
+    return;
+  }
   PinCounters counters;
 
-  // kNone: all dropped. kSome: pinned while on an owned block. kMost: most
-  // pinned, some dropped (e.g. exhausted ones). kAll: never dropped.
-  enum Pins { kNone, kSome, kMost, kAll };
+  // kPinNone: all dropped. kPinSome: pinned while on an owned block.
+  // kPinMost: most pinned, some dropped (e.g. exhausted ones). kPinAll: never
+  // dropped.
+  enum Pins { kPinNone, kPinSome, kPinMost, kPinAll };
   struct Mode {
     bool read_only, mmap, block_cache, persistent_cache, immortal_factory,
         fill_cache;
@@ -2589,29 +2594,29 @@ TEST_F(DBIteratorBaseTest, PinnedDataIteratorImmortalMmapNoPin) {
   const std::vector<Mode> kModes = {
       // Immortal, mmap: dropped. The reader does not insert unowned (mmap,
       // uncompressed) blocks into the block cache, so also with a cache.
-      {true, true, false, false, false, true, -1, kNone, "1"},
-      {true, true, true, false, false, true, -1, kNone, "1"},
-      {false, true, false, false, true, true, -1, kNone, "1"},
+      {true, true, false, false, false, true, -1, kPinNone, "1"},
+      {true, true, true, false, false, true, -1, kPinNone, "1"},
+      {false, true, false, false, true, true, -1, kPinNone, "1"},
       // fill_cache=false charges a placeholder for each block to the block
       // cache through a cleanup on the block iterator; dropping the block
       // releases it right away instead of keeping it until the iterator dies.
-      {true, true, true, false, false, false, -1, kNone, "1"},
+      {true, true, true, false, false, false, -1, kPinNone, "1"},
       // Immortal, mmap blocks mixed with owned persistent cache hits.
-      {true, true, false, true, false, true, -1, kSome, nullptr},
+      {true, true, false, true, false, true, -1, kPinSome, nullptr},
       // Immortal, cached or heap-owned blocks.
-      {true, false, true, false, false, true, -1, kMost, "1"},
-      {true, false, false, false, false, true, -1, kMost, "0"},
+      {true, false, true, false, false, true, -1, kPinMost, "1"},
+      {true, false, false, false, false, true, -1, kPinMost, "0"},
       // Not immortal: cached blocks pin through the handle; unowned mmap
       // blocks are not pinned at all.
-      {false, false, true, false, false, true, -1, kAll, "1"},
-      {false, true, false, false, false, true, -1, kAll, "0"},
+      {false, false, true, false, false, true, -1, kPinAll, "1"},
+      {false, true, false, false, false, true, -1, kPinAll, "0"},
       // Immortal with table cache handles (only files whose readers were
       // preloaded into FileMetaData have none and are dropped).
-      {false, true, false, false, true, true, 20, kMost, "1"},
+      {false, true, false, false, true, true, 20, kPinMost, "1"},
   };
   // Keys taken from index values: always pin.
   const std::vector<Mode> kFirstKeyModes = {
-      {true, true, false, false, false, true, -1, kAll, "1"}};
+      {true, true, false, false, false, true, -1, kPinAll, "1"}};
   for (bool first_key_index : {false, true}) {
     Options options = CurrentOptions();
     options.compression = kNoCompression;
@@ -2629,8 +2634,8 @@ TEST_F(DBIteratorBaseTest, PinnedDataIteratorImmortalMmapNoPin) {
 
     std::map<std::string, std::string> true_data;
     Random rnd(301);
-    ASSERT_NO_FATAL_FAILURE(WriteInterleavedLevels(
-        this, &rnd, [](int /*level*/) {}, &true_data));
+    ASSERT_NO_FATAL_FAILURE(
+        WriteInterleavedLevels(this, &rnd, [](int /*level*/) {}, &true_data));
 
     const std::vector<Mode>& modes = first_key_index ? kFirstKeyModes : kModes;
     for (const Mode& mode : modes) {
@@ -2684,15 +2689,15 @@ TEST_F(DBIteratorBaseTest, PinnedDataIteratorImmortalMmapNoPin) {
       }
       ASSERT_NO_FATAL_FAILURE(VerifySaved(saved));
 #ifndef NDEBUG
-      if (mode.pins == kAll || mode.pins == kMost) {
+      if (mode.pins == kPinAll || mode.pins == kPinMost) {
         // Most seeks switch files at least once.
         ASSERT_GT(counters.pinned_file_iters.load(), kImmortalSeeks / 2);
-        if (mode.pins == kAll) {
+        if (mode.pins == kPinAll) {
           ASSERT_EQ(0, counters.dropped_file_iters.load());
         } else {
           ASSERT_GT(counters.dropped_file_iters.load(), 0);
         }
-      } else if (mode.pins == kSome) {
+      } else if (mode.pins == kPinSome) {
         // Owned blocks were delegated; iterators on an owned block were
         // pinned, the others dropped.
         ASSERT_GT(counters.delegated_blocks.load(), 0);
@@ -2714,6 +2719,10 @@ TEST_F(DBIteratorBaseTest, PinnedDataIteratorImmortalMmapNoPin) {
 // heap-owned and delegated; keys are not pinned). Each file iterator is
 // judged by its own table's properties.
 TEST_F(DBIteratorBaseTest, PinnedDataIteratorImmortalMmapMixedTableOptions) {
+  if (encrypted_env_) {
+    ROCKSDB_GTEST_BYPASS("Test requires mmap reads");
+    return;
+  }
   PinCounters counters;
 
   Options options = CurrentOptions();
@@ -2724,6 +2733,13 @@ TEST_F(DBIteratorBaseTest, PinnedDataIteratorImmortalMmapMixedTableOptions) {
   table_options.no_block_cache = true;
   DestroyAndReopen(options);
 
+  CompressionType l1_compression = kNoCompression;
+  for (CompressionType type : GetSupportedCompressions()) {
+    if (type != kNoCompression) {
+      l1_compression = type;
+      break;
+    }
+  }
   std::map<std::string, std::string> true_data;
   Random rnd(301);
   ASSERT_NO_FATAL_FAILURE(WriteInterleavedLevels(
@@ -2739,8 +2755,7 @@ TEST_F(DBIteratorBaseTest, PinnedDataIteratorImmortalMmapMixedTableOptions) {
                 BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey;
             break;
           case 1:
-            options.compression =
-                Snappy_Supported() ? kSnappyCompression : kNoCompression;
+            options.compression = l1_compression;
             table_options.index_type =
                 BlockBasedTableOptions::IndexType::kBinarySearch;
             table_options.use_delta_encoding = true;
@@ -2769,7 +2784,7 @@ TEST_F(DBIteratorBaseTest, PinnedDataIteratorImmortalMmapMixedTableOptions) {
   ASSERT_EQ(0, counters.dropped_with_cleanups.load());
   ASSERT_GT(counters.pinned_file_iters.load(), 0);
   ASSERT_GT(counters.dropped_file_iters.load(), 0);
-  if (Snappy_Supported()) {
+  if (l1_compression != kNoCompression) {
     ASSERT_GT(counters.delegated_blocks.load(), 0);
   }
 #endif
@@ -2779,6 +2794,10 @@ TEST_F(DBIteratorBaseTest, PinnedDataIteratorImmortalMmapMixedTableOptions) {
 // A MultiScan iterator owns the ReadSet its blocks were read into, so it is
 // pinned like before even over an immortal mmap table.
 TEST_F(DBIteratorBaseTest, PinnedDataIteratorImmortalMmapMultiScan) {
+  if (encrypted_env_) {
+    ROCKSDB_GTEST_BYPASS("Test requires mmap reads");
+    return;
+  }
   PinCounters counters;
 
   Options options = CurrentOptions();
@@ -2794,8 +2813,8 @@ TEST_F(DBIteratorBaseTest, PinnedDataIteratorImmortalMmapMultiScan) {
 
   std::map<std::string, std::string> true_data;
   Random rnd(301);
-  ASSERT_NO_FATAL_FAILURE(WriteInterleavedLevels(
-      this, &rnd, [](int /*level*/) {}, &true_data));
+  ASSERT_NO_FATAL_FAILURE(
+      WriteInterleavedLevels(this, &rnd, [](int /*level*/) {}, &true_data));
 
   options.allow_mmap_reads = true;
   options.max_open_files = -1;
@@ -2853,6 +2872,10 @@ TEST_F(DBIteratorBaseTest, PinnedDataIteratorImmortalMmapMultiScan) {
 // and are not pinned. Checks that dropping the iterators while pinning leaves
 // both the saved values (pinned, in the mapping) and keys (copied out) valid.
 TEST_F(DBIteratorBaseTest, PinnedDataIteratorImmortalMmapDeltaEncodedKeys) {
+  if (encrypted_env_) {
+    ROCKSDB_GTEST_BYPASS("Test requires mmap reads");
+    return;
+  }
   PinCounters counters;
 
   Options options = CurrentOptions();
@@ -2869,8 +2892,8 @@ TEST_F(DBIteratorBaseTest, PinnedDataIteratorImmortalMmapDeltaEncodedKeys) {
 
   std::map<std::string, std::string> true_data;
   Random rnd(301);
-  ASSERT_NO_FATAL_FAILURE(WriteInterleavedLevels(
-      this, &rnd, [](int /*level*/) {}, &true_data));
+  ASSERT_NO_FATAL_FAILURE(
+      WriteInterleavedLevels(this, &rnd, [](int /*level*/) {}, &true_data));
 
   options.allow_mmap_reads = true;
   options.max_open_files = -1;
