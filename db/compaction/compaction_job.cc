@@ -2355,7 +2355,9 @@ bool CompactionJob::ShouldUpdateSubcompactionProgress(
   // (looked ahead) in the input but not yet output. This can happen with merge
   // operations, single deletes, and deletes at the bottommost level where
   // CompactionIterator needs to look ahead to process multiple entries for the
-  // same user key before outputting a result. If we saved progress and resumed
+  // same user key before outputting a result. It also happens when newer
+  // versions of the user key were dropped before the current key, e.g. when
+  // they are covered by a range deletion. If we saved progress and resumed
   // at this boundary, the resumed session would see and process the same input
   // key again through Seek(), leading to incorrect double-counting in
   // number of processed input entries and input count verification failure

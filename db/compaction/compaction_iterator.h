@@ -339,13 +339,17 @@ class CompactionIterator {
   // creation (which ensures the count is always accurate).
   uint64_t NumInputEntryScanned() const { return input_.NumItered(); }
 
-  // Returns true if the current valid key was already scanned/counted during
-  // a lookahead operation in a previous iteration.
+  // Returns true if any input entry of the current valid key's user key was
+  // already scanned/counted before the current key, either during a lookahead
+  // operation in a previous iteration or because newer versions of the user
+  // key were dropped before the current key was output.
   //
   // REQUIRED: Valid() must be true
   bool IsCurrentKeyAlreadyScanned() const {
     assert(Valid());
-    return at_next_ || merge_out_iter_.Valid();
+    return at_next_ || merge_out_iter_.Valid() ||
+           (input_.HasNumItered() &&
+            input_.NumItered() > num_input_entry_scanned_before_user_key_);
   }
 
   Status InputStatus() const { return input_.status(); }
@@ -557,6 +561,9 @@ class CompactionIterator {
   // If false, the iterator holds a copy of the current compaction iterator
   // output (or current key in the underlying iterator during NextFromInput()).
   bool at_next_ = false;
+  // Number of input entries scanned before the first entry of
+  // current_user_key_.
+  uint64_t num_input_entry_scanned_before_user_key_ = 0;
 
   // A copy of the current internal key.
   IterKey current_key_;

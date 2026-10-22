@@ -3630,6 +3630,66 @@ class ResumableCompactionKeyTypeTest : public CompactionServiceTest {
     ASSERT_GT(resumed_bytes, 0);
   }
 
+  // Cancel compaction right before outputting the older version of key "d",
+  // whose newer version is dropped because it is covered by a range deletion
+  // while the older version is protected by a snapshot. The newer version is
+  // scanned before the file boundary at "d", so progress must not be saved at
+  // that boundary or the resumed session would count it again. The range
+  // deletion starts at "c", which survives under the snapshot, so the boundary
+  // at "d" is not adjacent to the range deletion's start key. Compaction
+  // resumes from the boundary at "b" instead.
+  void CancelAndResumeWithNewerVersionCoveredByRangeDelete(
+      bool newer_version_is_merge) {
+    Options options = CurrentOptions();
+    options.merge_operator = MergeOperators::CreateStringAppendOperator();
+
+    SetupResumableCompactionService(options, "d");
+
+    ASSERT_OK(Put("a", "val1"));
+    ASSERT_OK(Put("b", "val2"));
+    ASSERT_OK(Put("c", "val3"));
+    ASSERT_OK(Put("d", "old_value"));
+    const Snapshot* snapshot = db_->GetSnapshot();
+    if (newer_version_is_merge) {
+      ASSERT_OK(Merge("d", "new_operand"));
+    } else {
+      ASSERT_OK(Put("d", "new_value"));
+    }
+    ASSERT_OK(Put("e", "val5"));
+    ASSERT_OK(Flush());
+
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "c",
+                               "d_"));
+    ASSERT_OK(Flush());
+
+    std::vector<std::string> input_files;
+    ColumnFamilyMetaData cf_meta;
+    db_->GetColumnFamilyMetaData(&cf_meta);
+
+    for (const auto& file : cf_meta.levels[0].files) {
+      input_files.push_back(file.name);
+    }
+
+    ASSERT_EQ(input_files.size(), 2);
+
+    ResetStatistics();
+
+    CompactionOptions compact_options;
+    ASSERT_OK(
+        db_->CompactFiles(compact_options, input_files, 1 /* output_level*/));
+
+    ASSERT_EQ(Get("a"), "val1");
+    ASSERT_EQ(Get("b"), "val2");
+    ASSERT_EQ(Get("c"), "NOT_FOUND");
+    ASSERT_EQ(Get("c", snapshot), "val3");
+    ASSERT_EQ(Get("d"), "NOT_FOUND");
+    ASSERT_EQ(Get("d", snapshot), "old_value");
+    ASSERT_EQ(Get("e"), "val5");
+    db_->ReleaseSnapshot(snapshot);
+
+    VerifyResumeBytes();
+  }
+
  private:
   std::shared_ptr<ResumableCompactionService> resume_cs_;
   std::shared_ptr<Statistics> statistics_;
@@ -3849,6 +3909,18 @@ TEST_F(ResumableCompactionKeyTypeTest, CancelAndResumeWithRangeDelete) {
   ASSERT_EQ(Get("d"), "val4");
 
   VerifyResumeBytes();
+}
+
+TEST_F(ResumableCompactionKeyTypeTest,
+       CancelAndResumeWithNewerVersionCoveredByRangeDelete) {
+  CancelAndResumeWithNewerVersionCoveredByRangeDelete(
+      false /* newer_version_is_merge */);
+}
+
+TEST_F(ResumableCompactionKeyTypeTest,
+       CancelAndResumeWithNewerMergeCoveredByRangeDelete) {
+  CancelAndResumeWithNewerVersionCoveredByRangeDelete(
+      true /* newer_version_is_merge */);
 }
 
 // Test resumption when a key has multiple versions spanning across file

@@ -762,6 +762,15 @@ void CompactionIterator::NextFromInput() {
     // is a copy of the current input key (maybe converted to a delete by the
     // compaction filter). ikey_.user_key is pointing to the copy.
     if (!has_current_user_key_ || !user_key_equal_without_ts || cmp_ts != 0) {
+      // `has_current_user_key_` can be reset without the input moving to a
+      // different user key, so compare against the last copied key instead.
+      if (has_current_user_key_
+              ? !user_key_equal_without_ts
+              : current_key_.Size() == 0 ||
+                    !cmp_->EqualWithoutTimestamp(ikey_.user_key,
+                                                 current_key_.GetUserKey())) {
+        num_input_entry_scanned_before_user_key_ = input_.NumItered();
+      }
       // First occurrence of this user key
       // Copy key for output
       key_ = current_key_.SetInternalKey(key_, &ikey_);
