@@ -4302,7 +4302,7 @@ void DBImpl::MultiGetWithCallbackImpl(
 
   s = MultiGetImpl(read_options, 0, num_keys, sorted_keys,
                    cf_sv_pairs[0].super_version, consistent_seqnum,
-                   read_callback);
+                   read_callback, /*use_global_row_cache=*/false);
   assert(s.ok() || s.IsTimedOut() || s.IsAborted());
   ReturnAndCleanupSuperVersion(cf_sv_pairs[0].cfd,
                                cf_sv_pairs[0].super_version);

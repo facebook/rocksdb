@@ -412,7 +412,8 @@ DEFINE_SYNC_AND_ASYNC(void, Version::MultiGet)
         iter->s->ok() ? GetContext::kNotFound : GetContext::kMerge,
         iter->ukey_with_ts, iter->value, iter->columns, iter->timestamp,
         nullptr, &(iter->merge_context), true,
-        &iter->max_covering_tombstone_seq, clock_, nullptr,
+        &iter->max_covering_tombstone_seq, clock_,
+        iter->global_row_cache_miss ? &iter->sequence : nullptr,
         merge_operator_ ? &pinned_iters_mgr : nullptr, callback,
         &iter->is_blob_index, tracing_mget_id, &blob_fetcher);
     if (callback != nullptr && callback->GetMetadataReadBounds() != nullptr) {
