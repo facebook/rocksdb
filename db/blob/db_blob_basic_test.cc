@@ -1729,11 +1729,13 @@ TEST_F(DBBlobBasicTest, PropertiesMultiVersion) {
 
 class DBBlobBasicIOErrorTest : public DBBlobBasicTest,
                                public testing::WithParamInterface<std::string> {
+ public:
+  ~DBBlobBasicIOErrorTest() override { Close(); }
+
  protected:
   DBBlobBasicIOErrorTest() : sync_point_(GetParam()) {
     fault_injection_env_.reset(new FaultInjectionTestEnv(env_));
   }
-  ~DBBlobBasicIOErrorTest() { Close(); }
 
   std::unique_ptr<FaultInjectionTestEnv> fault_injection_env_;
   std::string sync_point_;

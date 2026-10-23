@@ -508,7 +508,8 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     std::string str1 = rnd.RandomString(1001);
     auto item1 = std::make_unique<TestItem>(str1.data(), str1.length());
     ASSERT_OK(cache->Insert(key1, item1.get(), GetHelper(), str1.length()));
-    item1.release();  // Appease clang-analyze "potential memory leak"
+    // Appease clang-analyze "potential memory leak"
+    [[maybe_unused]] TestItem* released_item1 = item1.release();
 
     Cache::Handle* handle;
     handle = cache->Lookup(key2, nullptr, this, Cache::Priority::LOW);

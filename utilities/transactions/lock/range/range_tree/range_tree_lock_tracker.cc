@@ -31,8 +31,10 @@ void RangeTreeLockTracker::Track(const PointLockRequest &lock_req) {
 }
 
 void RangeTreeLockTracker::Track(const RangeLockRequest &lock_req) {
-  DBT start_dbt, end_dbt;
-  std::string start_key, end_key;
+  DBT start_dbt;
+  DBT end_dbt;
+  std::string start_key;
+  std::string end_key;
 
   serialize_endpoint(lock_req.start_endp, &start_key);
   serialize_endpoint(lock_req.end_endp, &end_key);

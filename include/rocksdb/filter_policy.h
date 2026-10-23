@@ -99,7 +99,7 @@ struct FilterBuildingContext {
 // GetBuilderWithContext.
 class FilterPolicy : public Customizable {
  public:
-  virtual ~FilterPolicy();
+  ~FilterPolicy() override;
   static const char* Type() { return "FilterPolicy"; }
 
   // The name used for identifying whether a filter on disk is readable

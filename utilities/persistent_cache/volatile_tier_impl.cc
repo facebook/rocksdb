@@ -73,7 +73,7 @@ Status VolatileCacheTier::Insert(const Slice& page_key, const char* data,
     return Status::TryAgain("key already exists in volatile cache");
   }
 
-  cache_data.release();
+  [[maybe_unused]] CacheData* released_data = cache_data.release();
   stats_.cache_inserts_++;
   return Status::OK();
 }

@@ -98,7 +98,8 @@ TEST_F(DBClipTest, TestClipRange) {
     ASSERT_OK(Flush());
   }
   ASSERT_EQ("10", FilesPerLevel(0));
-  auto begin_key = Key(251), end_key = Key(751);
+  auto begin_key = Key(251);
+  auto end_key = Key(751);
   ASSERT_OK(
       db_->ClipColumnFamily(db_->DefaultColumnFamily(), begin_key, end_key));
 
@@ -158,7 +159,8 @@ TEST_F(DBClipTest, TestClipRange) {
   }
   ASSERT_EQ("5,5,3", FilesPerLevel(0));
 
-  auto begin_key_2 = Key(222), end_key_2 = Key(888);
+  auto begin_key_2 = Key(222);
+  auto end_key_2 = Key(888);
 
   ASSERT_OK(db_->ClipColumnFamily(db_->DefaultColumnFamily(), begin_key_2,
                                   end_key_2));

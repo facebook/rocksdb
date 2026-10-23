@@ -65,7 +65,7 @@ class WritePreparedTransactionSeqnoTest : public ::testing::Test {
     txn_db_options_.write_policy = TxnDBWritePolicy::WRITE_PREPARED;
   }
 
-  ~WritePreparedTransactionSeqnoTest() {
+  ~WritePreparedTransactionSeqnoTest() override {
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
     if (db_) {

@@ -356,8 +356,12 @@ class LegacyNoLocalityBloomImpl {
   static inline int ChooseNumProbes(int bits_per_key) {
     // We intentionally round down to reduce probing cost a little bit
     int num_probes = static_cast<int>(bits_per_key * 0.69);  // 0.69 =~ ln(2)
-    if (num_probes < 1) num_probes = 1;
-    if (num_probes > 30) num_probes = 30;
+    if (num_probes < 1) {
+      num_probes = 1;
+    }
+    if (num_probes > 30) {
+      num_probes = 30;
+    }
     return num_probes;
   }
 

@@ -186,7 +186,7 @@ Status TransactionUtil::CheckKeysForConflicts(DBImpl* db_impl,
       // CheckKeysForConflicts() is currently used only by optimistic
       // transactions.
       result = CheckKey(db_impl, sv, earliest_seq, key_seq, key,
-                        /*read_ts=*/nullptr, cache_only);
+                        /*ts=*/nullptr, cache_only);
       if (!result.ok()) {
         break;
       }

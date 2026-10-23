@@ -1593,8 +1593,8 @@ TEST_P(CompactionIteratorTsGcTest, DropTombstones) {
     std::string full_history_ts_low;
     PutFixed64(&full_history_ts_low, 102);
     RunTest(input_keys, input_values, expected_keys, expected_values,
-            /*last_committed_sequence=*/kMaxSequenceNumber,
-            /*merge_op=*/nullptr, /*compaction_filter=*/nullptr,
+            /*last_committed_seq=*/kMaxSequenceNumber,
+            /*merge_operator=*/nullptr, /*compaction_filter=*/nullptr,
             /*bottommost_level=*/false,
             /*earliest_write_conflict_snapshot=*/kMaxSequenceNumber,
             /*key_not_exists_beyond_output_level=*/true, &full_history_ts_low);

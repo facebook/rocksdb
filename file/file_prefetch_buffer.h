@@ -230,6 +230,12 @@ class FilePrefetchBuffer {
     }
   }
 
+  // No copying allowed
+  FilePrefetchBuffer(const FilePrefetchBuffer&) = delete;
+  FilePrefetchBuffer& operator=(const FilePrefetchBuffer&) = delete;
+  FilePrefetchBuffer(FilePrefetchBuffer&&) = delete;
+  FilePrefetchBuffer& operator=(FilePrefetchBuffer&&) = delete;
+
   ~FilePrefetchBuffer() {
     // Abort any pending async read request before destroying the class object.
     if (fs_ != nullptr) {

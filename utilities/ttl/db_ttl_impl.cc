@@ -351,7 +351,7 @@ DBWithTTLImpl::DBWithTTLImpl(std::unique_ptr<DB>&& db)
 
 DBWithTTLImpl::~DBWithTTLImpl() {
   if (!closed_) {
-    Close().PermitUncheckedError();
+    DBWithTTLImpl::Close().PermitUncheckedError();
   }
 }
 

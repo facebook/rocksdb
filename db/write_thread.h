@@ -211,6 +211,12 @@ class WriteThread {
           link_newer(nullptr),
           ingest_wbwi(_ingest_wbwi) {}
 
+    // No copying allowed
+    Writer(const Writer&) = delete;
+    Writer& operator=(const Writer&) = delete;
+    Writer(Writer&&) = delete;
+    Writer& operator=(Writer&&) = delete;
+
     ~Writer() {
       if (made_waitable) {
         StateMutex().~mutex();

@@ -45,6 +45,11 @@ class LogReaderContainer {
                                               reporter, true /*checksum*/,
                                               log_number);
   }
+  // No copying allowed
+  LogReaderContainer(const LogReaderContainer&) = delete;
+  LogReaderContainer& operator=(const LogReaderContainer&) = delete;
+  LogReaderContainer(LogReaderContainer&&) = delete;
+  LogReaderContainer& operator=(LogReaderContainer&&) = delete;
   log::FragmentBufferedReader* reader_;
   log::Reader::Reporter* reporter_;
   Status* status_;
@@ -143,6 +148,8 @@ class DBImplSecondary : public DBImpl {
   Status NewIterators(const std::vector<ReadOptions>& read_options,
                       const std::vector<ColumnFamilyHandle*>& column_families,
                       std::vector<Iterator*>* iterators) override;
+
+  const Snapshot* GetSnapshot() override;
 
   using DBImpl::Put;
   Status Put(const WriteOptions& /*options*/,
@@ -379,8 +386,10 @@ class DBImplSecondary : public DBImpl {
       std::vector<Iterator*>* iterators);
 
   // No copying allowed
-  DBImplSecondary(const DBImplSecondary&);
-  void operator=(const DBImplSecondary&);
+  DBImplSecondary(const DBImplSecondary&) = delete;
+  void operator=(const DBImplSecondary&) = delete;
+  DBImplSecondary(DBImplSecondary&&) = delete;
+  void operator=(DBImplSecondary&&) = delete;
 
   using DBImpl::Recover;
 

@@ -39,6 +39,11 @@ _IGNORED_IO_URING_INIT_STDERR_RE = re.compile(
     r"IoUringBackend\.cpp:\d+\] "
     r"io_uring_queue_init_params\([^)]*\) failed .*$"
 )
+_IGNORED_CACHELIB_INFO_STDERR_RE = re.compile(
+    r"^I\d{4} \d{2}:\d{2}:\d{2}\.\d+ +\d+ "
+    r"(?:Allocator|BlockCache|Device|Driver|EnginePair|LruPolicy|NavySetup|"
+    r"RegionManager|RejectRandomAP|SlabAllocator|SparseMapIndex)\.cpp:\d+\] .*$"
+)
 _NO_SPACE_SUBSTRINGS = (
     "no space left on device",
     "out of disk space",
@@ -65,6 +70,8 @@ _STRESS_DIAGNOSTIC_FILE_RE = re.compile(
 )
 _REMOTE_DB_URI_FLAGS = ("--env_uri", "--fs_uri")
 _MIN_WRITE_BUFFER_SIZE = 64 * 1024
+_WBM_FLUSH_POLICIES = (0, 1, 2)
+_WBM_FLUSH_LARGEST_ACROSS_DBS = 2
 
 
 def get_random_seed(override):
@@ -429,6 +436,7 @@ default_params = {
     ),
     # 0 = never (used by some), 10 = often (for threading bugs), 600 = default
     "stats_dump_period_sec": lambda: random.choice([0, 10, 600]),
+    "mutex_hold_log_threshold_us": lambda: random.choice([0, 100000, 25000, 500000]),
     "compaction_ttl": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
     "fifo_allow_compaction": lambda: random.randint(0, 1),
     # TODO(T260692223): FIFO compaction drops old SST files when total size
@@ -461,8 +469,10 @@ default_params = {
         [0, 0, 0, 1024 * 1024, 8 * 1024 * 1024, 128 * 1024 * 1024]
     ),
     "use_write_buffer_manager": lambda: random.randint(0, 1),
+    "wbm_flush_policy": lambda: random.choice(_WBM_FLUSH_POLICIES),
     "avoid_unnecessary_blocking_io": random.randint(0, 1),
     "write_dbid_to_manifest": random.randint(0, 1),
+    "track_options_file_number_in_manifest": lambda: random.randint(0, 1),
     "write_identity_file": random.randint(0, 1),
     "optimize_manifest_for_recovery": lambda: 1 if random.randint(1, 5) == 1 else 0,
     "reuse_manifest_on_open": lambda: 1 if random.randint(1, 5) == 1 else 0,
@@ -1727,6 +1737,8 @@ def finalize_and_sanitize(src_params):
     if dest_params["use_write_buffer_manager"]:
         if dest_params["cache_size"] <= 0 or dest_params["db_write_buffer_size"] <= 0:
             dest_params["use_write_buffer_manager"] = 0
+    if not dest_params["use_write_buffer_manager"]:
+        dest_params["wbm_flush_policy"] = 0
     if (
         dest_params["user_timestamp_size"] > 0
         and dest_params["persist_user_defined_timestamps"] == 0
@@ -2163,6 +2175,18 @@ def gen_cmd_params(args, unknown_params=None):
     if args.test_type == "liveness":
         apply_liveness_remote_defaults(params, args)
         params.update(liveness_fault_injection_params)
+
+    # DB paths must not change between the crash and recovery processes.
+    wbm_flush_policy = params["wbm_flush_policy"]
+    if callable(wbm_flush_policy):
+        wbm_flush_policy = wbm_flush_policy()
+        params["wbm_flush_policy"] = wbm_flush_policy
+    use_write_buffer_manager = params["use_write_buffer_manager"]
+    if (
+        wbm_flush_policy == _WBM_FLUSH_LARGEST_ACROSS_DBS
+        and (callable(use_write_buffer_manager) or use_write_buffer_manager)
+    ):
+        params["num_dbs"] = max(params.get("num_dbs", 1), 2)
     return params
 
 
@@ -2550,8 +2574,18 @@ def sanitize_known_stderr(stdout, stderr, hit_timeout, finalized_params):
     ignore_sigterm_stderr = hit_timeout and _SIGTERM_STDOUT_MARKER in stdout
     # RocksDB falls back to synchronous reads if Folly cannot initialize io_uring.
     ignore_io_uring_init_stderr = finalized_params.get("use_async_db_api") == 1
+    # cachelibwrapper construction and reset can emit normal CacheLib INFO to
+    # stderr when its XLOG header is not suppressed. Filter only those INFO
+    # sources so the harness can accept an intentional whitebox SIGTERM without
+    # hiding warnings, errors, or unrelated output.
+    secondary_cache_uri = finalized_params.get("secondary_cache_uri") or ""
+    ignore_cachelib_info_stderr = secondary_cache_uri.startswith(
+        "cachelibwrapper://"
+    )
     if len(stderr) == 0 or not (
-        ignore_sigterm_stderr or ignore_io_uring_init_stderr
+        ignore_sigterm_stderr
+        or ignore_io_uring_init_stderr
+        or ignore_cachelib_info_stderr
     ):
         return stdout, stderr
 
@@ -2565,6 +2599,9 @@ def sanitize_known_stderr(stdout, stderr, hit_timeout, finalized_params):
         ) or (
             ignore_io_uring_init_stderr
             and _IGNORED_IO_URING_INIT_STDERR_RE.fullmatch(stripped_line)
+        ) or (
+            ignore_cachelib_info_stderr
+            and _IGNORED_CACHELIB_INFO_STDERR_RE.fullmatch(stripped_line)
         ):
             ignored_lines.append(line)
         else:

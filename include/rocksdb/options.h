@@ -896,7 +896,7 @@ struct DBOptions {
   // and the db data dir's absolute path will be used as the log file
   // name's prefix.
   // NOTE: not for WALs
-  std::string db_log_dir = "";
+  std::string db_log_dir;
 
   // This specifies the absolute dir path for write-ahead logs (WAL).
   // If it is empty, the log files will be in the same dir as data,
@@ -904,7 +904,7 @@ struct DBOptions {
   // If it is non empty, the log files will be in kept the specified dir.
   // When destroying the db,
   //   all log files in wal_dir and the dir itself is deleted
-  std::string wal_dir = "";
+  std::string wal_dir;
 
   // The periodicity when obsolete files get deleted. The default
   // value is 6 hours. The files that get out of scope by compaction
@@ -1239,6 +1239,15 @@ struct DBOptions {
   //
   // Dynamically changeable through SetDBOptions() API.
   unsigned int stats_dump_period_sec = 600;
+
+  // Minimum completed DB-wide mutex hold duration for sampled INFO logging,
+  // in microseconds. Requires Statistics::kAll and an info logger. Zero
+  // disables these hold probes without disabling existing statistics timers.
+  // Updates apply when a tracked ownership interval ends; previously untracked
+  // intervals cannot be reconstructed. Default: 0 (disabled). Set to 100000
+  // for a 100 ms investigation threshold.
+  // Dynamically changeable through SetDBOptions().
+  uint64_t mutex_hold_log_threshold_us = 0;
 
   // if not zero, dump rocksdb.stats to RocksDB every stats_persist_period_sec
   // Default: 600
@@ -1636,6 +1645,30 @@ struct DBOptions {
   // are phased out.
   bool write_dbid_to_manifest = true;
 
+  // EXPERIMENTAL: If true, each durable OPTIONS file is followed by a MANIFEST
+  // record committing its file number. For a column-family create or drop, the
+  // commit and membership edit are the same MANIFEST record.
+  //
+  // This value is persisted in OPTIONS files so readers can distinguish a
+  // tracked file that was durably renamed but not committed from a file written
+  // by a legacy or disabled writer. A higher file with this value false
+  // supersedes an older MANIFEST commit. A higher file with this value true is
+  // ignored until its number is committed.
+  //
+  // Older binaries safely ignore the MANIFEST field and retain their legacy
+  // highest-numbered-OPTIONS behavior. Rollback binaries must know this option
+  // before the feature is enabled so they can parse newly written OPTIONS
+  // files.
+  //
+  // The multi-column-family create/drop APIs preserve their existing partial
+  // success behavior while writing one complete OPTIONS snapshot per batch.
+  // A partial batch can leave the committed snapshot with extra column
+  // families; LoadLatestOptions and CheckOptionsCompatibility filter those
+  // entries against the live MANIFEST membership.
+  //
+  // Default: false
+  bool track_options_file_number_in_manifest = false;
+
   // It is expected that the Identity file will be obsoleted by recording
   // DB ID in the manifest (see write_dbid_to_manifest). Setting this to true
   // maintains the historical behavior of writing an Identity file, while
@@ -1725,7 +1758,10 @@ struct DBOptions {
   // Error happens, SetBGError is called to deal with the error. If the error
   // can be auto-recovered (e.g., retryable IO Error during Flush or WAL write),
   // then db resume is called in background to recover from the error. If this
-  // value is 0 or negative, DB::Resume() will not be called automatically.
+  // value is 0 or negative, DB::Resume() will not be called automatically, and
+  // any background retryable IO error (including one during compaction, which
+  // would otherwise be retried by rescheduling the compaction) stops writes
+  // until the user calls DB::Resume().
   //
   // Default: INT_MAX
   int max_bgerror_resume_count = INT_MAX;
@@ -1855,7 +1891,7 @@ struct DBOptions {
   // spans to the next day (e.g., 23:30-04:00). To make an entire day off-peak,
   // use "0:00-23:59". To make an entire day have no offpeak period, leave
   // this field blank. Default: Empty string (no offpeak).
-  std::string daily_offpeak_time_utc = "";
+  std::string daily_offpeak_time_utc;
 
   // Maximum interval in seconds between periodic compaction trigger checks.
   // The periodic trigger re-evaluates compaction scores for all column
@@ -2572,37 +2608,46 @@ struct ReadOptions {
 
   // EXPERIMENTAL
   //
-  // Names which block-based-table index a read should use. This is a
-  // preparatory API for replacing direct table_index_factory selection in a
-  // follow-up change. Until that wiring lands, table_index_factory keeps its
-  // existing behavior and read_index is not consulted by table reading.
+  // Per-read index selection. Overrides the default read routing determined
+  // by BlockBasedTableOptions::index_mode.
+  //
+  //   kDefault: use whatever index_mode says.
+  //     kStandardOnly/kStandardDefault/kStandardRequired -> standard index.
+  //     kCustomDefault/kCustomOnly                       -> custom
+  //                                                        IndexFactory index.
+  //
+  //   kBuiltin: force the standard index for this read.
+  //     Useful for debugging, comparing results between indexes, or
+  //     temporary fallback. In kCustomOnly mode, the standard index
+  //     is a minimal stub -- reads fail loudly instead of returning an
+  //     OK empty result.
+  //
+  //   kPreferCustom: select the custom IndexFactory index when the SST has
+  //     one; fall back to the standard index for SSTs that don't (e.g.,
+  //     pre-UDI files still on disk during migration). Once the custom
+  //     reader is loaded for an SST the per-read selection is strict --
+  //     iterator-creation failures surface as Status::Corruption rather
+  //     than silently falling back.
+  //
+  // ReadIndex is a two-way selector because BlockBasedTable supports
+  // exactly two index read targets per SST: the standard index (selected
+  // by BlockBasedTableOptions::index_type) and at most one custom index
+  // from user_defined_index_factory.
   enum class ReadIndex : uint8_t {
-    // Use the column family's default index routing.
     kDefault = 0,
-    // Use the standard block-based-table index.
     kBuiltin = 1,
-    // Prefer the configured custom index when present.
     kPreferCustom = 2,
   };
   ReadIndex read_index = ReadIndex::kDefault;
 
   // EXPERIMENTAL
   //
-  // Specify an alternate index to use in the SST files instead of the native
-  // block based table index. The table_factory used for the column family
-  // must support building/reading this index.
-  //
-  // The UDI framework supports all iterator operations: forward scans
-  // (SeekToFirst, Seek, Next), reverse scans (SeekToLast, SeekForPrev, Prev),
-  // and point lookups (Get). Concrete UDI implementations may impose their
-  // own restrictions -- check the specific implementation's documentation.
-  //
-  // When BlockBasedTableOptions::use_udi_as_primary_index is true, this field
-  // does not need to be set -- all reads automatically use the UDI. If set
-  // while use_udi_as_primary_index is true, the UDI from
-  // BlockBasedTableOptions takes precedence. This field is only needed when
-  // the UDI is a secondary index and you want to explicitly select it for
-  // reads.
+  // Legacy selector for a secondary custom index. With read_index=kDefault,
+  // the table's custom index takes precedence when it is primary or the only
+  // usable index.
+  // Otherwise, except with kBuiltin, this factory's Name() must match the SST's
+  // custom index name; a mismatch fails reads with InvalidArgument. New code
+  // can leave this null and use read_index directly.
   const IndexFactory* table_index_factory = nullptr;
 
   // EXPERIMENTAL: Optional non-owning provider for data-block storage pinned by
@@ -3225,6 +3270,24 @@ struct TraceOptions {
   // Default: false. This means write records in the trace may be in an order
   // different from the WAL's order.
   bool preserve_write_order = false;
+  // When true, each query record also holds the options of its call, and
+  // replay uses them instead of default options:
+  // - writes: WriteOptions::sync, disableWAL, no_slowdown and
+  //   rate_limiter_priority;
+  // - Get, MultiGet and iterator seeks: ReadOptions::verify_checksums,
+  //   fill_cache, ignore_range_deletions, async_io, optimize_multiget_for_io,
+  //   tailing, total_order_seek, auto_prefix_mode, prefix_same_as_start,
+  //   pin_data, adaptive_readahead, background_purge_on_iterator_cleanup,
+  //   auto_readahead_size, allow_unprepared_value, read_tier,
+  //   rate_limiter_priority, readahead_size, max_skippable_internal_keys and
+  //   value_size_soft_limit.
+  // Other fields (snapshots, timestamps, deadlines, callbacks and other
+  // pointers) are not recorded. See WriteQueryTraceRecord::GetWriteOptions()
+  // and GetQueryTraceRecord::GetReadOptions().
+  //
+  // Off by default because older RocksDB versions do not know these record
+  // fields: their release builds ignore them, their debug builds assert.
+  bool include_read_write_options = false;
 };
 
 // ImportColumnFamilyOptions is used by ImportColumnFamily()

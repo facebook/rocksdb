@@ -101,6 +101,17 @@ struct JobContext;
 struct ExternalSstFileInfo;
 struct MemTableInfo;
 
+// Captured under the same DB mutex hold as a subset checkpoint's MANIFEST
+// boundary and live CF set. This prevents the generated OPTIONS membership
+// from describing a different point in time than the copied MANIFEST.
+struct SubsetCheckpointOptionsSnapshot {
+  uint64_t options_file_number = 0;
+  bool commit_options_file_number = false;
+  DBOptions db_options;
+  std::vector<std::string> cf_names;
+  std::vector<ColumnFamilyOptions> cf_options;
+};
+
 // Class to maintain directories for all database paths other than main one.
 class Directories {
  public:
@@ -223,7 +234,7 @@ class DBImpl : public DB
   DBImpl(DBImpl&&) = delete;
   void operator=(DBImpl&&) = delete;
 
-  virtual ~DBImpl();
+  ~DBImpl() override;
 
   // ---- Implementations of the DB interface ----
 
@@ -642,7 +653,8 @@ class DBImpl : public DB
       const LiveFilesStorageInfoOptions& opts,
       const std::vector<uint32_t>& include_cf_ids,
       std::vector<LiveFileStorageInfo>* files,
-      std::vector<uint32_t>* excluded_cf_ids);
+      std::vector<uint32_t>* excluded_cf_ids,
+      SubsetCheckpointOptionsSnapshot* options_snapshot);
 
   // Shared body of GetLiveFilesStorageInfo and its subset-checkpoint variant.
   // include_cf_ids empty -> no filter; otherwise records skipped CF ids in
@@ -651,15 +663,23 @@ class DBImpl : public DB
       const LiveFilesStorageInfoOptions& opts,
       const std::vector<uint32_t>& include_cf_ids,
       std::vector<LiveFileStorageInfo>* files,
-      std::vector<uint32_t>* excluded_cf_ids);
+      std::vector<uint32_t>* excluded_cf_ids,
+      SubsetCheckpointOptionsSnapshot* options_snapshot);
 
   // Appends kColumnFamilyDrop records to the MANIFEST file at manifest_path for
   // the given column family ids. Used by Checkpoint to make a subset-CF
   // checkpoint's copied MANIFEST consistent with the reduced file set. Operates
   // only on the given file; does not mutate this DB's live state.
-  Status AppendColumnFamilyDropsToManifest(const std::string& manifest_path,
-                                           uint64_t manifest_size,
-                                           const std::vector<uint32_t>& cf_ids);
+  Status AppendColumnFamilyDropsToManifest(
+      const std::string& manifest_path, uint64_t manifest_size,
+      const std::vector<uint32_t>& cf_ids,
+      uint64_t committed_options_file_number);
+
+  // Writes a previously captured subset-specific OPTIONS snapshot into the
+  // checkpoint. A zero file number is a no-op for a legacy source DB.
+  Status CreateOptionsFileForSubsetCheckpoint(
+      const std::string& checkpoint_dir,
+      const SubsetCheckpointOptionsSnapshot& options_snapshot);
 
   Status GetPreparedFileInfoForExternalSstIngestion(
       const std::string& file_path,
@@ -966,10 +986,12 @@ class DBImpl : public DB
                                  bool* is_blob_index);
 
   Status TraceIteratorSeek(const uint32_t& cf_id, const Slice& key,
-                           const Slice& lower_bound, const Slice upper_bound);
+                           const Slice& lower_bound, const Slice upper_bound,
+                           const TracedReadOptions& read_options);
   Status TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
                                   const Slice& lower_bound,
-                                  const Slice upper_bound);
+                                  const Slice upper_bound,
+                                  const TracedReadOptions& read_options);
 
   // Similar to GetSnapshot(), but also lets the db know that this snapshot
   // will be used for transaction write-conflict checking.  The DB can then
@@ -1095,17 +1117,25 @@ class DBImpl : public DB
   // Schedule a background job to actually delete obsolete files.
   void SchedulePurge();
 
-  const SnapshotList& snapshots() const { return snapshots_; }
+  // Thread-safe; does not require any DB lock.
+  const ShardedSnapshotList& snapshots() const { return snapshots_; }
 
-  // load list of snapshots to `snap_vector` that is no newer than `max_seq`
-  // in ascending order.
+  // Loads snapshots no newer than `max_seq` into `snap_vector` in ascending
+  // order. Returns an exact oldest live snapshot sequence, or the last
+  // published sequence if there are no snapshots, from a separate all-shard
+  // scan. `snapshot_release_count` receives the release count observed by that
+  // exact scan when non-null.
   // `oldest_write_conflict_snapshot` is filled with the oldest snapshot
   // which satisfies SnapshotImpl.is_write_conflict_boundary_ = true.
-  void LoadSnapshots(std::vector<SequenceNumber>* snap_vector,
-                     SequenceNumber* oldest_write_conflict_snapshot,
-                     const SequenceNumber& max_seq) const {
-    InstrumentedMutexLock l(mutex());
+  // Thread-safe; callers that use the return values for DB-wide maintenance
+  // must hold mutex_.
+  SequenceNumber LoadSnapshots(std::vector<SequenceNumber>* snap_vector,
+                               SequenceNumber* oldest_write_conflict_snapshot,
+                               const SequenceNumber& max_seq,
+                               uint64_t* snapshot_release_count) const {
     snapshots().GetAll(snap_vector, oldest_write_conflict_snapshot, max_seq);
+    return snapshots().OldestOr([this]() { return GetLastPublishedSequence(); },
+                                snapshot_release_count);
   }
 
   const ImmutableDBOptions& immutable_db_options() const {
@@ -1192,6 +1222,12 @@ class DBImpl : public DB
         : name_(name), unprepared_(unprepared) {
       batches_[seq] = {log, batch, batch_cnt};
     }
+
+    // No copying allowed
+    RecoveredTransaction(const RecoveredTransaction&) = delete;
+    RecoveredTransaction& operator=(const RecoveredTransaction&) = delete;
+    RecoveredTransaction(RecoveredTransaction&&) = delete;
+    RecoveredTransaction& operator=(RecoveredTransaction&&) = delete;
 
     ~RecoveredTransaction() {
       for (auto& it : batches_) {
@@ -1293,6 +1329,12 @@ class DBImpl : public DB
   void SetRecoverableStatePreReleaseCallback(PreReleaseCallback* callback);
 
   InstrumentedMutex* mutex() const { return &mutex_; }
+  const std::atomic<uint64_t>* GetMutexHoldLogThreshold() const {
+    return &mutex_hold_log_threshold_us_;
+  }
+  const std::shared_ptr<SlowMutexLoggingContext>& GetSlowMutexLogging() const {
+    return slow_mutex_logging_;
+  }
 
   // Initialize a brand new DB. The DB directory is expected to be empty before
   // calling it. Push new manifest file name into `new_filenames`.
@@ -1647,6 +1689,8 @@ class DBImpl : public DB
   FileSystemPtr fs_;
   MutableDBOptions mutable_db_options_;
   Statistics* stats_;
+  std::atomic<uint64_t> mutex_hold_log_threshold_us_;
+  std::shared_ptr<SlowMutexLoggingContext> slow_mutex_logging_;
   RecoveredTransactionMap recovered_transactions_;
   std::unique_ptr<Tracer> tracer_;
   InstrumentedMutex trace_mutex_;
@@ -1728,6 +1772,13 @@ class DBImpl : public DB
   // with corresponding column_family_data and column_family_options.
   class RecoveryContext {
    public:
+    RecoveryContext() = default;
+    // No copying allowed
+    RecoveryContext(const RecoveryContext&) = delete;
+    RecoveryContext& operator=(const RecoveryContext&) = delete;
+    RecoveryContext(RecoveryContext&&) = delete;
+    RecoveryContext& operator=(RecoveryContext&&) = delete;
+
     ~RecoveryContext() {
       for (auto& edit_list : edit_lists_) {
         for (auto* edit : edit_list) {
@@ -1760,6 +1811,10 @@ class DBImpl : public DB
     std::unordered_map<uint32_t, uint32_t> map_;  // cf_id to index;
     autovector<ColumnFamilyData*> cfds_;
     autovector<autovector<VersionEdit*>> edit_lists_;
+    // Files found in the primary DB directory by MaybeUpdateNextFileNumber().
+    // Reused for OPTIONS selection so writable open performs one directory
+    // scan instead of two.
+    std::vector<std::string> existing_db_files_;
     // All existing data files (SST files and Blob files) found during DB::Open.
     std::vector<std::string> existing_data_files_;
     bool is_new_db_ = false;
@@ -1770,6 +1825,24 @@ class DBImpl : public DB
   Status WriteOptionsFile(const WriteOptions& write_options,
                           bool db_mutex_already_held);
 
+  // Writes, renames, and directory-syncs an OPTIONS snapshot, but does not
+  // publish it in VersionSet. The caller must either commit its file number in
+  // MANIFEST or leave it as an unreferenced orphan.
+  Status PersistOptionsFile(const WriteOptions& write_options,
+                            const DBOptions& db_options,
+                            const std::vector<std::string>& cf_names,
+                            const std::vector<ColumnFamilyOptions>& cf_opts,
+                            uint64_t* options_file_number,
+                            uint64_t* options_file_size);
+
+  // For tracked DBs, writes the OPTIONS snapshot that is committed with a
+  // column-family add/drop. Returns file number zero in legacy mode.
+  Status PersistOptionsFileForColumnFamilyManipulation(
+      const WriteOptions& write_options,
+      const std::vector<ColumnFamilyDescriptor>& added_column_families,
+      const std::vector<uint32_t>& excluded_cf_ids,
+      uint64_t* options_file_number, uint64_t* options_file_size);
+
   Status CompactRangeInternal(const CompactRangeOptions& options,
                               ColumnFamilyHandle* column_family,
                               const Slice* begin, const Slice* end,
@@ -1779,7 +1852,9 @@ class DBImpl : public DB
   // 1. WriteThread::Writer::EnterUnbatched() is used.
   // 2. db_mutex is NOT held
   Status RenameTempFileToOptionsFile(const std::string& file_name,
-                                     bool is_remote_compaction_enabled);
+                                     uint64_t options_file_number,
+                                     uint64_t* options_file_size);
+  void MaybeDeleteObsoleteOptionsFiles();
   Status DeleteObsoleteOptionsFiles(bool schedule_only);
 
   void NotifyOnManualFlushScheduled(autovector<ColumnFamilyData*> cfds,
@@ -2181,6 +2256,8 @@ class DBImpl : public DB
   friend class DBTest_ConcurrentFlushWAL_Test;
   friend class DBTest_MixedSlowdownOptionsStop_Test;
   friend class DBCompactionTest_CompactBottomLevelFilesWithDeletions_Test;
+  friend class
+      DBCompactionTest_StandaloneRangeTombstoneSnapshotAdvanceRequeuesScheduling_Test;
   friend class DBCompactionTest_CompactionDuringShutdown_Test;
   friend class DBCompactionTest_DelayCompactBottomLevelFilesWithDeletions_Test;
   friend class DBCompactionTest_DisableCompactBottomLevelFiles_Test;
@@ -2219,6 +2296,12 @@ class DBImpl : public DB
 
     explicit WriteContext(bool create_superversion = false)
         : superversion_context(create_superversion) {}
+
+    // No copying allowed
+    WriteContext(const WriteContext&) = delete;
+    WriteContext& operator=(const WriteContext&) = delete;
+    WriteContext(WriteContext&&) = delete;
+    WriteContext& operator=(WriteContext&&) = delete;
 
     ~WriteContext() {
       superversion_context.Clean();
@@ -2473,6 +2556,15 @@ class DBImpl : public DB
                                 const ColumnFamilyOptions& cf_options,
                                 const std::string& cf_name,
                                 ColumnFamilyHandle** handle);
+  Status CreateColumnFamiliesImpl(
+      const ReadOptions& read_options, const WriteOptions& write_options,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles);
+  Status CreateColumnFamilyWithPreparedOptions(
+      const ReadOptions& read_options, const WriteOptions& write_options,
+      const ColumnFamilyOptions& sanitized_cf_options,
+      const std::string& cf_name, uint64_t options_file_number,
+      uint64_t options_file_size, ColumnFamilyHandle** handle);
 
   // Follow-up work to user creating a column family or (families)
   Status WrapUpCreateColumnFamilies(
@@ -2480,6 +2572,9 @@ class DBImpl : public DB
       const std::vector<const ColumnFamilyOptions*>& cf_options);
 
   Status DropColumnFamilyImpl(ColumnFamilyHandle* column_family);
+  Status DropColumnFamilyWithOptionsFile(ColumnFamilyHandle* column_family,
+                                         uint64_t options_file_number,
+                                         uint64_t options_file_size);
 
   // Delete any unneeded files and stale in-memory entries.
   void DeleteObsoleteFiles();
@@ -2879,8 +2974,6 @@ class DBImpl : public DB
   // Queues one WBM flush; false lets the coordinator try another DB.
   bool ScheduleWriteBufferManagerFlush();
 
-  static void BGWorkWBMFlush(void* arg);
-  static void UnscheduleWBMFlushCallback(void* arg);
   void BackgroundCallWBMFlush();
 
   // REQUIRES: mutex locked
@@ -3125,8 +3218,23 @@ class DBImpl : public DB
   // WALs with log number up to up_to are not synced successfully.
   void MarkLogsNotSynced(uint64_t up_to);
 
+  enum class SnapshotLockMode {
+    kTryWithoutDBMutex,
+    kDBMutexHeld,
+    kAcquireDBMutex,
+  };
   SnapshotImpl* GetSnapshotImpl(bool is_write_conflict_boundary,
-                                bool lock = true);
+                                SnapshotLockMode lock_mode);
+
+  // Updates compaction state after the oldest snapshot advances and also
+  // reconciles `installed_cfd`, when non-null, if its Version has not processed
+  // the current oldest snapshot yet. Requires mutex_.
+  void UpdateOldestSnapshotAndScheduleWork(SequenceNumber oldest_snapshot,
+                                           uint64_t snapshot_release_count,
+                                           ColumnFamilyData* installed_cfd);
+  bool ReconcileOldestSnapshotForColumnFamily(ColumnFamilyData* cfd,
+                                              SequenceNumber oldest_snapshot);
+  void UpdateSnapshotCompactionThresholds();
 
   // If snapshot_seq != kMaxSequenceNumber, then this function can only be
   // called from the write thread that publishes sequence numbers to readers.
@@ -3162,6 +3270,7 @@ class DBImpl : public DB
   // See also InstallSuperVersionForConfigChange().
   void InstallSuperVersionAndScheduleWork(
       ColumnFamilyData* cfd, SuperVersionContext* sv_context,
+      bool defer_snapshot_refresh,
       std::optional<std::shared_ptr<SeqnoToTimeMapping>>
           new_seqno_to_time_mapping = {});
 
@@ -3233,6 +3342,8 @@ class DBImpl : public DB
       }
       return *this;
     }
+
+    ~UnpublishedWAL() = default;
 
     void Reset() {
       log_number = 0;
@@ -3661,7 +3772,8 @@ class DBImpl : public DB
   // threads. Protected by wal_write_mutex_.
   autovector<log::Writer*> wals_to_free_;
 
-  bool is_snapshot_supported_ = true;
+  // Written with mutex_ held. Read without mutex_ when creating a snapshot.
+  std::atomic<bool> is_snapshot_supported_{true};
 
   std::map<uint64_t, std::map<std::string, uint64_t>> stats_history_;
 
@@ -3691,7 +3803,13 @@ class DBImpl : public DB
 
   TrimHistoryScheduler trim_history_scheduler_;
 
-  SnapshotList snapshots_;
+  // Shard locks inside snapshots_ are leaf locks: they may be acquired while
+  // holding mutex_, but mutex_ must never be acquired while holding one.
+  // GetSnapshotImpl() reads a snapshot's sequence number inside the shard lock
+  // that adds it. Flush and compaction combine that ordering with their
+  // DB-mutex-protected input boundary and, when required, a managed snapshot or
+  // published-sequence pin in InitSnapshotContext().
+  ShardedSnapshotList snapshots_;
 
   TimestampedSnapshotList timestamped_snapshots_;
 
@@ -3897,14 +4015,21 @@ class DBImpl : public DB
   // Guard against multiple concurrent refitting
   bool refitting_level_ = false;
 
-  // The min threshold to triggere bottommost compaction for removing
-  // garbages, among all column families.
+  // The minimum threshold for triggering bottommost compaction to remove
+  // garbage across all column families. Protected by mutex_.
   SequenceNumber bottommost_files_mark_threshold_ = kMaxSequenceNumber;
 
-  // The min threshold to trigger compactions for standalone range deletion
-  // files that are marked for compaction.
+  // The minimum threshold for triggering compactions of standalone range
+  // deletion files across all column families. Protected by mutex_.
   SequenceNumber standalone_range_deletion_files_mark_threshold_ =
       kMaxSequenceNumber;
+
+  // Largest exact oldest-snapshot sequence processed. Protected by mutex_.
+  SequenceNumber last_processed_oldest_snapshot_ = 0;
+
+  // Sum of the per-shard snapshot release counts at the last exact refresh.
+  // Protected by mutex_.
+  uint64_t last_processed_snapshot_release_count_ = 0;
 
   LogsWithPrepTracker logs_with_prep_tracker_;
 
@@ -4102,8 +4227,12 @@ uint64_t FindMinPrepLogReferencedByMemTable(
 // Fix user-supplied options to be reasonable
 template <class T, class V>
 static void ClipToRange(T* ptr, V minvalue, V maxvalue) {
-  if (static_cast<V>(*ptr) > maxvalue) *ptr = maxvalue;
-  if (static_cast<V>(*ptr) < minvalue) *ptr = minvalue;
+  if (static_cast<V>(*ptr) > maxvalue) {
+    *ptr = maxvalue;
+  }
+  if (static_cast<V>(*ptr) < minvalue) {
+    *ptr = minvalue;
+  }
 }
 
 inline Status DBImpl::FailIfCfHasTs(

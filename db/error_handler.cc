@@ -413,6 +413,8 @@ void ErrorHandler::HandleKnownErrors(const Status& bg_err,
 //       to a soft error. Note that, it includes the case that IO error happens
 //       in SST or manifest write during flush. Auto resume will be called.
 //    c) all other errors are mapped to hard error. Auto resume will be called.
+//    If auto resume is disabled (max_bgerror_resume_count <= 0), all of the
+//    above are mapped to hard error and wait for a manual DB::Resume().
 // 3) for other cases, HandleKnownErrors(const Status& bg_err,
 //    BackgroundErrorReason reason) will be called to handle other error cases
 //    such as delegating to SstFileManager to handle no space error.
@@ -536,7 +538,8 @@ void ErrorHandler::SetBGErrorImpl(const Status& bg_status,
                 {} /* int_histograms */);
     ROCKS_LOG_INFO(db_options_.info_log,
                    "ErrorHandler: Set background retryable IO error\n");
-    if (BackgroundErrorReason::kCompaction == reason) {
+    const bool auto_resume_enabled = db_options_.max_bgerror_resume_count > 0;
+    if (BackgroundErrorReason::kCompaction == reason && auto_resume_enabled) {
       // We map the retryable IO error during compaction to soft error. Since
       // compaction can reschedule by itself. We will not set the BG error in
       // this case
@@ -555,10 +558,12 @@ void ErrorHandler::SetBGErrorImpl(const Status& bg_status,
       return;
     }
 
+    // A no-WAL error is soft only when automatic resume can recover it.
     const bool no_wal = BackgroundErrorReason::kFlushNoWAL == reason ||
                         BackgroundErrorReason::kManifestWriteNoWAL == reason;
-    const Status::Severity severity =
-        no_wal ? Status::Severity::kSoftError : Status::Severity::kHardError;
+    const Status::Severity severity = auto_resume_enabled && no_wal
+                                          ? Status::Severity::kSoftError
+                                          : Status::Severity::kHardError;
     Status bg_err(new_bg_io_err, severity);
     bool auto_recovery =
         allow_auto_recovery && db_options_.max_bgerror_resume_count > 0;

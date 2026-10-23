@@ -319,7 +319,8 @@ TEST(CommitEntry64b, BasicTest) {
         uint64_t p = base + i + d;
         for (uint64_t c : {p, p + d / 2, p + d}) {
           uint64_t index = p % INDEX_SIZE;
-          CommitEntry before(p, c), after;
+          CommitEntry before(p, c);
+          CommitEntry after;
           CommitEntry64b entry64b(before, FORMAT);
           ok = entry64b.Parse(index, &after, FORMAT);
           ASSERT_TRUE(ok);
@@ -832,7 +833,8 @@ TEST_P(WritePreparedTransactionTest, CommitMap) {
   ASSERT_NE(wp_db, nullptr);
   ASSERT_NE(wp_db->db_impl_, nullptr);
   size_t size = wp_db->COMMIT_CACHE_SIZE;
-  CommitEntry c = {5, 12}, e;
+  CommitEntry c = {5, 12};
+  CommitEntry e;
   bool evicted = wp_db->AddCommitEntry(c.prep_seq % size, c, &e);
   ASSERT_FALSE(evicted);
 
@@ -884,7 +886,10 @@ TEST_P(WritePreparedTransactionTest, MaybeUpdateOldCommitMap) {
   // nonexistence could be interpreted as committed in the snapshot while it is
   // not true. We keep such entries around by adding them to the
   // old_commit_map_.
-  uint64_t p /*prepare*/, c /*commit*/, s /*snapshot*/, ns /*next_snapshot*/;
+  uint64_t p /*prepare*/;
+  uint64_t c /*commit*/;
+  uint64_t s /*snapshot*/;
+  uint64_t ns /*next_snapshot*/;
   p = 10l, c = 15l, s = 20l, ns = 21l;
   MaybeUpdateOldCommitMapTestWithNext(p, c, s, ns, false);
   // If we do not expect the old commit map to be updated, try also with a next
@@ -1721,7 +1726,8 @@ TEST_P(WritePreparedTransactionTest, SmallestUnCommittedSeq) {
   PinnableSlice pinnable_val;
   WriteOptions write_options;
   TransactionOptions txn_options;
-  std::vector<Transaction*> txns, committed_txns;
+  std::vector<Transaction*> txns;
+  std::vector<Transaction*> committed_txns;
 
   const int cnt = 100;
   for (int i = 0; i < cnt; i++) {

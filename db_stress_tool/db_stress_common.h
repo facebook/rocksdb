@@ -118,6 +118,7 @@ DECLARE_int32(max_write_buffer_number);
 DECLARE_int32(min_write_buffer_number_to_merge);
 DECLARE_int64(max_write_buffer_size_to_maintain);
 DECLARE_bool(use_write_buffer_manager);
+DECLARE_int32(wbm_flush_policy);
 DECLARE_double(memtable_prefix_bloom_size_ratio);
 DECLARE_bool(memtable_whole_key_filtering);
 DECLARE_int32(open_files);
@@ -217,6 +218,7 @@ DECLARE_bool(statistics);
 DECLARE_bool(sync);
 DECLARE_bool(use_fsync);
 DECLARE_uint64(stats_dump_period_sec);
+DECLARE_uint64(mutex_hold_log_threshold_us);
 DECLARE_uint64(max_compaction_trigger_wakeup_seconds);
 DECLARE_int32(periodic_compaction_phase_recovery_percent);
 DECLARE_uint64(bytes_per_sync);
@@ -307,6 +309,7 @@ DECLARE_bool(use_full_merge_v1);
 DECLARE_int32(sync_wal_one_in);
 DECLARE_bool(avoid_unnecessary_blocking_io);
 DECLARE_bool(write_dbid_to_manifest);
+DECLARE_bool(track_options_file_number_in_manifest);
 DECLARE_bool(optimize_manifest_for_recovery);
 DECLARE_bool(write_identity_file);
 DECLARE_bool(reuse_manifest_on_open);
@@ -532,12 +535,13 @@ enum RepFactory { kSkipList, kHashSkipList, kVectorRep };
 inline enum RepFactory StringToRepFactory(const char* ctype) {
   assert(ctype);
 
-  if (!strcasecmp(ctype, "skip_list"))
+  if (!strcasecmp(ctype, "skip_list")) {
     return kSkipList;
-  else if (!strcasecmp(ctype, "prefix_hash"))
+  } else if (!strcasecmp(ctype, "prefix_hash")) {
     return kHashSkipList;
-  else if (!strcasecmp(ctype, "vector"))
+  } else if (!strcasecmp(ctype, "vector")) {
     return kVectorRep;
+  }
 
   fprintf(stdout, "Cannot parse memreptable %s\n", ctype);
   return kSkipList;

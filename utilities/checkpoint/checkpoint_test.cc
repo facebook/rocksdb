@@ -14,6 +14,7 @@
 #include <unistd.h>
 #endif
 #include <atomic>
+#include <chrono>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
@@ -31,15 +32,19 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/metadata.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/table.h"
 #include "rocksdb/utilities/backup_engine.h"
+#include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/defer.h"
 #include "utilities/fault_injection_env.h"
 #include "utilities/fault_injection_fs.h"
 
@@ -655,6 +660,18 @@ void VerifyDefaultAndTwoSubsetCheckpoint(Env* env, const std::string& dir,
   // 4 CFs x 1 SST each, of which only default's and two's are kept.
   ASSERT_EQ(2, CountSstFiles(env, dir));
 
+  ConfigOptions config_options;
+  config_options.env = env;
+  DBOptions loaded_db_options;
+  std::vector<ColumnFamilyDescriptor> loaded_cfs;
+  ASSERT_OK(
+      LoadLatestOptions(config_options, dir, &loaded_db_options, &loaded_cfs));
+  ASSERT_EQ(options.track_options_file_number_in_manifest,
+            loaded_db_options.track_options_file_number_in_manifest);
+  ASSERT_EQ(2U, loaded_cfs.size());
+  ASSERT_EQ(kDefaultColumnFamilyName, loaded_cfs[0].name);
+  ASSERT_EQ("two", loaded_cfs[1].name);
+
   options.create_if_missing = false;
 
   // Opening with exactly {default, two} succeeds and returns the values.
@@ -697,6 +714,7 @@ void VerifyDefaultAndTwoSubsetCheckpoint(Env* env, const std::string& dir,
 
 TEST_F(CheckpointTest, CheckpointSubsetOfCF) {
   Options options = CurrentOptions();
+  options.track_options_file_number_in_manifest = true;
   CreateAndReopenWithCF({"one", "two", "three"}, options);
   PopulateFourCfsForSubsetCheckpoint(db_.get(), handles_);
 
@@ -715,6 +733,108 @@ TEST_F(CheckpointTest, CheckpointSubsetOfCF) {
   VerifyFourCfsIntact(db_.get(), handles_);
 
   VerifyDefaultAndTwoSubsetCheckpoint(env_, snapshot_name_, options);
+}
+
+TEST_F(CheckpointTest, CheckpointSubsetOfCFLegacyOptionsSelection) {
+  Options options = CurrentOptions();
+  options.track_options_file_number_in_manifest = false;
+  CreateAndReopenWithCF({"one", "two", "three"}, options);
+  PopulateFourCfsForSubsetCheckpoint(db_.get(), handles_);
+
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
+  std::unique_ptr<Checkpoint> uchk(checkpoint);
+  ASSERT_OK(uchk->CreateCheckpoint(snapshot_name_, {handles_[0], handles_[2]}));
+
+  VerifyDefaultAndTwoSubsetCheckpoint(env_, snapshot_name_, options);
+}
+
+TEST_F(CheckpointTest, SubsetOptionsAndManifestUseSameMembershipSnapshot) {
+  Options options = CurrentOptions();
+  options.track_options_file_number_in_manifest = true;
+  CreateAndReopenWithCF({"one", "two", "three"}, options);
+  PopulateFourCfsForSubsetCheckpoint(db_.get(), handles_);
+
+  bool dropped_after_capture = false;
+  Status drop_status;
+  SyncPoint::GetInstance()->SetCallBack(
+      "CheckpointImpl::CreateCustomCheckpoint:AfterGetLive1", [&](void*) {
+        if (!dropped_after_capture) {
+          dropped_after_capture = true;
+          drop_status = db_->DropColumnFamily(handles_[2]);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer sync_point_cleanup([]() {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
+  std::unique_ptr<Checkpoint> uchk(checkpoint);
+  ASSERT_OK(uchk->CreateCheckpoint(snapshot_name_, {handles_[0], handles_[2]}));
+  ASSERT_TRUE(dropped_after_capture);
+  ASSERT_OK(drop_status);
+
+  // The included CF was dropped in the source after live-file capture. The
+  // checkpoint must still use the earlier membership for both MANIFEST and
+  // OPTIONS rather than re-reading the now-dropped live CF set.
+  VerifyDefaultAndTwoSubsetCheckpoint(env_, snapshot_name_, options);
+}
+
+TEST_F(CheckpointTest, SubsetOptionsFileRacesWithMutableFilterPolicy) {
+  // RibbonFilterPolicy::bloom_before_level is mutated in place by SetOptions,
+  // and the subset checkpoint's options snapshot shares the live policy
+  // object. Persisting that snapshot must not interleave with SetOptions.
+  Options options = CurrentOptions();
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(
+      NewRibbonFilterPolicy(10, /*bloom_before_level=*/1));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  CreateAndReopenWithCF({"one", "two", "three"}, options);
+  PopulateFourCfsForSubsetCheckpoint(db_.get(), handles_);
+
+  const std::thread::id checkpoint_thread_id = std::this_thread::get_id();
+  std::atomic<bool> injected{false};
+  std::atomic<bool> set_options_done{false};
+  Status set_options_status;
+  std::thread set_options_thread;
+  SyncPoint::GetInstance()->SetCallBack(
+      "PersistRocksDBOptions:written", [&](void*) {
+        if (std::this_thread::get_id() != checkpoint_thread_id ||
+            injected.exchange(true)) {
+          return;
+        }
+        set_options_thread = std::thread([&]() {
+          set_options_status = db_->SetOptions(
+              handles_[0],
+              {{"table_factory.filter_policy.bloom_before_level", "2"}});
+          set_options_done.store(true);
+        });
+        // Give an unserialized SetOptions the chance to land between writing
+        // the checkpoint OPTIONS file and verifying it.
+        for (int i = 0; i < 100 && !set_options_done.load(); ++i) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer sync_point_cleanup([]() {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
+  std::unique_ptr<Checkpoint> uchk(checkpoint);
+  Status checkpoint_status =
+      uchk->CreateCheckpoint(snapshot_name_, {handles_[0], handles_[2]});
+  if (set_options_thread.joinable()) {
+    set_options_thread.join();
+  }
+  ASSERT_TRUE(injected.load());
+  ASSERT_OK(set_options_status);
+  ASSERT_OK(checkpoint_status);
 }
 
 TEST_F(CheckpointTest,

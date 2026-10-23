@@ -1043,7 +1043,8 @@ TEST_F(DBWALTest, IgnoreRecoveredLog) {
     DestroyAndReopen(options);
 
     // fill up the DB
-    std::string one, two;
+    std::string one;
+    std::string two;
     PutFixed64(&one, 1);
     PutFixed64(&two, 2);
     ASSERT_OK(db_->Merge(WriteOptions(), Slice("foo"), Slice(one)));
@@ -1769,7 +1770,8 @@ TEST_F(DBWALTest, PartOfWritesWithWALDisabled) {
   Options options = CurrentOptions();
   options.env = fault_env.get();
   options.disable_auto_compactions = true;
-  WriteOptions wal_on, wal_off;
+  WriteOptions wal_on;
+  WriteOptions wal_off;
   wal_on.sync = true;
   wal_on.disableWAL = false;
   wal_off.disableWAL = true;
@@ -3087,6 +3089,104 @@ TEST_F(DBWALTest, ReadOnlyRecoveryNoTruncate) {
 }
 #endif  // ROCKSDB_FALLOCATE_PRESENT
 #endif  // ROCKSDB_PLATFORM_POSIX
+
+// Reports a configurable preallocation capability and counts
+// ReopenWritableFile() calls on WAL files.
+class PreallocationTestFs : public FileSystemWrapper {
+ public:
+  PreallocationTestFs(const std::shared_ptr<FileSystem>& target,
+                      bool preallocation_supported)
+      : FileSystemWrapper(target),
+        preallocation_supported_(preallocation_supported) {}
+
+  const char* Name() const override { return "PreallocationTestFs"; }
+
+  bool IsPreallocationSupported() override { return preallocation_supported_; }
+
+  IOStatus ReopenWritableFile(const std::string& fname,
+                              const FileOptions& file_opts,
+                              std::unique_ptr<FSWritableFile>* result,
+                              IODebugContext* dbg) override {
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(fname.substr(fname.find_last_of('/') + 1), &number,
+                      &type) &&
+        type == kWalFile) {
+      wal_reopen_count_.FetchAddRelaxed(1);
+    }
+    return target()->ReopenWritableFile(fname, file_opts, result, dbg);
+  }
+
+  void SetPreallocationSupported(bool supported) {
+    preallocation_supported_ = supported;
+  }
+
+  int GetWalReopenCount() const { return wal_reopen_count_.LoadRelaxed(); }
+
+  void ResetWalReopenCount() { wal_reopen_count_.StoreRelaxed(0); }
+
+ private:
+  bool preallocation_supported_;
+  RelaxedAtomic<int> wal_reopen_count_{0};
+};
+
+// Tests that the last WAL is reopened for truncation during recovery only if
+// the FileSystem reports that it supports preallocation.
+TEST_F(DBWALTest, SkipWalTruncateIfPreallocationNotSupported) {
+  // The Env must outlive the loop since DestroyAndReopen() destroys the
+  // previous DB using the previous iteration's options.
+  auto test_fs = std::make_shared<PreallocationTestFs>(
+      env_->GetFileSystem(), /*preallocation_supported=*/true);
+  std::unique_ptr<Env> test_env(NewCompositeEnv(test_fs));
+  for (bool preallocation_supported : {true, false}) {
+    // avoid_flush_during_recovery = true restores the WAL as alive, while
+    // false flushes the recovered data and leaves the WAL obsolete.
+    for (bool avoid_flush_during_recovery : {true, false}) {
+      SCOPED_TRACE(
+          "preallocation_supported=" + std::to_string(preallocation_supported) +
+          " avoid_flush_during_recovery=" +
+          std::to_string(avoid_flush_during_recovery));
+      Options options = CurrentOptions();
+      options.env = test_env.get();
+      options.avoid_flush_during_recovery = avoid_flush_during_recovery;
+      options.avoid_flush_during_shutdown = true;
+      test_fs->SetPreallocationSupported(preallocation_supported);
+      DestroyAndReopen(options);
+      ASSERT_OK(Put("foo", "v1"));
+      Close();
+
+      test_fs->ResetWalReopenCount();
+      Reopen(options);
+      ASSERT_EQ(preallocation_supported ? 1 : 0, test_fs->GetWalReopenCount());
+      ASSERT_EQ("v1", Get("foo"));
+      Close();
+    }
+  }
+}
+
+// Tests that a read-only open never reopens a WAL for truncation, even if the
+// FileSystem supports preallocation.
+TEST_F(DBWALTest, ReadOnlyOpenSkipsWalTruncate) {
+  Options options = CurrentOptions();
+  auto test_fs = std::make_shared<PreallocationTestFs>(
+      env_->GetFileSystem(), /*preallocation_supported=*/true);
+  std::unique_ptr<Env> test_env(NewCompositeEnv(test_fs));
+  options.env = test_env.get();
+  options.avoid_flush_during_shutdown = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "v1"));
+  Close();
+
+  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_EQ("v1", Get("foo"));
+  Close();
+  ASSERT_EQ(0, test_fs->GetWalReopenCount());
+
+  // The same WAL is truncated by a read-write open.
+  Reopen(options);
+  ASSERT_EQ(1, test_fs->GetWalReopenCount());
+  Close();
+}
 
 TEST_F(DBWALTest, WalInManifestButNotInSortedWals) {
   Options options = CurrentOptions();

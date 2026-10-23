@@ -7,6 +7,7 @@
 
 #include <map>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "rocksdb/env.h"
@@ -47,7 +48,7 @@ Status PersistRocksDBOptions(const WriteOptions& write_options,
 class RocksDBOptionsParser {
  public:
   explicit RocksDBOptionsParser();
-  ~RocksDBOptionsParser() {}
+  ~RocksDBOptionsParser() = default;
   void Reset();
 
   // `file_readahead_size` is used for readahead for the option file.
@@ -80,6 +81,12 @@ class RocksDBOptionsParser {
       const ConfigOptions& config_options, const DBOptions& db_opt,
       const std::vector<std::string>& cf_names,
       const std::vector<ColumnFamilyOptions>& cf_opts,
+      const std::string& file_name, FileSystem* fs);
+  static Status VerifyRocksDBOptionsFromFile(
+      const ConfigOptions& config_options, const DBOptions& db_opt,
+      const std::vector<std::string>& cf_names,
+      const std::vector<ColumnFamilyOptions>& cf_opts,
+      const std::unordered_set<std::string>& live_cf_names,
       const std::string& file_name, FileSystem* fs);
   static Status VerifyDBOptions(
       const ConfigOptions& config_options, const DBOptions& base_opt,

@@ -58,6 +58,7 @@
 #include "rocksdb/wal_filter.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
+#include "util/cast_util.h"
 #include "util/stderr_logger.h"
 #include "utilities/merge_operators.h"
 
@@ -419,6 +420,13 @@ struct rocksdb_readoptions_t {
   std::function<bool(const TableProperties&)> table_filter_func;
   std::shared_ptr<UserDefinedIndexFactory> table_index_factory;
 
+  rocksdb_readoptions_t() = default;
+  // No copying allowed
+  rocksdb_readoptions_t(const rocksdb_readoptions_t&) = delete;
+  rocksdb_readoptions_t& operator=(const rocksdb_readoptions_t&) = delete;
+  rocksdb_readoptions_t(rocksdb_readoptions_t&&) = delete;
+  rocksdb_readoptions_t& operator=(rocksdb_readoptions_t&&) = delete;
+
   ~rocksdb_readoptions_t() { ClearTableFilter(); }
 
   void ClearTableFilter() {
@@ -467,6 +475,23 @@ struct rocksdb_compactoptions_t {
 struct rocksdb_block_based_table_options_t {
   BlockBasedTableOptions rep;
   std::shared_ptr<UserDefinedIndexFactory> user_defined_index_factory;
+  bool use_udi_as_primary_index = false;
+  bool fail_if_no_udi_on_open = false;
+  // Set once rocksdb_block_based_options_set_index_mode() has been called.
+  // Mirrors the C++ precedence rule in GetEffectiveIndexMode(): an explicit
+  // index_mode wins over the deprecated bools, so a stale
+  // use_udi_as_primary_index cannot silently escalate a rollback back into a
+  // custom-index mode.
+  bool index_mode_explicit = false;
+
+  void SyncIndexModeFromLegacyUdiOptions() {
+    if (index_mode_explicit) {
+      return;
+    }
+    rep.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+    rep.use_udi_as_primary_index = use_udi_as_primary_index;
+    rep.fail_if_no_udi_on_open = fail_if_no_udi_on_open;
+  }
 };
 struct rocksdb_block_cache_trace_options_t {
   BlockCacheTraceOptions rep;
@@ -805,14 +830,22 @@ struct rocksdb_open_and_compact_options_t {
 };
 
 struct rocksdb_compactionfilter_t : public CompactionFilter {
-  void* state_;
-  void (*destructor_)(void*);
+  void* state_ = nullptr;
+  void (*destructor_)(void*) = nullptr;
   unsigned char (*filter_)(void*, int level, const char* key, size_t key_length,
                            const char* existing_value, size_t value_length,
                            char** new_value, size_t* new_value_length,
-                           unsigned char* value_changed);
-  const char* (*name_)(void*);
-  unsigned char ignore_snapshots_;
+                           unsigned char* value_changed) = nullptr;
+  const char* (*name_)(void*) = nullptr;
+  unsigned char ignore_snapshots_ = true;
+
+  rocksdb_compactionfilter_t() = default;
+  // No copying allowed
+  rocksdb_compactionfilter_t(const rocksdb_compactionfilter_t&) = delete;
+  rocksdb_compactionfilter_t& operator=(const rocksdb_compactionfilter_t&) =
+      delete;
+  rocksdb_compactionfilter_t(rocksdb_compactionfilter_t&&) = delete;
+  rocksdb_compactionfilter_t& operator=(rocksdb_compactionfilter_t&&) = delete;
 
   ~rocksdb_compactionfilter_t() override { (*destructor_)(state_); }
 
@@ -838,11 +871,22 @@ struct rocksdb_compactionfilter_t : public CompactionFilter {
 };
 
 struct rocksdb_compactionfilterfactory_t : public CompactionFilterFactory {
-  void* state_;
-  void (*destructor_)(void*);
+  void* state_ = nullptr;
+  void (*destructor_)(void*) = nullptr;
   rocksdb_compactionfilter_t* (*create_compaction_filter_)(
-      void*, rocksdb_compactionfiltercontext_t* context);
-  const char* (*name_)(void*);
+      void*, rocksdb_compactionfiltercontext_t* context) = nullptr;
+  const char* (*name_)(void*) = nullptr;
+
+  rocksdb_compactionfilterfactory_t() = default;
+  // No copying allowed
+  rocksdb_compactionfilterfactory_t(const rocksdb_compactionfilterfactory_t&) =
+      delete;
+  rocksdb_compactionfilterfactory_t& operator=(
+      const rocksdb_compactionfilterfactory_t&) = delete;
+  rocksdb_compactionfilterfactory_t(rocksdb_compactionfilterfactory_t&&) =
+      delete;
+  rocksdb_compactionfilterfactory_t& operator=(
+      rocksdb_compactionfilterfactory_t&&) = delete;
 
   ~rocksdb_compactionfilterfactory_t() override { (*destructor_)(state_); }
 
@@ -872,6 +916,12 @@ struct rocksdb_comparator_t : public Comparator {
   rocksdb_comparator_t() : Comparator() {}
 
   rocksdb_comparator_t(size_t ts_size) : Comparator(ts_size) {}
+
+  // No copying allowed
+  rocksdb_comparator_t(const rocksdb_comparator_t&) = delete;
+  rocksdb_comparator_t& operator=(const rocksdb_comparator_t&) = delete;
+  rocksdb_comparator_t(rocksdb_comparator_t&&) = delete;
+  rocksdb_comparator_t& operator=(rocksdb_comparator_t&&) = delete;
 
   ~rocksdb_comparator_t() override { (*destructor_)(state_); }
 
@@ -904,9 +954,16 @@ struct rocksdb_comparator_t : public Comparator {
 };
 
 struct rocksdb_filterpolicy_t : public FilterPolicy {
-  void* state_;
-  void (*destructor_)(void*);
-  const char* (*name_)(void*);
+  void* state_ = nullptr;
+  void (*destructor_)(void*) = nullptr;
+  const char* (*name_)(void*) = nullptr;
+
+  rocksdb_filterpolicy_t() = default;
+  // No copying allowed
+  rocksdb_filterpolicy_t(const rocksdb_filterpolicy_t&) = delete;
+  rocksdb_filterpolicy_t& operator=(const rocksdb_filterpolicy_t&) = delete;
+  rocksdb_filterpolicy_t(rocksdb_filterpolicy_t&&) = delete;
+  rocksdb_filterpolicy_t& operator=(rocksdb_filterpolicy_t&&) = delete;
 
   ~rocksdb_filterpolicy_t() override { (*destructor_)(state_); }
 
@@ -914,19 +971,29 @@ struct rocksdb_filterpolicy_t : public FilterPolicy {
 };
 
 struct rocksdb_mergeoperator_t : public MergeOperator {
-  void* state_;
-  void (*destructor_)(void*);
-  const char* (*name_)(void*);
+  void* state_ = nullptr;
+  void (*destructor_)(void*) = nullptr;
+  const char* (*name_)(void*) = nullptr;
   char* (*full_merge_)(void*, const char* key, size_t key_length,
                        const char* existing_value, size_t existing_value_length,
                        const char* const* operands_list,
                        const size_t* operands_list_length, int num_operands,
-                       unsigned char* success, size_t* new_value_length);
+                       unsigned char* success,
+                       size_t* new_value_length) = nullptr;
   char* (*partial_merge_)(void*, const char* key, size_t key_length,
                           const char* const* operands_list,
                           const size_t* operands_list_length, int num_operands,
-                          unsigned char* success, size_t* new_value_length);
-  void (*delete_value_)(void*, const char* value, size_t value_length);
+                          unsigned char* success,
+                          size_t* new_value_length) = nullptr;
+  void (*delete_value_)(void*, const char* value,
+                        size_t value_length) = nullptr;
+
+  rocksdb_mergeoperator_t() = default;
+  // No copying allowed
+  rocksdb_mergeoperator_t(const rocksdb_mergeoperator_t&) = delete;
+  rocksdb_mergeoperator_t& operator=(const rocksdb_mergeoperator_t&) = delete;
+  rocksdb_mergeoperator_t(rocksdb_mergeoperator_t&&) = delete;
+  rocksdb_mergeoperator_t& operator=(rocksdb_mergeoperator_t&&) = delete;
 
   ~rocksdb_mergeoperator_t() override { (*destructor_)(state_); }
 
@@ -1008,12 +1075,19 @@ struct rocksdb_env_t {
 };
 
 struct rocksdb_slicetransform_t : public SliceTransform {
-  void* state_;
-  void (*destructor_)(void*);
-  const char* (*name_)(void*);
+  void* state_ = nullptr;
+  void (*destructor_)(void*) = nullptr;
+  const char* (*name_)(void*) = nullptr;
   char* (*transform_)(void*, const char* key, size_t length,
-                      size_t* dst_length);
-  unsigned char (*in_domain_)(void*, const char* key, size_t length);
+                      size_t* dst_length) = nullptr;
+  unsigned char (*in_domain_)(void*, const char* key, size_t length) = nullptr;
+
+  rocksdb_slicetransform_t() = default;
+  // No copying allowed
+  rocksdb_slicetransform_t(const rocksdb_slicetransform_t&) = delete;
+  rocksdb_slicetransform_t& operator=(const rocksdb_slicetransform_t&) = delete;
+  rocksdb_slicetransform_t(rocksdb_slicetransform_t&&) = delete;
+  rocksdb_slicetransform_t& operator=(rocksdb_slicetransform_t&&) = delete;
 
   ~rocksdb_slicetransform_t() override { (*destructor_)(state_); }
 
@@ -1336,6 +1410,14 @@ struct rocksdb_compactionservice_t : public CompactionService {
         wait_(wait),
         cancel_awaiting_jobs_(cancel_awaiting_jobs),
         on_installation_(on_installation) {}
+
+  // No copying allowed
+  rocksdb_compactionservice_t(const rocksdb_compactionservice_t&) = delete;
+  rocksdb_compactionservice_t& operator=(const rocksdb_compactionservice_t&) =
+      delete;
+  rocksdb_compactionservice_t(rocksdb_compactionservice_t&&) = delete;
+  rocksdb_compactionservice_t& operator=(rocksdb_compactionservice_t&&) =
+      delete;
 
   ~rocksdb_compactionservice_t() override {
     if (destructor_) {
@@ -4703,12 +4785,60 @@ const char* rocksdb_block_based_options_get_user_defined_index_factory_name(
   return name;
 }
 
+void rocksdb_block_based_options_set_use_udi_as_primary_index(
+    rocksdb_block_based_table_options_t* opt, unsigned char v) {
+  opt->use_udi_as_primary_index = v != 0;
+  opt->SyncIndexModeFromLegacyUdiOptions();
+}
+
+unsigned char rocksdb_block_based_options_get_use_udi_as_primary_index(
+    rocksdb_block_based_table_options_t* opt) {
+  return opt->use_udi_as_primary_index;
+}
+
+void rocksdb_block_based_options_set_fail_if_no_udi_on_open(
+    rocksdb_block_based_table_options_t* opt, unsigned char v) {
+  opt->fail_if_no_udi_on_open = v != 0;
+  opt->SyncIndexModeFromLegacyUdiOptions();
+}
+
+unsigned char rocksdb_block_based_options_get_fail_if_no_udi_on_open(
+    rocksdb_block_based_table_options_t* opt) {
+  return opt->fail_if_no_udi_on_open;
+}
+
+void rocksdb_block_based_options_set_index_mode(
+    rocksdb_block_based_table_options_t* opt, int v) {
+  opt->rep.index_mode = static_cast<BlockBasedTableOptions::IndexMode>(v);
+  opt->index_mode_explicit = true;
+  opt->rep.use_udi_as_primary_index = false;
+  opt->rep.fail_if_no_udi_on_open = false;
+}
+
+int rocksdb_block_based_options_get_index_mode(
+    rocksdb_block_based_table_options_t* opt) {
+  return ROCKSDB_NAMESPACE::lossless_cast<int>(
+      opt->rep.GetEffectiveIndexMode());
+}
+
 void rocksdb_options_set_block_based_table_factory(
     rocksdb_options_t* opt,
     rocksdb_block_based_table_options_t* table_options) {
   if (table_options) {
     opt->rep.table_factory.reset(
         ROCKSDB_NAMESPACE::NewBlockBasedTableFactory(table_options->rep));
+    if (table_options->index_mode_explicit &&
+        table_options->rep.index_mode ==
+            BlockBasedTableOptions::IndexMode::kStandardDefault) {
+      // The default struct value cannot carry an explicit selection. Preserve
+      // that selection when transferring the C wrapper into a C++ factory.
+      ConfigOptions config;
+      config.invoke_prepare_options = false;
+      Status s = opt->rep.table_factory->ConfigureOption(config, "index_mode",
+                                                         "kStandardDefault");
+      assert(s.ok());
+      s.PermitUncheckedError();
+    }
   }
 }
 
@@ -5121,6 +5251,11 @@ uint64_t rocksdb_table_properties_index_value_is_delta_encoded(
 uint64_t rocksdb_table_properties_udi_is_primary_index(
     const rocksdb_table_properties_t* props) {
   return props->rep.udi_is_primary_index;
+}
+
+uint64_t rocksdb_table_properties_standard_index_is_stub(
+    const rocksdb_table_properties_t* props) {
+  return props->rep.standard_index_is_stub;
 }
 
 uint64_t rocksdb_table_properties_filter_size(
@@ -6963,7 +7098,12 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_format(
   // they delegate to a NewBloomFilterPolicy() instead of user
   // supplied C functions.
   struct Wrapper : public rocksdb_filterpolicy_t {
-    const FilterPolicy* rep_;
+    const FilterPolicy* rep_ = nullptr;
+    Wrapper() = default;
+    Wrapper(const Wrapper&) = delete;
+    Wrapper& operator=(const Wrapper&) = delete;
+    Wrapper(Wrapper&&) = delete;
+    Wrapper& operator=(Wrapper&&) = delete;
     ~Wrapper() override { delete rep_; }
     const char* Name() const override { return rep_->Name(); }
     const char* CompatibilityName() const override {
@@ -7003,7 +7143,12 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_ribbon_format(
   // they delegate to a NewRibbonFilterPolicy() instead of user
   // supplied C functions.
   struct Wrapper : public rocksdb_filterpolicy_t {
-    const FilterPolicy* rep_;
+    const FilterPolicy* rep_ = nullptr;
+    Wrapper() = default;
+    Wrapper(const Wrapper&) = delete;
+    Wrapper& operator=(const Wrapper&) = delete;
+    Wrapper(Wrapper&&) = delete;
+    Wrapper& operator=(Wrapper&&) = delete;
     ~Wrapper() override { delete rep_; }
     const char* Name() const override { return rep_->Name(); }
     const char* CompatibilityName() const override {
@@ -7439,6 +7584,7 @@ void rocksdb_readoptions_set_table_index_factory_from_string(
     char** errptr) {
   opt->table_index_factory.reset();
   opt->rep.table_index_factory = nullptr;
+  opt->rep.read_index = ReadOptions::ReadIndex::kDefault;
   if (value == nullptr) {
     return;
   }
@@ -7450,11 +7596,21 @@ void rocksdb_readoptions_set_table_index_factory_from_string(
   }
   opt->table_index_factory = std::move(factory);
   opt->rep.table_index_factory = opt->table_index_factory.get();
+  opt->rep.read_index = ReadOptions::ReadIndex::kPreferCustom;
 }
 
 void rocksdb_readoptions_clear_table_index_factory(rocksdb_readoptions_t* opt) {
   opt->table_index_factory.reset();
   opt->rep.table_index_factory = nullptr;
+  opt->rep.read_index = ReadOptions::ReadIndex::kDefault;
+}
+
+void rocksdb_readoptions_set_read_index(rocksdb_readoptions_t* opt, int v) {
+  opt->rep.read_index = static_cast<ReadOptions::ReadIndex>(v);
+}
+
+int rocksdb_readoptions_get_read_index(const rocksdb_readoptions_t* opt) {
+  return static_cast<int>(opt->rep.read_index);
 }
 
 const char* rocksdb_readoptions_get_table_index_factory_name(
@@ -10017,6 +10173,16 @@ unsigned char rocksdb_options_get_write_dbid_to_manifest(
   return opt->rep.write_dbid_to_manifest;
 }
 
+void rocksdb_options_set_track_options_file_number_in_manifest(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.track_options_file_number_in_manifest = v;
+}
+
+unsigned char rocksdb_options_get_track_options_file_number_in_manifest(
+    rocksdb_options_t* opt) {
+  return opt->rep.track_options_file_number_in_manifest;
+}
+
 void rocksdb_options_set_write_identity_file(rocksdb_options_t* opt,
                                              unsigned char v) {
   opt->rep.write_identity_file = v;
@@ -11185,6 +11351,16 @@ unsigned char rocksdb_trace_options_get_preserve_write_order(
   return opt->rep.preserve_write_order;
 }
 
+void rocksdb_trace_options_set_include_read_write_options(
+    rocksdb_trace_options_t* opt, unsigned char v) {
+  opt->rep.include_read_write_options = v;
+}
+
+unsigned char rocksdb_trace_options_get_include_read_write_options(
+    rocksdb_trace_options_t* opt) {
+  return opt->rep.include_read_write_options;
+}
+
 /* BlockCacheTraceOptions */
 
 void rocksdb_block_cache_trace_options_set_sampling_frequency(
@@ -11727,26 +11903,6 @@ void rocksdb_block_based_options_set_use_delta_encoding(
 unsigned char rocksdb_block_based_options_get_use_delta_encoding(
     rocksdb_block_based_table_options_t* opt) {
   return opt->rep.use_delta_encoding;
-}
-
-void rocksdb_block_based_options_set_use_udi_as_primary_index(
-    rocksdb_block_based_table_options_t* opt, unsigned char v) {
-  opt->rep.use_udi_as_primary_index = v;
-}
-
-unsigned char rocksdb_block_based_options_get_use_udi_as_primary_index(
-    rocksdb_block_based_table_options_t* opt) {
-  return opt->rep.use_udi_as_primary_index;
-}
-
-void rocksdb_block_based_options_set_fail_if_no_udi_on_open(
-    rocksdb_block_based_table_options_t* opt, unsigned char v) {
-  opt->rep.fail_if_no_udi_on_open = v;
-}
-
-unsigned char rocksdb_block_based_options_get_fail_if_no_udi_on_open(
-    rocksdb_block_based_table_options_t* opt) {
-  return opt->rep.fail_if_no_udi_on_open;
 }
 
 void rocksdb_block_based_options_set_whole_key_filtering(

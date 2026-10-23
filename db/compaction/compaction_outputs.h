@@ -245,6 +245,11 @@ class CompactionOutputs {
   // before processing the current key in compaction iterator.
   bool ShouldStopBefore(const CompactionIterator& c_iter);
 
+  // Re-establishes per-file state that depends on the first key accepted by a
+  // freshly opened builder. This keeps caller-requested file cuts equivalent to
+  // RocksDB's built-in file-boundary decisions for partition tracking.
+  void PrepareNewOutputForFirstKey(const CompactionIterator& c_iter);
+
   void Cleanup() {
     if (builder_ != nullptr) {
       // May happen if we get a shutdown call in the middle of compaction

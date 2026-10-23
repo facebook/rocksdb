@@ -75,8 +75,8 @@ class PointLockManagerTest : public testing::Test {
   TransactionDB* db_;
 };
 
-void BlockUntilWaitingTxn(const char* sync_point_name, port::Thread& t,
-                          std::function<void()> f) {
+inline void BlockUntilWaitingTxn(const char* sync_point_name, port::Thread& t,
+                                 std::function<void()> f) {
   std::atomic<bool> reached(false);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       sync_point_name, [&](void* /*arg*/) { reached.store(true); });

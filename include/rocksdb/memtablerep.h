@@ -81,7 +81,12 @@ class MemTableRep {
     virtual int operator()(const char* prefix_len_key,
                            const Slice& key) const = 0;
 
-    virtual ~KeyComparator() {}
+    KeyComparator() = default;
+    KeyComparator(const KeyComparator&) = default;
+    KeyComparator& operator=(const KeyComparator&) = default;
+    KeyComparator(KeyComparator&&) = default;
+    KeyComparator& operator=(KeyComparator&&) = default;
+    virtual ~KeyComparator() = default;
   };
 
   explicit MemTableRep(Allocator* allocator) : allocator_(allocator) {}
@@ -251,7 +256,7 @@ class MemTableRep {
   // that was allocated through the allocator.  Safe to call from any thread.
   virtual size_t ApproximateMemoryUsage() = 0;
 
-  virtual ~MemTableRep() {}
+  virtual ~MemTableRep() = default;
 
   // Iteration over the contents of a skip collection
   class Iterator {
@@ -259,7 +264,7 @@ class MemTableRep {
     // Initialize an iterator over the specified collection.
     // The returned iterator is not valid.
     // explicit Iterator(const MemTableRep* collection);
-    virtual ~Iterator() {}
+    virtual ~Iterator() = default;
 
     // Returns true iff the iterator is positioned at a valid node.
     virtual bool Valid() const = 0;
@@ -358,7 +363,7 @@ class MemTableRep {
 // new MemTableRep objects
 class MemTableRepFactory : public Customizable {
  public:
-  ~MemTableRepFactory() override {}
+  ~MemTableRepFactory() override = default;
 
   static const char* Type() { return "MemTableRepFactory"; }
   static Status CreateFromString(const ConfigOptions& config_options,

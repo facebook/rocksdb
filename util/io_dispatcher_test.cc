@@ -24,6 +24,8 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
+#include "rocksdb/perf_context.h"
+#include "rocksdb/perf_level.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_builder.h"
@@ -531,7 +533,11 @@ class IODispatcherTest : public DBTestBase {
     ASSERT_OK(base_fs_->CreateDir(test_dir_, IOOptions(), nullptr));
   }
 
-  void TearDown() override { EXPECT_OK(DestroyDir(env_, test_dir_)); }
+  void TearDown() override {
+    SetPerfLevel(kDisable);
+    get_perf_context()->Reset();
+    EXPECT_OK(DestroyDir(env_, test_dir_));
+  }
 
   void NewFileWriter(const std::string& filename,
                      std::unique_ptr<WritableFileWriter>* writer) {
@@ -845,6 +851,14 @@ class IODispatcherTest : public DBTestBase {
   }
 
   static uint64_t cur_file_num_;
+
+  static uint64_t GetCoalescedReadBytes(
+      const std::vector<BlockHandle>& block_handles) {
+    assert(!block_handles.empty());
+    return block_handles.back().offset() +
+           BlockBasedTable::BlockSizeWithTrailer(block_handles.back()) -
+           block_handles.front().offset();
+  }
 };
 
 uint64_t IODispatcherTest::cur_file_num_ = 1;
@@ -1798,6 +1812,107 @@ TEST_F(IODispatcherTest, StatisticsTracking) {
   // Total reads should equal number of blocks
   uint64_t total_reads = num_sync + num_async + num_cache;
   ASSERT_EQ(total_reads, block_handles.size());
+}
+
+TEST_F(IODispatcherTest, SyncPrefetchRecordsDataBlockPerfCounters) {
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = nullptr;
+  table_options.block_size = 16 * 1024;
+  table_options.no_block_cache = true;
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(10, &table, &block_handles, &table_options));
+  ASSERT_GE(block_handles.size(), 7);
+
+  const std::vector<BlockHandle> test_handles = {
+      block_handles[0], block_handles[2], block_handles[4], block_handles[6]};
+  const uint64_t expected_block_read_bytes =
+      GetCoalescedReadBytes(test_handles);
+  uint64_t selected_block_bytes = 0;
+  for (const auto& block_handle : test_handles) {
+    selected_block_bytes += BlockBasedTable::BlockSizeWithTrailer(block_handle);
+  }
+  ASSERT_GT(expected_block_read_bytes, selected_block_bytes);
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = test_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = false;
+  job->job_options.io_coalesce_threshold = 1024 * 1024;
+
+  tracking_fs_->ClearReadOps();
+  SetPerfLevel(kEnableCount);
+  get_perf_context()->Reset();
+
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+  std::shared_ptr<ReadSet> read_set;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  ASSERT_NE(read_set, nullptr);
+
+  EXPECT_EQ(get_perf_context()->block_read_count, test_handles.size());
+  EXPECT_EQ(get_perf_context()->block_read_byte, expected_block_read_bytes);
+  EXPECT_EQ(get_perf_context()->data_block_read_byte,
+            expected_block_read_bytes);
+
+  const auto read_ops = tracking_fs_->GetReadOps();
+  ASSERT_EQ(read_ops.size(), 1);
+  ASSERT_EQ(read_ops[0].type, ReadOp::kMultiRead);
+  ASSERT_EQ(read_ops[0].requests.size(), 1);
+  EXPECT_EQ(read_ops[0].requests[0].second, expected_block_read_bytes);
+}
+
+TEST_F(IODispatcherTest, AsyncPrefetchRecordsDataBlockPerfCounters) {
+  if (!kIOUringPresent) {
+    ROCKSDB_GTEST_SKIP("Test requires io_uring support");
+    return;
+  }
+
+  auto controlled_fs = std::make_shared<ControlledAsyncFS>(base_fs_);
+  controlled_fs->SetCompleteStrayFirst(false);
+  tracking_fs_ = controlled_fs;
+  std::unique_ptr<Env> controlled_env = NewCompositeEnv(controlled_fs);
+
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = nullptr;
+  table_options.block_size = 16 * 1024;
+  table_options.no_block_cache = true;
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(
+      8, &table, &block_handles, &table_options, true /* use_direct_reads */,
+      kNoCompression, false /* allow_mmap_reads */, controlled_env.get()));
+  ASSERT_GE(block_handles.size(), 3);
+
+  block_handles.resize(3);
+  const uint64_t expected_block_read_bytes =
+      GetCoalescedReadBytes(block_handles);
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = true;
+  job->job_options.io_coalesce_threshold = 1024 * 1024;
+
+  tracking_fs_->ClearReadOps();
+  SetPerfLevel(kEnableCount);
+  get_perf_context()->Reset();
+
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+  std::shared_ptr<ReadSet> read_set;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  ASSERT_NE(read_set, nullptr);
+  ASSERT_EQ(tracking_fs_->GetReadAsyncCount(), 1);
+
+  CachableEntry<Block> block;
+  ASSERT_OK(read_set->ReadIndex(0, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+
+  EXPECT_EQ(get_perf_context()->block_read_count, block_handles.size());
+  EXPECT_EQ(get_perf_context()->block_read_byte, expected_block_read_bytes);
+  EXPECT_EQ(get_perf_context()->data_block_read_byte,
+            expected_block_read_bytes);
 }
 
 TEST_F(IODispatcherTest, AsyncReadLatencyHistograms) {
@@ -3595,6 +3710,8 @@ TEST_F(IODispatcherTest, AsyncNotSupportedFallsBackToSync) {
   // Use only the first 4 adjacent blocks
   std::vector<BlockHandle> test_handles(block_handles.begin(),
                                         block_handles.begin() + 4);
+  const uint64_t expected_block_read_bytes =
+      GetCoalescedReadBytes(test_handles);
 
   std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
 
@@ -3603,6 +3720,9 @@ TEST_F(IODispatcherTest, AsyncNotSupportedFallsBackToSync) {
   job->table = table.get();
   job->job_options.read_options.async_io = true;         // Request async IO
   job->job_options.io_coalesce_threshold = 1024 * 1024;  // Force coalescing
+
+  SetPerfLevel(kEnableCount);
+  get_perf_context()->Reset();
 
   std::shared_ptr<ReadSet> read_set;
   s = dispatcher->SubmitJob(job, &read_set);
@@ -3629,6 +3749,10 @@ TEST_F(IODispatcherTest, AsyncNotSupportedFallsBackToSync) {
   ASSERT_EQ(read_set->GetNumAsyncReads(), 0);
   ASSERT_EQ(multiread_count, 1);
   ASSERT_EQ(total_requests_in_multireads, 1);
+  EXPECT_EQ(get_perf_context()->block_read_count, test_handles.size());
+  EXPECT_EQ(get_perf_context()->block_read_byte, expected_block_read_bytes);
+  EXPECT_EQ(get_perf_context()->data_block_read_byte,
+            expected_block_read_bytes);
 
   // All blocks should then be readable from the prefetched sync fallback.
   for (size_t i = 0; i < test_handles.size(); ++i) {

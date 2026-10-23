@@ -521,7 +521,7 @@ class SstQueryFilterConfigImpl : public SstQueryFilterConfig {
       const KeySegmentsExtractor::KeyCategorySet& categories)
       : input_(input), categories_(categories) {}
 
-  virtual ~SstQueryFilterConfigImpl() = default;
+  ~SstQueryFilterConfigImpl() override = default;
 
   virtual std::unique_ptr<SstQueryFilterBuilder> NewBuilder(
       bool sanity_checks) const = 0;
@@ -638,8 +638,10 @@ class BytewiseMinMaxSstQueryFilterConfig : public SstQueryFilterConfigImpl {
     size_t largest_size = static_cast<size_t>(limit - p);
     Slice largest = Slice(p, largest_size);
 
-    Slice lower_bound_input, lower_bound_leadup;
-    Slice upper_bound_input, upper_bound_leadup;
+    Slice lower_bound_input;
+    Slice lower_bound_leadup;
+    Slice upper_bound_input;
+    Slice upper_bound_leadup;
     GetFilterInput(in, lower_bound_incl, lower_bound_extracted,
                    &lower_bound_input, &lower_bound_leadup);
     GetFilterInput(in, upper_bound_excl, upper_bound_extracted,
@@ -679,12 +681,14 @@ class BytewiseMinMaxSstQueryFilterConfig : public SstQueryFilterConfigImpl {
     void Add(const Slice& key, const KeySegmentsExtractor::Result& extracted,
              const Slice* prev_key,
              const KeySegmentsExtractor::Result* prev_extracted) override {
-      Slice input, leadup;
+      Slice input;
+      Slice leadup;
       GetFilterInput(parent.input_, key, extracted, &input, &leadup);
 
       if (sanity_checks && prev_key && prev_extracted) {
         // Opportunistic checking of segment ordering invariant
-        Slice prev_input, prev_leadup;
+        Slice prev_input;
+        Slice prev_leadup;
         GetFilterInput(parent.input_, *prev_key, *prev_extracted, &prev_input,
                        &prev_leadup);
 

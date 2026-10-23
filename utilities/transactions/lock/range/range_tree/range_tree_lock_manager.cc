@@ -66,7 +66,8 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
                                      bool exclusive) {
   toku::lock_request request;
   request.create(mutex_factory_);
-  DBT start_key_dbt, end_key_dbt;
+  DBT start_key_dbt;
+  DBT end_key_dbt;
 
   TEST_SYNC_POINT("RangeTreeLockManager::TryRangeLock:enter");
   std::string start_key;
@@ -294,7 +295,8 @@ int RangeTreeLockManager::on_create(toku::locktree* lt, void* arg) {
 
 bool RangeTreeLockManager::OnEscalationBarrierCheck(const DBT* a, const DBT* b,
                                                     void* extra) {
-  Endpoint a_endp, b_endp;
+  Endpoint a_endp;
+  Endpoint b_endp;
   deserialize_endpoint(a, &a_endp);
   deserialize_endpoint(b, &b_endp);
   auto self = static_cast<RangeTreeLockManager*>(extra);

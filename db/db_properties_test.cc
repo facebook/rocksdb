@@ -125,7 +125,9 @@ TEST_F(DBPropertiesTest, Empty) {
 }
 
 TEST_F(DBPropertiesTest, CurrentVersionNumber) {
-  uint64_t v1, v2, v3;
+  uint64_t v1;
+  uint64_t v2;
+  uint64_t v3;
   ASSERT_TRUE(
       dbfull()->GetIntProperty("rocksdb.current-super-version-number", &v1));
   ASSERT_OK(Put("12345678", ""));
@@ -587,7 +589,9 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
   std::string level_tp_strings[kMaxLevel];
   std::string tp_string;
   TableProperties level_tps[kMaxLevel];
-  TableProperties tp, sum_tp, expected_tp;
+  TableProperties tp;
+  TableProperties sum_tp;
+  TableProperties expected_tp;
   for (int table = 1; table <= kTableCount; ++table) {
     for (int i = 0; i < kPutsPerTable; ++i) {
       ASSERT_OK(db_->Put(WriteOptions(), rnd.RandomString(kKeySize),
@@ -625,6 +629,7 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
       sum_tp.num_deletions += level_tps[level].num_deletions;
       sum_tp.num_merge_operands += level_tps[level].num_merge_operands;
       sum_tp.num_range_deletions += level_tps[level].num_range_deletions;
+      sum_tp.standard_index_is_stub += level_tps[level].standard_index_is_stub;
     }
     db_->GetProperty(DB::Properties::kAggregatedTableProperties, &tp_string);
     ParseTablePropertiesString(tp_string, &tp);
@@ -640,6 +645,7 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
     ASSERT_EQ(sum_tp.num_deletions, tp.num_deletions);
     ASSERT_EQ(sum_tp.num_merge_operands, tp.num_merge_operands);
     ASSERT_EQ(sum_tp.num_range_deletions, tp.num_range_deletions);
+    ASSERT_EQ(sum_tp.standard_index_is_stub, tp.standard_index_is_stub);
     if (table > 3) {
       GetExpectedTableProperties(
           &expected_tp, kKeySize, kValueSize, kPutsPerTable, kDeletionsPerTable,

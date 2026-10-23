@@ -24,7 +24,8 @@ Status DBImpl::SuggestCompactRange(ColumnFamilyHandle* column_family,
                                    const Slice* begin, const Slice* end) {
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
-  InternalKey start_key, end_key;
+  InternalKey start_key;
+  InternalKey end_key;
   if (begin != nullptr) {
     start_key.SetMinPossibleForUserKey(*begin);
   }
@@ -152,7 +153,8 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
                                     &mutex_, directories_.GetDbDir());
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(
-          cfd, job_context.superversion_contexts.data());
+          cfd, job_context.superversion_contexts.data(),
+          /*defer_snapshot_refresh=*/false);
     }
   }  // lock released here
   LogFlush(immutable_db_options_.info_log);

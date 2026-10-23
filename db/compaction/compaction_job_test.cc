@@ -322,8 +322,10 @@ class CompactionJobTestBase : public testing::Test {
     assert(contents.size() > 0);
 
     bool first_key = true;
-    std::string smallest, largest;
-    InternalKey smallest_key, largest_key;
+    std::string smallest;
+    std::string largest;
+    InternalKey smallest_key;
+    InternalKey largest_key;
     SequenceNumber smallest_seqno = kMaxSequenceNumber;
     SequenceNumber largest_seqno = 0;
     uint64_t oldest_blob_file_number = kInvalidBlobFileNumber;

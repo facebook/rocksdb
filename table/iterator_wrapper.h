@@ -28,7 +28,6 @@ class IteratorWrapperBase {
       : iter_(nullptr) {
     Set(_iter);
   }
-  ~IteratorWrapperBase() {}
   InternalIteratorBase<TValue>* iter() const { return iter_; }
   void SetRangeDelReadSeqno(SequenceNumber read_seqno) {
     if (iter_) {

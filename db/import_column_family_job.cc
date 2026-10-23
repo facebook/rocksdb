@@ -31,7 +31,8 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
   for (const auto& metadata_per_cf : metadatas_) {
     // Read the information of files we are importing
     ColumnFamilyIngestFileInfo cf_file_info;
-    InternalKey smallest, largest;
+    InternalKey smallest;
+    InternalKey largest;
     int num_files = 0;
     std::vector<IngestedFileInfo> files_to_import_per_cf;
     for (size_t i = 0; i < metadata_per_cf.size(); i++) {

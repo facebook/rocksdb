@@ -29,6 +29,16 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
+// The write options a grouped writer was made with, for the query trace.
+TracedWriteOptions TracedOptionsOf(const WriteThread::Writer& writer) {
+  TracedWriteOptions options;
+  options.sync = writer.sync;
+  options.disable_wal = writer.disable_wal;
+  options.no_slowdown = writer.no_slowdown;
+  options.rate_limiter_priority = writer.rate_limiter_priority;
+  return options;
+}
+
 class BlobWriteRollbackGuard {
  public:
   explicit BlobWriteRollbackGuard(
@@ -949,7 +959,8 @@ Status DBImpl::WriteImpl(
       // efficient to trace here than to add latency to a phase of the log/apply
       // pipeline.
       // TODO: maybe handle the tracing status?
-      tracer_->Write(trace_batch).PermitUncheckedError();
+      tracer_->Write(trace_batch, TracedWriteOptions(write_options))
+          .PermitUncheckedError();
     }
   }
   if (write_options.sync && write_options.disableWAL) {
@@ -1315,9 +1326,11 @@ Status DBImpl::WriteImpl(
           if (wbwi && !ingest_wbwi_for_commit) {
             // for transaction write, tracer only needs the commit marker which
             // is in writer->batch
-            tracer_->Write(wbwi->GetWriteBatch()).PermitUncheckedError();
+            tracer_->Write(wbwi->GetWriteBatch(), TracedOptionsOf(*writer))
+                .PermitUncheckedError();
           } else {
-            tracer_->Write(writer->trace_batch).PermitUncheckedError();
+            tracer_->Write(writer->trace_batch, TracedOptionsOf(*writer))
+                .PermitUncheckedError();
           }
         }
       }
@@ -1654,7 +1667,8 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
               continue;
             }
             // TODO: maybe handle the tracing status?
-            tracer_->Write(writer->trace_batch).PermitUncheckedError();
+            tracer_->Write(writer->trace_batch, TracedOptionsOf(*writer))
+                .PermitUncheckedError();
           }
         }
       }
@@ -1939,7 +1953,8 @@ Status DBImpl::WriteImplWALOnly(
           continue;
         }
         // TODO: maybe handle the tracing status?
-        tracer_->Write(writer->trace_batch).PermitUncheckedError();
+        tracer_->Write(writer->trace_batch, TracedOptionsOf(*writer))
+            .PermitUncheckedError();
       }
     }
   }
@@ -3590,7 +3605,8 @@ Status DBImpl::SwitchMemtableImpl(ColumnFamilyData* cfd, WriteContext* context,
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
   UpdateWBMAccountingAfterMemtableSwitch(refresh_wbm_accounting);
-  InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context);
+  InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context,
+                                     /*defer_snapshot_refresh=*/false);
   MaybeScheduleAsyncWALPrecreate(preallocate_block_size);
 
   // Notify client that memtable is sealed, now that we have successfully

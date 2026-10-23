@@ -55,7 +55,7 @@ class LockManagerHandle {
   // to use.
   virtual LockManager* getLockManager() = 0;
 
-  virtual ~LockManagerHandle() {}
+  virtual ~LockManagerHandle() = default;
 };
 
 // Same as class Endpoint, but use std::string to manage the buffer allocation
@@ -151,7 +151,7 @@ class RangeLockManagerHandle : public LockManagerHandle {
   virtual std::vector<RangeDeadlockPath> GetRangeDeadlockInfoBuffer() = 0;
   virtual void SetRangeDeadlockInfoBufferSize(uint32_t target_size) = 0;
 
-  ~RangeLockManagerHandle() override {}
+  ~RangeLockManagerHandle() override = default;
 };
 
 // A factory function to create a Range Lock Manager. The created object should
@@ -635,6 +635,8 @@ class TransactionDB : public StackableDB {
   // No copying allowed
   TransactionDB(const TransactionDB&) = delete;
   void operator=(const TransactionDB&) = delete;
+  TransactionDB(TransactionDB&&) = delete;
+  void operator=(TransactionDB&&) = delete;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

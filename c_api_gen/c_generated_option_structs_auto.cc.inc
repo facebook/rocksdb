@@ -741,6 +741,16 @@ unsigned char rocksdb_options_get_write_dbid_to_manifest(
   return opt->rep.write_dbid_to_manifest;
 }
 
+void rocksdb_options_set_track_options_file_number_in_manifest(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.track_options_file_number_in_manifest = v;
+}
+
+unsigned char rocksdb_options_get_track_options_file_number_in_manifest(
+    rocksdb_options_t* opt) {
+  return opt->rep.track_options_file_number_in_manifest;
+}
+
 void rocksdb_options_set_write_identity_file(rocksdb_options_t* opt,
                                              unsigned char v) {
   opt->rep.write_identity_file = v;
@@ -1909,6 +1919,16 @@ unsigned char rocksdb_trace_options_get_preserve_write_order(
   return opt->rep.preserve_write_order;
 }
 
+void rocksdb_trace_options_set_include_read_write_options(
+    rocksdb_trace_options_t* opt, unsigned char v) {
+  opt->rep.include_read_write_options = v;
+}
+
+unsigned char rocksdb_trace_options_get_include_read_write_options(
+    rocksdb_trace_options_t* opt) {
+  return opt->rep.include_read_write_options;
+}
+
 /* BlockCacheTraceOptions */
 
 void rocksdb_block_cache_trace_options_set_sampling_frequency(
@@ -2451,26 +2471,6 @@ void rocksdb_block_based_options_set_use_delta_encoding(
 unsigned char rocksdb_block_based_options_get_use_delta_encoding(
     rocksdb_block_based_table_options_t* opt) {
   return opt->rep.use_delta_encoding;
-}
-
-void rocksdb_block_based_options_set_use_udi_as_primary_index(
-    rocksdb_block_based_table_options_t* opt, unsigned char v) {
-  opt->rep.use_udi_as_primary_index = v;
-}
-
-unsigned char rocksdb_block_based_options_get_use_udi_as_primary_index(
-    rocksdb_block_based_table_options_t* opt) {
-  return opt->rep.use_udi_as_primary_index;
-}
-
-void rocksdb_block_based_options_set_fail_if_no_udi_on_open(
-    rocksdb_block_based_table_options_t* opt, unsigned char v) {
-  opt->rep.fail_if_no_udi_on_open = v;
-}
-
-unsigned char rocksdb_block_based_options_get_fail_if_no_udi_on_open(
-    rocksdb_block_based_table_options_t* opt) {
-  return opt->rep.fail_if_no_udi_on_open;
 }
 
 void rocksdb_block_based_options_set_whole_key_filtering(

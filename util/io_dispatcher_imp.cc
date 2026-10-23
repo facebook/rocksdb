@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "file/random_access_file_reader.h"
+#include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics_impl.h"
 #include "port/port.h"
 #include "rocksdb/file_system.h"
@@ -276,6 +277,13 @@ static void RecordIODispatcherTime(Statistics* statistics,
     RecordTimeToHistogram(statistics, histogram_type,
                           end_time_us - start_time_us);
   }
+}
+
+static void RecordIODispatcherBlockReads(size_t block_count,
+                                         uint64_t block_read_bytes) {
+  PERF_COUNTER_ADD(block_read_count, block_count);
+  PERF_COUNTER_ADD(block_read_byte, block_read_bytes);
+  PERF_COUNTER_ADD(data_block_read_byte, block_read_bytes);
 }
 
 // ReadSet destructor - clean up IO handles
@@ -892,6 +900,11 @@ void IODispatcherImpl::Impl::DispatchPrefetch(
   uint64_t nonadjacent = 0;
   PrepareIORequests(job, block_indices, job->block_handles, &read_reqs,
                     &coalesced_block_indices, &dispatched_bytes, &nonadjacent);
+
+  // Match RocksDB's existing MultiRead accounting by recording before IO.
+  // Charge the full request spans so bytes in coalesced gaps are included.
+  // Recording once before the async/sync split avoids double-charging fallback.
+  RecordIODispatcherBlockReads(block_indices.size(), dispatched_bytes);
 
   // Account for the prefetch IO issued by this dispatch. Counted here (once per
   // dispatched block, before the async/sync split) rather than at completion so

@@ -303,7 +303,8 @@ TEST_F(DBBasicTestWithTimestamp, CompactRangeWithSpecifiedRange) {
 
   std::string start_str = "foo";
   std::string end_str = "foo2";
-  Slice start(start_str), end(end_str);
+  Slice start(start_str);
+  Slice end(end_str);
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, &end));
 
   Close();
@@ -442,7 +443,8 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
   }
 
   // Test invalid compaction with range
-  Slice start(kKey), end(kKey);
+  Slice start(kKey);
+  Slice end(kKey);
   Status s = db_->CompactRange(comp_opts, &start, &end);
   ASSERT_TRUE(s.IsInvalidArgument());
   s = db_->CompactRange(comp_opts, &start, nullptr);
@@ -4253,7 +4255,8 @@ TEST_F(DBBasicTestWithTimestamp,
   ropts.timestamp = &ts;
   CompactRangeOptions cro;
   cro.full_history_ts_low = nullptr;
-  std::string value, key_ts;
+  std::string value;
+  std::string key_ts;
   Status s;
   auto verify = [&] {
     s = db_->Get(ropts, "k1", &value);
@@ -4345,7 +4348,8 @@ TEST_F(DBBasicTestWithTimestamp,
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ropts.timestamp = &compaction_ts;
-  std::string value, ts;
+  std::string value;
+  std::string ts;
   ASSERT_OK(db_->Get(ropts, "k1", &value, &ts));
   ASSERT_EQ(value, "v1");
   // timestamp is below full_history_ts_low, zeroed out as the key goes into
@@ -4399,7 +4403,10 @@ INSTANTIATE_TEST_CASE_P(
             test::UserDefinedTimestampTestMode::kStripUserDefinedTimestamp)));
 
 TEST_P(DeleteRangeWithTimestampTableOptions, BasicReadAndIterate) {
-  const int kNum = 200, kRangeBegin = 50, kRangeEnd = 150, kNumPerFile = 25;
+  const int kNum = 200;
+  const int kRangeBegin = 50;
+  const int kRangeEnd = 150;
+  const int kNumPerFile = 25;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.prefix_extractor.reset(NewFixedPrefixTransform(3));
@@ -4503,7 +4510,8 @@ TEST_P(DeleteRangeWithTimestampTableOptions, BasicReadAndIterate) {
   PutFixed64(&read_ts, kNum);
   read_ts_slice = read_ts;
   read_opts.timestamp = &read_ts_slice;
-  std::string value, timestamp;
+  std::string value;
+  std::string timestamp;
   Status s;
   std::string expected_ts;
   int int_expected_ts;
@@ -4589,7 +4597,10 @@ TEST_F(DBBasicTestWithTimestamp, DeleteRangeGetIteratorWithSnapshot) {
   DestroyAndReopen(options);
   WriteOptions write_opts;
   std::string put_ts = Timestamp(0, 0);
-  const int kNum = 4, kNumPerFile = 1, kRangeBegin = 1, kRangeEnd = 3;
+  const int kNum = 4;
+  const int kNumPerFile = 1;
+  const int kRangeBegin = 1;
+  const int kRangeEnd = 3;
   options.memtable_factory.reset(test::NewSpecialSkipListFactory(kNumPerFile));
   const Snapshot* before_tombstone = nullptr;
   const Snapshot* after_tombstone = nullptr;
@@ -4636,7 +4647,8 @@ TEST_F(DBBasicTestWithTimestamp, DeleteRangeGetIteratorWithSnapshot) {
     db_->MultiGet(read_opts, db_->DefaultColumnFamily(), batch_size,
                   keys.data(), values.data(), timestamps.data(),
                   statuses.data(), true /* sorted_input */);
-    std::string value, timestamp;
+    std::string value;
+    std::string timestamp;
     Status s;
     for (int i = 0; i < kNum; ++i) {
       s = db_->Get(read_opts, Key1(i), &value, &timestamp);

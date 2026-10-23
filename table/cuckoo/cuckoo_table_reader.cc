@@ -217,7 +217,9 @@ class CuckooTableIterator : public InternalIterator {
   explicit CuckooTableIterator(CuckooTableReader* reader);
   // No copying allowed
   CuckooTableIterator(const CuckooTableIterator&) = delete;
-  void operator=(const Iterator&) = delete;
+  void operator=(const CuckooTableIterator&) = delete;
+  CuckooTableIterator(CuckooTableIterator&&) = delete;
+  void operator=(CuckooTableIterator&&) = delete;
   ~CuckooTableIterator() override = default;
   bool Valid() const override;
   void SeekToFirst() override;

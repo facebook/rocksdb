@@ -73,6 +73,11 @@ class BlockReadAmpBitmap {
 
     RecordTick(GetStatistics(), READ_AMP_TOTAL_READ_BYTES, block_size);
   }
+  // No copying allowed
+  BlockReadAmpBitmap(const BlockReadAmpBitmap&) = delete;
+  BlockReadAmpBitmap& operator=(const BlockReadAmpBitmap&) = delete;
+  BlockReadAmpBitmap(BlockReadAmpBitmap&&) = delete;
+  BlockReadAmpBitmap& operator=(BlockReadAmpBitmap&&) = delete;
 
   ~BlockReadAmpBitmap() { delete[] bitmap_; }
 
@@ -163,6 +168,8 @@ class Block {
   // No copying allowed
   Block(const Block&) = delete;
   void operator=(const Block&) = delete;
+  Block(Block&&) = delete;
+  void operator=(Block&&) = delete;
 
   ~Block();
 
@@ -356,6 +363,13 @@ class Block {
 template <class TValue>
 class BlockIter : public InternalIteratorBase<TValue> {
  public:
+  BlockIter() = default;
+  // No copying allowed
+  BlockIter(const BlockIter&) = delete;
+  BlockIter& operator=(const BlockIter&) = delete;
+  BlockIter(BlockIter&&) = delete;
+  BlockIter& operator=(BlockIter&&) = delete;
+
   // Makes Valid() return false, status() return `s`, and Seek()/Prev()/etc do
   // nothing. Calls cleanup functions.
   virtual void Invalidate(const Status& s) {
@@ -378,41 +392,43 @@ class BlockIter : public InternalIteratorBase<TValue> {
     return valid;
   }
 
-  void SeekToFirst() override final {
+  void SeekToFirst() final {
 #ifndef NDEBUG
-    if (TEST_Corrupt_Callback("BlockIter::SeekToFirst")) return;
+    if (TEST_Corrupt_Callback("BlockIter::SeekToFirst")) {
+      return;
+    }
 #endif
     SeekToFirstImpl();
     UpdateKey();
   }
 
-  void SeekToLast() override final {
+  void SeekToLast() final {
     SeekToLastImpl();
     UpdateKey();
   }
 
-  void Seek(const Slice& target) override final {
+  void Seek(const Slice& target) final {
     SeekImpl(target);
     UpdateKey();
   }
 
-  void SeekForPrev(const Slice& target) override final {
+  void SeekForPrev(const Slice& target) final {
     SeekForPrevImpl(target);
     UpdateKey();
   }
 
-  void Next() override final {
+  void Next() final {
     NextImpl();
     UpdateKey();
   }
 
-  bool NextAndGetResult(IterateResult* result) override final {
+  bool NextAndGetResult(IterateResult* result) final {
     // This does not need to call `UpdateKey()` as the parent class only has
     // access to the `UpdateKey()`-invoking functions.
     return InternalIteratorBase<TValue>::NextAndGetResult(result);
   }
 
-  void Prev() override final {
+  void Prev() final {
     PrevImpl();
     UpdateKey();
   }
@@ -853,7 +869,9 @@ class DataBlockIter final : public BlockIter<Slice> {
   // Returns if `target` may exist.
   inline bool SeekForGet(const Slice& target) {
 #ifndef NDEBUG
-    if (TEST_Corrupt_Callback("DataBlockIter::SeekForGet")) return true;
+    if (TEST_Corrupt_Callback("DataBlockIter::SeekForGet")) {
+      return true;
+    }
 #endif
     if (!data_block_hash_index_) {
       SeekImpl(target);

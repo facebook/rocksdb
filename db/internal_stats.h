@@ -352,6 +352,10 @@ class InternalStats {
       return *this;
     }
 
+    CompactionStats(CompactionStats&&) = default;
+    CompactionStats& operator=(CompactionStats&&) = default;
+    ~CompactionStats() = default;
+
     void Clear() {
       this->micros = 0;
       this->cpu_micros = 0;
@@ -955,6 +959,8 @@ class IntPropertyAggregator {
 
   IntPropertyAggregator(const IntPropertyAggregator&) = delete;
   void operator=(const IntPropertyAggregator&) = delete;
+  IntPropertyAggregator(IntPropertyAggregator&&) = delete;
+  void operator=(IntPropertyAggregator&&) = delete;
 
   // Add a column family's property value to the aggregator.
   virtual void Add(ColumnFamilyData* cfd, uint64_t value) = 0;

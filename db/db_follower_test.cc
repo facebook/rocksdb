@@ -25,7 +25,7 @@ class DBFollowerTest : public DBTestBase {
     Reopen(CurrentOptions());
   }
 
-  ~DBFollowerTest() {
+  ~DBFollowerTest() override {
     follower_.reset();
     EXPECT_EQ(DestroyDB(follower_name_, CurrentOptions()), Status::OK());
     Destroy(CurrentOptions());

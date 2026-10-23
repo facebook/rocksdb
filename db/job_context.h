@@ -53,6 +53,7 @@ struct SuperVersionContext {
   // No copies
   SuperVersionContext(const SuperVersionContext& other) = delete;
   void operator=(const SuperVersionContext& other) = delete;
+  void operator=(SuperVersionContext&& other) = delete;
 
   void NewSuperVersion() {
     new_superversion = std::unique_ptr<SuperVersion>(new SuperVersion());
@@ -245,6 +246,10 @@ struct JobContext {
   // Used for remote compaction. To prevent OPTIONS files from getting
   // purged by PurgeObsoleteFiles() of the primary host
   uint64_t min_options_file_number;
+  // Exact OPTIONS file committed by the current MANIFEST. Unlike
+  // min_options_file_number, this protects one authoritative file even when
+  // higher-numbered uncommitted OPTIONS files exist.
+  uint64_t manifest_options_file_number = 0;
   uint64_t log_number = 0;
   uint64_t prev_log_number = 0;
 
@@ -275,6 +280,12 @@ struct JobContext {
 
   // Delete the default constructor
   JobContext() = delete;
+
+  // No copying allowed
+  JobContext(const JobContext&) = delete;
+  JobContext& operator=(const JobContext&) = delete;
+  JobContext(JobContext&&) = delete;
+  JobContext& operator=(JobContext&&) = delete;
 
   // For non-empty JobContext Clean() has to be called at least once before
   // before destruction (see asserts in ~JobContext()). Should be called with

@@ -168,6 +168,9 @@ class SubcompactionState {
                            ? &proximal_level_outputs_
                            : &compaction_outputs_;
   }
+  SubcompactionState& operator=(SubcompactionState&&) = delete;
+
+  ~SubcompactionState() = default;
 
   // Add all the new files from this compaction to version_edit
   void AddOutputsEdit(VersionEdit* out_edit) const {

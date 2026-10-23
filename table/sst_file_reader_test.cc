@@ -71,7 +71,7 @@ class SstFileReaderTest : public testing::Test {
     options_.env = env_;
   }
 
-  ~SstFileReaderTest() {
+  ~SstFileReaderTest() override {
     if (env_->FileExists(sst_name_).ok()) {
       EXPECT_OK(env_->DeleteFile(sst_name_));
     }
@@ -934,9 +934,12 @@ TEST_F(SstFileReaderTest, EmbeddedBlobValueDeltaEscapeFv8) {
     }
   };
 
-  std::vector<std::string> got7, got8;
-  bool delta7 = false, delta8 = false;
-  int escapes7 = 0, escapes8 = 0;
+  std::vector<std::string> got7;
+  std::vector<std::string> got8;
+  bool delta7 = false;
+  bool delta8 = false;
+  int escapes7 = 0;
+  int escapes8 = 0;
   build_and_read(7, &delta7, &escapes7, &got7);
   build_and_read(/*format_version=*/8, &delta8, &escapes8, &got8);
 
@@ -1238,7 +1241,7 @@ class SstFileReaderTimestampTest : public testing::Test {
     sst_name_ = test::PerThreadDBPath("sst_file_ts");
   }
 
-  ~SstFileReaderTimestampTest() {
+  ~SstFileReaderTimestampTest() override {
     EXPECT_OK(options_.env->DeleteFile(sst_name_));
   }
 
@@ -1514,7 +1517,7 @@ class SstFileReaderTimestampNotPersistedTest
     sst_name_ = test::PerThreadDBPath("sst_file_ts_not_persisted");
   }
 
-  ~SstFileReaderTimestampNotPersistedTest() = default;
+  ~SstFileReaderTimestampNotPersistedTest() override = default;
 };
 
 TEST_F(SstFileReaderTimestampNotPersistedTest, Basic) {

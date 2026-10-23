@@ -34,7 +34,7 @@ class EnvLoggerTest : public testing::Test {
 
   EnvLoggerTest() : env_(Env::Default()) {}
 
-  ~EnvLoggerTest() = default;
+  ~EnvLoggerTest() override = default;
 
   std::shared_ptr<Logger> CreateLogger() {
     std::shared_ptr<Logger> result;

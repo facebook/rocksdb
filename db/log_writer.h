@@ -92,6 +92,8 @@ class Writer {
   // No copying allowed
   Writer(const Writer&) = delete;
   void operator=(const Writer&) = delete;
+  Writer(Writer&&) = delete;
+  void operator=(Writer&&) = delete;
 
   ~Writer();
 

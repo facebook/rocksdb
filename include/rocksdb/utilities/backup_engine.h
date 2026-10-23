@@ -448,7 +448,7 @@ class BackupStatistics {
       : number_success_backup(_number_success_backup),
         number_fail_backup(_number_fail_backup) {}
 
-  ~BackupStatistics() {}
+  ~BackupStatistics() = default;
 
   void IncrementNumberSuccessBackup();
   void IncrementNumberFailBackup();
@@ -468,7 +468,7 @@ class BackupStatistics {
 // safe concurrent operations.
 class BackupEngineReadOnlyBase {
  public:
-  virtual ~BackupEngineReadOnlyBase() {}
+  virtual ~BackupEngineReadOnlyBase() = default;
 
   // Returns info about the latest good backup in backup_info, or NotFound
   // no good backup exists.
@@ -551,7 +551,7 @@ class BackupEngineReadOnlyBase {
 // concurrent operations.
 class BackupEngineAppendOnlyBase {
  public:
-  virtual ~BackupEngineAppendOnlyBase() {}
+  virtual ~BackupEngineAppendOnlyBase() = default;
 
   // same as CreateNewBackup, but stores extra application metadata.
   virtual IOStatus CreateNewBackupWithMetadata(
@@ -677,7 +677,7 @@ class BackupEngineAppendOnlyBase {
 class BackupEngine : public BackupEngineReadOnlyBase,
                      public BackupEngineAppendOnlyBase {
  public:
-  virtual ~BackupEngine() {}
+  ~BackupEngine() override = default;
 
   // BackupEngineOptions have to be the same as the ones used in previous
   // BackupEngines for the same backup directory.
@@ -705,7 +705,7 @@ class BackupEngine : public BackupEngineReadOnlyBase,
 // BackupEngine comment for details. This class is not user-extensible.
 class BackupEngineReadOnly : public BackupEngineReadOnlyBase {
  public:
-  virtual ~BackupEngineReadOnly() {}
+  ~BackupEngineReadOnly() override = default;
 
   static IOStatus Open(const BackupEngineOptions& options, Env* db_env,
                        BackupEngineReadOnly** backup_engine_ptr);

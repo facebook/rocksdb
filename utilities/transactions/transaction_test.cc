@@ -1996,7 +1996,8 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest) {
 
   Status s;
   std::string v;
-  ColumnFamilyHandle *cfa, *cfb;
+  ColumnFamilyHandle* cfa;
+  ColumnFamilyHandle* cfb;
 
   // Create 2 new column families
   ColumnFamilyOptions cf_options;
@@ -2147,7 +2148,8 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
 
   Status s;
-  ColumnFamilyHandle *cfa, *cfb;
+  ColumnFamilyHandle* cfa;
+  ColumnFamilyHandle* cfb;
 
   ColumnFamilyOptions cf_options;
   s = db->CreateColumnFamily(cf_options, "CFA", &cfa);
@@ -2334,7 +2336,8 @@ TEST_P(TransactionTest, TwoPhaseOutOfOrderDelete) {
   ASSERT_OK(ReOpenNoDelete());
 
   DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
-  WriteOptions wal_on, wal_off;
+  WriteOptions wal_on;
+  WriteOptions wal_off;
   wal_on.sync = true;
   wal_on.disableWAL = false;
   wal_off.disableWAL = true;
@@ -2528,7 +2531,8 @@ TEST_P(TransactionTest, WriteConflictTest2) {
 
 TEST_P(TransactionTest, ReadConflictTest) {
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
+  ReadOptions snapshot_read_options;
   TransactionOptions txn_options;
   std::string value;
   Status s;
@@ -2585,7 +2589,8 @@ TEST_P(TransactionTest, TxnOnlyTest) {
 
 TEST_P(TransactionTest, FlushTest) {
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
+  ReadOptions snapshot_read_options;
   std::string value;
   Status s;
 
@@ -2648,7 +2653,8 @@ TEST_P(TransactionTest, FlushTest2) {
     assert(db != nullptr);
 
     WriteOptions write_options;
-    ReadOptions read_options, snapshot_read_options;
+    ReadOptions read_options;
+    ReadOptions snapshot_read_options;
     TransactionOptions txn_options;
     std::string value;
 
@@ -2826,7 +2832,8 @@ TEST_P(TransactionTest, NoSnapshotTest) {
 
 TEST_P(TransactionTest, MultipleSnapshotTest) {
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
+  ReadOptions snapshot_read_options;
   std::string value;
   Status s;
 
@@ -2943,12 +2950,14 @@ TEST_P(TransactionTest, MultipleSnapshotTest) {
 
 TEST_P(TransactionTest, ColumnFamiliesTest) {
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
+  ReadOptions snapshot_read_options;
   TransactionOptions txn_options;
   std::string value;
   Status s;
 
-  ColumnFamilyHandle *cfa, *cfb;
+  ColumnFamilyHandle* cfa;
+  ColumnFamilyHandle* cfb;
   ColumnFamilyOptions cf_options;
 
   // Create 2 new column families
@@ -3180,7 +3189,8 @@ TEST_P(TransactionTest, WriteImportedColumnFamilyTest) {
 
 TEST_P(TransactionTest, MultiGetBatchedTest) {
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
+  ReadOptions snapshot_read_options;
   TransactionOptions txn_options;
   std::string value;
   Status s;
@@ -3270,7 +3280,8 @@ TEST_P(TransactionTest, MultiGetBatchedTest) {
 // allocating an autovector of MergeContexts
 TEST_P(TransactionTest, MultiGetLargeBatchedTest) {
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
+  ReadOptions snapshot_read_options;
   std::string value;
   Status s;
 
@@ -3402,11 +3413,13 @@ TEST_P(TransactionTest, MultiGetSnapshot) {
 
 TEST_P(TransactionTest, ColumnFamiliesTest2) {
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
+  ReadOptions snapshot_read_options;
   std::string value;
   Status s;
 
-  ColumnFamilyHandle *one, *two;
+  ColumnFamilyHandle* one;
+  ColumnFamilyHandle* two;
   ColumnFamilyOptions cf_options;
 
   // Create 2 new column families
@@ -3520,7 +3533,8 @@ TEST_P(TransactionTest, EmptyTest) {
 
 TEST_P(TransactionTest, PredicateManyPreceders) {
   WriteOptions write_options;
-  ReadOptions read_options1, read_options2;
+  ReadOptions read_options1;
+  ReadOptions read_options2;
   TransactionOptions txn_options;
   std::string value;
   Status s;
@@ -3588,7 +3602,9 @@ TEST_P(TransactionTest, PredicateManyPreceders) {
 
 TEST_P(TransactionTest, LostUpdate) {
   WriteOptions write_options;
-  ReadOptions read_options, read_options1, read_options2;
+  ReadOptions read_options;
+  ReadOptions read_options1;
+  ReadOptions read_options2;
   TransactionOptions txn_options;
   std::string value;
   Status s;
@@ -3958,7 +3974,8 @@ TEST_P(TransactionTest, Rollback) {
 
 TEST_P(TransactionTest, LockLimitTest) {
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
+  ReadOptions snapshot_read_options;
   TransactionOptions txn_options;
   std::string value;
   Status s;
@@ -4108,7 +4125,8 @@ TEST_P(TransactionTest, IteratorTest) {
   }
 
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
+  ReadOptions snapshot_read_options;
   std::string value;
   Status s;
 
@@ -4298,7 +4316,8 @@ TEST_P(TransactionTest, DisableIndexingTest) {
 
 TEST_P(TransactionTest, SavepointTest) {
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
+  ReadOptions snapshot_read_options;
   std::string value;
   Status s;
 
@@ -5493,7 +5512,8 @@ TEST_P(TransactionTest, DeferSnapshotTest) {
 
 TEST_P(TransactionTest, DeferSnapshotTest2) {
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
+  ReadOptions snapshot_read_options;
   std::string value;
   Status s;
 
@@ -5550,7 +5570,8 @@ TEST_P(TransactionTest, DeferSnapshotTest2) {
 
 TEST_P(TransactionTest, DeferSnapshotSavePointTest) {
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
+  ReadOptions snapshot_read_options;
   std::string value;
   Status s;
 
@@ -5717,7 +5738,8 @@ TEST_P(TransactionTest, SetSnapshotOnNextOperationWithNotification) {
 
 TEST_P(TransactionTest, ClearSnapshotTest) {
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
+  ReadOptions snapshot_read_options;
   std::string value;
   Status s;
 
@@ -5765,7 +5787,8 @@ TEST_P(TransactionTest, ClearSnapshotTest) {
 TEST_P(TransactionTest, ToggleAutoCompactionTest) {
   Status s;
 
-  ColumnFamilyHandle *cfa, *cfb;
+  ColumnFamilyHandle* cfa;
+  ColumnFamilyHandle* cfb;
   ColumnFamilyOptions cf_options;
 
   // Create 2 new column families

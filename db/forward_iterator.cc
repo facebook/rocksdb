@@ -49,6 +49,12 @@ class ForwardLevelIterator : public InternalIterator {
     status_.PermitUncheckedError();  // Allow uninitialized status through
   }
 
+  // No copying allowed
+  ForwardLevelIterator(const ForwardLevelIterator&) = delete;
+  ForwardLevelIterator& operator=(const ForwardLevelIterator&) = delete;
+  ForwardLevelIterator(ForwardLevelIterator&&) = delete;
+  ForwardLevelIterator& operator=(ForwardLevelIterator&&) = delete;
+
   ~ForwardLevelIterator() override {
     // Reset current pointer
     if (pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled()) {
@@ -808,7 +814,8 @@ void ForwardIterator::RenewIterators() {
   const auto& l0_files = vstorage->LevelFiles(0);
   const auto* vstorage_new = svnew->current->storage_info();
   const auto& l0_files_new = vstorage_new->LevelFiles(0);
-  size_t iold, inew;
+  size_t iold;
+  size_t inew;
   bool found;
   std::vector<InternalIterator*> l0_iters_new;
   l0_iters_new.reserve(l0_files_new.size());

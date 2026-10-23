@@ -123,6 +123,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.allow_fallocate = immutable_db_options.allow_fallocate;
   options.is_fd_close_on_exec = immutable_db_options.is_fd_close_on_exec;
   options.stats_dump_period_sec = mutable_db_options.stats_dump_period_sec;
+  options.mutex_hold_log_threshold_us =
+      mutable_db_options.mutex_hold_log_threshold_us;
   options.stats_persist_period_sec =
       mutable_db_options.stats_persist_period_sec;
   options.persist_stats_to_disk = immutable_db_options.persist_stats_to_disk;
@@ -177,6 +179,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.avoid_unnecessary_blocking_io =
       immutable_db_options.avoid_unnecessary_blocking_io;
   options.write_dbid_to_manifest = immutable_db_options.write_dbid_to_manifest;
+  options.track_options_file_number_in_manifest =
+      immutable_db_options.track_options_file_number_in_manifest;
   options.write_identity_file = immutable_db_options.write_identity_file;
   options.reuse_manifest_on_open = immutable_db_options.reuse_manifest_on_open;
   options.prefix_seek_opt_in_only =
@@ -1435,7 +1439,8 @@ static bool AreOptionsEqual(OptionType type, const void* this_offset,
     case OptionType::kInt32T:
       return IsOptionEqual<int32_t>(this_offset, that_offset);
     case OptionType::kInt64T: {
-      int64_t v1, v2;
+      int64_t v1;
+      int64_t v2;
       GetUnaligned(static_cast<const int64_t*>(this_offset), &v1);
       GetUnaligned(static_cast<const int64_t*>(that_offset), &v2);
       return (v1 == v2);
@@ -1445,13 +1450,15 @@ static bool AreOptionsEqual(OptionType type, const void* this_offset,
     case OptionType::kUInt32T:
       return IsOptionEqual<uint32_t>(this_offset, that_offset);
     case OptionType::kUInt64T: {
-      uint64_t v1, v2;
+      uint64_t v1;
+      uint64_t v2;
       GetUnaligned(static_cast<const uint64_t*>(this_offset), &v1);
       GetUnaligned(static_cast<const uint64_t*>(that_offset), &v2);
       return (v1 == v2);
     }
     case OptionType::kSizeT: {
-      size_t v1, v2;
+      size_t v1;
+      size_t v2;
       GetUnaligned(static_cast<const size_t*>(this_offset), &v1);
       GetUnaligned(static_cast<const size_t*>(that_offset), &v2);
       return (v1 == v2);

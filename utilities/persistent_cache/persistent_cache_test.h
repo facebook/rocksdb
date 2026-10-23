@@ -33,7 +33,7 @@ namespace ROCKSDB_NAMESPACE {
 class PersistentCacheTierTest : public testing::Test {
  public:
   PersistentCacheTierTest();
-  virtual ~PersistentCacheTierTest() {
+  ~PersistentCacheTierTest() override {
     if (cache_) {
       Status s = cache_->Close();
       assert(s.ok());
@@ -130,7 +130,7 @@ class PersistentCacheTierTest : public testing::Test {
 
       char data[4 * 1024];
       memset(data, '0' + (i % 10), sizeof(data));
-      auto k = prefix + PaddedNumber(i, /*count=*/8);
+      auto k = prefix + PaddedNumber(i, /*pad_size=*/8);
       Slice key(k);
       while (true) {
         Status status = cache_->Insert(key, data, sizeof(data));
@@ -154,7 +154,7 @@ class PersistentCacheTierTest : public testing::Test {
 
       char edata[4 * 1024];
       memset(edata, '0' + (i % 10), sizeof(edata));
-      auto k = prefix + PaddedNumber(i, /*count=*/8);
+      auto k = prefix + PaddedNumber(i, /*pad_size=*/8);
       Slice key(k);
       std::unique_ptr<char[]> block;
       size_t block_size;

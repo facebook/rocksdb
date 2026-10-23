@@ -358,7 +358,7 @@ Status BlockCacheHumanReadableTraceWriter::WriteHumanReadableTraceRecord(
 
 BlockCacheHumanReadableTraceReader::BlockCacheHumanReadableTraceReader(
     const std::string& trace_file_path)
-    : BlockCacheTraceReader(/*trace_reader=*/nullptr) {
+    : BlockCacheTraceReader(/*reader=*/nullptr) {
   human_readable_trace_reader_.open(trace_file_path, std::ifstream::in);
 }
 

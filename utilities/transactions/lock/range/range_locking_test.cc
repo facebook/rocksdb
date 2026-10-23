@@ -45,7 +45,7 @@ class RangeLockingTest : public ::testing::Test {
     assert(s.ok());
   }
 
-  ~RangeLockingTest() {
+  ~RangeLockingTest() override {
     delete db;
     db = nullptr;
     // This is to skip the assert statement in FaultInjectionTestEnv. There

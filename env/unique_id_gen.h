@@ -70,7 +70,8 @@ class SemiStructuredUniqueIdGen {
   T GenerateNext() {
     static_assert(sizeof(T) <= sizeof(uint64_t));
     static_assert(std::is_integral_v<T>);
-    uint64_t ignore, val;
+    uint64_t ignore;
+    uint64_t val;
     GenerateNext(&ignore, &val);
     return static_cast<T>(val);
   }

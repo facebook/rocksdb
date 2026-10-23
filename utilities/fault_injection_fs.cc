@@ -607,7 +607,7 @@ TestFSRandomRWFile::TestFSRandomRWFile(const std::string& fname,
 
 TestFSRandomRWFile::~TestFSRandomRWFile() {
   if (file_opened_) {
-    Close(IOOptions(), nullptr).PermitUncheckedError();
+    TestFSRandomRWFile::Close(IOOptions(), nullptr).PermitUncheckedError();
   }
 }
 

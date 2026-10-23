@@ -126,8 +126,8 @@ PersistentCacheTierTest::PersistentCacheTierTest()
 // Block cache tests
 TEST_F(PersistentCacheTierTest, DISABLED_BlockCacheInsertWithFileCreateError) {
   cache_ = NewBlockCache(Env::Default(), path_,
-                         /*size=*/std::numeric_limits<uint64_t>::max(),
-                         /*direct_writes=*/false);
+                         /*max_size=*/std::numeric_limits<uint64_t>::max(),
+                         /*enable_direct_writes=*/false);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "BlockCacheTier::NewCacheFile:DeleteDir", OnDeleteDir);
 
@@ -146,12 +146,13 @@ TEST_F(PersistentCacheTierTest, DISABLED_BasicTest) {
   RunInsertTest(/*nthreads=*/1, /*max_keys=*/1024);
 
   cache_ = NewBlockCache(Env::Default(), path_,
-                         /*size=*/std::numeric_limits<uint64_t>::max(),
-                         /*direct_writes=*/true);
+                         /*max_size=*/std::numeric_limits<uint64_t>::max(),
+                         /*enable_direct_writes=*/true);
   RunInsertTest(/*nthreads=*/1, /*max_keys=*/1024);
 
-  cache_ = NewTieredCache(Env::Default(), path_,
-                          /*memory_size=*/static_cast<size_t>(1 * 1024 * 1024));
+  cache_ = NewTieredCache(
+      Env::Default(), path_,
+      /*max_volatile_cache_size=*/static_cast<size_t>(1 * 1024 * 1024));
   RunInsertTest(/*nthreads=*/1, /*max_keys=*/1024);
 }
 
@@ -172,8 +173,8 @@ TEST_F(PersistentCacheTierTest, DISABLED_VolatileCacheInsertWithEviction) {
   for (auto nthreads : {1, 5}) {
     for (auto max_keys : {1 * 1024 * 1024 * kStressFactor}) {
       cache_ = std::make_shared<VolatileCacheTier>(
-          /*compressed=*/true,
-          /*size=*/static_cast<size_t>(1 * 1024 * 1024 * kStressFactor));
+          /*is_compressed=*/true,
+          /*max_size=*/static_cast<size_t>(1 * 1024 * 1024 * kStressFactor));
       RunInsertTestWithEviction(nthreads, static_cast<size_t>(max_keys));
     }
   }
@@ -186,9 +187,9 @@ TEST_F(PersistentCacheTierTest, DISABLED_BlockCacheInsert) {
     for (auto nthreads : {1, 5}) {
       for (auto max_keys :
            {10 * 1024 * kStressFactor, 1 * 1024 * 1024 * kStressFactor}) {
-        cache_ = NewBlockCache(Env::Default(), path_,
-                               /*size=*/std::numeric_limits<uint64_t>::max(),
-                               direct_writes);
+        cache_ = NewBlockCache(
+            Env::Default(), path_,
+            /*max_size=*/std::numeric_limits<uint64_t>::max(), direct_writes);
         RunInsertTest(nthreads, static_cast<size_t>(max_keys));
       }
     }
@@ -213,9 +214,10 @@ TEST_F(PersistentCacheTierTest, DISABLED_TieredCacheInsert) {
   for (auto nthreads : {1, 5}) {
     for (auto max_keys :
          {10 * 1024 * kStressFactor, 1 * 1024 * 1024 * kStressFactor}) {
-      cache_ = NewTieredCache(
-          Env::Default(), path_,
-          /*memory_size=*/static_cast<size_t>(1 * 1024 * 1024 * kStressFactor));
+      cache_ =
+          NewTieredCache(Env::Default(), path_,
+                         /*max_volatile_cache_size=*/
+                         static_cast<size_t>(1 * 1024 * 1024 * kStressFactor));
       RunInsertTest(nthreads, static_cast<size_t>(max_keys));
     }
   }
@@ -229,8 +231,9 @@ TEST_F(PersistentCacheTierTest, DISABLED_TieredCacheInsertWithEviction) {
     for (auto max_keys : {1 * 1024 * 1024 * kStressFactor}) {
       cache_ = NewTieredCache(
           Env::Default(), path_,
-          /*memory_size=*/static_cast<size_t>(1 * 1024 * 1024 * kStressFactor),
-          /*block_cache_size*/
+          /*max_volatile_cache_size=*/
+          static_cast<size_t>(1 * 1024 * 1024 * kStressFactor),
+          /*max_block_cache_size=*/
           static_cast<size_t>(200 * 1024 * 1024 * kStressFactor));
       RunInsertTestWithEviction(nthreads, static_cast<size_t>(max_keys));
     }

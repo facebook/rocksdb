@@ -21,9 +21,6 @@
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
-#ifdef OS_SOLARIS
-#include <alloca.h>
-#endif
 
 #include "cache/lru_cache.h"
 #include "db/attribute_group_iterator_impl.h"
@@ -2043,7 +2040,8 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
-  uint64_t size_with_mt, size_without_mt;
+  uint64_t size_with_mt;
+  uint64_t size_without_mt;
   ASSERT_OK(db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1,
                                      &size_with_mt));
   ASSERT_GT(size_with_mt, 6000);
@@ -2647,7 +2645,8 @@ TEST_F(DBTest, ComparatorCheck) {
       BytewiseComparator()->FindShortSuccessor(key);
     }
   };
-  Options new_options, options;
+  Options new_options;
+  Options options;
   NewComparator cmp;
   do {
     options = CurrentOptions();
@@ -3213,7 +3212,11 @@ static void MTThreadBody(void* arg) {
         ASSERT_OK(s);
         int unique_id = -1;
         for (int i = 0; i < kColumnFamilies; ++i) {
-          int k, w, c, cf, u;
+          int k;
+          int w;
+          int c;
+          int cf;
+          int u;
           ASSERT_EQ(5, sscanf(values[i].c_str(), "%d.%d.%d.%d.%d", &k, &w, &c,
                               &cf, &u))
               << values[i];
@@ -3992,7 +3995,8 @@ TEST_P(DBTestRandomized, Randomized) {
   const int N = 10000;
   const Snapshot* model_snap = nullptr;
   const Snapshot* db_snap = nullptr;
-  std::string k, v;
+  std::string k;
+  std::string v;
   for (int step = 0; step < N; step++) {
     // TODO(sanjay): Test Get() works
     int p = rnd.Uniform(100);
@@ -6312,7 +6316,9 @@ class DelayedMergeOperator : public MergeOperator {
 };
 
 TEST_F(DBTest, MergeTestTime) {
-  std::string one, two, three;
+  std::string one;
+  std::string two;
+  std::string three;
   PutFixed64(&one, 1);
   PutFixed64(&two, 2);
   PutFixed64(&three, 3);
@@ -6571,7 +6577,8 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
 
   // nonoverlapping with the file on level 0
-  Slice start("a"), end("b");
+  Slice start("a");
+  Slice end("b");
   ASSERT_OK(experimental::SuggestCompactRange(db_.get(), &start, &end));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
@@ -6630,7 +6637,8 @@ TEST_F(DBTest, SuggestCompactRangeUniversal) {
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
 
   // nonoverlapping with the file on level 0
-  Slice start("a"), end("b");
+  Slice start("a");
+  Slice end("b");
   ASSERT_OK(experimental::SuggestCompactRange(db_.get(), &start, &end));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 

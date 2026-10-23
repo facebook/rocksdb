@@ -114,6 +114,8 @@ class Compaction {
   // No copying allowed
   Compaction(const Compaction&) = delete;
   void operator=(const Compaction&) = delete;
+  Compaction(Compaction&&) = delete;
+  void operator=(Compaction&&) = delete;
 
   ~Compaction();
 

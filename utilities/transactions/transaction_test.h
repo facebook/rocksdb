@@ -34,7 +34,9 @@
 namespace ROCKSDB_NAMESPACE {
 
 // Return true if the ith bit is set in combination represented by comb
-bool IsInCombination(size_t i, size_t comb) { return comb & (size_t(1) << i); }
+inline bool IsInCombination(size_t i, size_t comb) {
+  return comb & (size_t(1) << i);
+}
 
 enum WriteOrdering : bool { kOrderedWrite, kUnorderedWrite };
 
@@ -103,7 +105,7 @@ class TransactionTestBase : public ::testing::Test {
     EXPECT_OK(s);
   }
 
-  ~TransactionTestBase() {
+  ~TransactionTestBase() override {
     delete db;
     db = nullptr;
     // This is to skip the assert statement in FaultInjectionTestEnv. There

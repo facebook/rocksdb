@@ -13,6 +13,8 @@
 
 #include <algorithm>
 #include <cinttypes>
+#include <cstdio>
+#include <cstring>
 #include <map>
 #include <memory>
 #include <set>
@@ -282,7 +284,7 @@ class SpecialEnv : public EnvWrapper {
           : env_(env), base_(std::move(b)) {
         env_->num_open_wal_file_.fetch_add(1);
       }
-      virtual ~SpecialWalFile() { env_->num_open_wal_file_.fetch_add(-1); }
+      ~SpecialWalFile() override { env_->num_open_wal_file_.fetch_add(-1); }
       Status Append(const Slice& data) override {
 #if !(defined NDEBUG) || !defined(OS_WIN)
         TEST_SYNC_POINT("SpecialEnv::SpecialWalFile::Append:1");
@@ -319,7 +321,8 @@ class SpecialEnv : public EnvWrapper {
 // SyncPoint is not supported in Released Windows Mode.
 #if !(defined NDEBUG) || !defined(OS_WIN)
         // Check preallocation size
-        size_t block_size, last_allocated_block;
+        size_t block_size;
+        size_t last_allocated_block;
         base_->GetPreallocationStatus(&block_size, &last_allocated_block);
         TEST_SYNC_POINT_CALLBACK("DBTestWalFile.GetPreallocationStatus",
                                  &block_size);
@@ -602,7 +605,7 @@ class SpecialEnv : public EnvWrapper {
       class NoopDirectory : public Directory {
        public:
         NoopDirectory() {}
-        ~NoopDirectory() {}
+        ~NoopDirectory() override {}
 
         Status Fsync() override { return Status::OK(); }
         Status Close() override { return Status::OK(); }
@@ -891,7 +894,7 @@ class FileTemperatureTestFS : public FileSystemWrapper {
 
 class OnFileDeletionListener : public EventListener {
  public:
-  OnFileDeletionListener() : matched_count_(0), expected_file_name_("") {}
+  OnFileDeletionListener() : matched_count_(0) {}
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "OnFileDeletionListener"; }
 
@@ -1107,7 +1110,7 @@ class DBTestBase : public testing::Test {
   // tests, but won't cover the exact fsync logic.
   DBTestBase(const std::string path, bool env_do_fsync);
 
-  ~DBTestBase();
+  ~DBTestBase() override;
 
   static std::string Key(int i) {
     char buf[100];
@@ -1449,6 +1452,7 @@ class DBTestBase : public testing::Test {
     tp->num_deletions = 0;
     tp->num_merge_operands = 0;
     tp->num_range_deletions = 0;
+    tp->standard_index_is_stub = 0;
   }
 
   void ParseTablePropertiesString(std::string tp_string, TableProperties* tp) {
@@ -1477,6 +1481,15 @@ class DBTestBase : public testing::Test {
         &tp->uncompressed_data_size, &tp->index_key_is_user_key,
         &tp->index_value_is_delta_encoded, &tp->index_size, &tp->filter_size);
     ASSERT_EQ(count, 18);
+
+    const char* standard_index_is_stub =
+        std::strstr(tp_string.c_str(), "standard index is stub ");
+    if (standard_index_is_stub != nullptr) {
+      ASSERT_EQ(
+          std::sscanf(standard_index_is_stub, "standard index is stub %" SCNu64,
+                      &tp->standard_index_is_stub),
+          1);
+    }
   }
 
  private:  // Prone to error on direct use

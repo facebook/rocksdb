@@ -57,6 +57,12 @@ class DbStressListener : public EventListener {
                    const std::vector<ColumnFamilyDescriptor>& column_families,
                    SharedState* shared);
 
+  // No copying allowed
+  DbStressListener(const DbStressListener&) = delete;
+  DbStressListener& operator=(const DbStressListener&) = delete;
+  DbStressListener(DbStressListener&&) = delete;
+  DbStressListener& operator=(DbStressListener&&) = delete;
+
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "DBStressListener"; }
 

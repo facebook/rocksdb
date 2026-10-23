@@ -232,7 +232,8 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
 // Assumes that trailing numbers represent an optional argument. This requires
 // property names to not end with numbers.
 std::pair<Slice, Slice> GetPropertyNameAndArg(const Slice& property) {
-  Slice name = property, arg = property;
+  Slice name = property;
+  Slice arg = property;
   size_t sfx_len = 0;
   while (sfx_len < property.size() &&
          isdigit(property[property.size() - sfx_len - 1])) {
@@ -2228,7 +2229,7 @@ namespace {
 class SumPropertyAggregator : public IntPropertyAggregator {
  public:
   SumPropertyAggregator() : aggregated_value_(0) {}
-  virtual ~SumPropertyAggregator() override = default;
+  ~SumPropertyAggregator() override = default;
 
   void Add(ColumnFamilyData* cfd, uint64_t value) override {
     (void)cfd;
@@ -2246,7 +2247,7 @@ class SumPropertyAggregator : public IntPropertyAggregator {
 class BlockCachePropertyAggregator : public IntPropertyAggregator {
  public:
   BlockCachePropertyAggregator() = default;
-  virtual ~BlockCachePropertyAggregator() override = default;
+  ~BlockCachePropertyAggregator() override = default;
 
   void Add(ColumnFamilyData* cfd, uint64_t value) override {
     auto* table_factory = cfd->GetCurrentMutableCFOptions().table_factory.get();

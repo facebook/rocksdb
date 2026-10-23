@@ -249,7 +249,7 @@ PosixSequentialFile::PosixSequentialFile(const std::string& fname, FILE* file,
 }
 
 PosixSequentialFile::~PosixSequentialFile() {
-  if (!use_direct_io()) {
+  if (!PosixSequentialFile::use_direct_io()) {
     assert(file_);
     fclose(file_);
   } else {
@@ -1965,7 +1965,7 @@ PosixRandomRWFile::PosixRandomRWFile(const std::string& fname, int fd,
 
 PosixRandomRWFile::~PosixRandomRWFile() {
   if (fd_ >= 0) {
-    IOStatus s = Close(IOOptions(), nullptr);
+    IOStatus s = PosixRandomRWFile::Close(IOOptions(), nullptr);
     s.PermitUncheckedError();
   }
 }

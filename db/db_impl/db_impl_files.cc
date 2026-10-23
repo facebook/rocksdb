@@ -244,9 +244,14 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   // Since job_context->min_pending_output is set, until file scan finishes,
   // mutex_ cannot be released. Otherwise, we might see no min_pending_output
   // here but later find newer generated unfinalized files while scanning.
+  assert(job_context != nullptr);
   job_context->min_pending_output = MinObsoleteSstNumberToKeep();
   job_context->files_to_quarantine = error_handler_.GetFilesToQuarantine();
   job_context->min_options_file_number = MinOptionsFileNumberToKeep();
+  job_context->manifest_options_file_number =
+      versions_->has_committed_options_file_number()
+          ? versions_->options_file_number()
+          : 0;
   job_context->min_blob_file_number_to_keep =
       versions_->current_next_file_number();
   for (auto* cfd : *versions_->GetColumnFamilySet()) {
@@ -730,7 +735,8 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
         }
         break;
       case kOptionsFile:
-        keep = (number >= optsfile_num2);
+        keep = (number >= optsfile_num2) ||
+               (number == state.manifest_options_file_number);
         break;
       case kCompactionProgressFile:
         // Keep compaction progress files - they are managed
@@ -1201,6 +1207,9 @@ Status DBImpl::MaybeUpdateNextFileNumber(RecoveryContext* recovery_ctx) {
     s = env_->GetChildren(path, &files);
     if (!s.ok()) {
       break;
+    }
+    if (path == NormalizePath(dbname_)) {
+      recovery_ctx->existing_db_files_ = files;
     }
     for (const auto& fname : files) {
       uint64_t number = 0;

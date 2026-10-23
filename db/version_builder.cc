@@ -459,6 +459,8 @@ class VersionBuilder::Rep : public MutableScalars {
   // it has been replaced by single-edit undo, see EditUndo above.)
   Rep(const Rep&) = delete;
   Rep& operator=(const Rep&) = delete;
+  Rep(Rep&&) = delete;
+  Rep& operator=(Rep&&) = delete;
 
   ~Rep() {
     // Release any FileMetaData whose deletion was deferred by an uncommitted

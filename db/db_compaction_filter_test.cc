@@ -601,7 +601,10 @@ TEST_P(DBTestCompactionFilterWithCompactParam,
 }
 
 TEST_F(DBTestCompactionFilter, CompactionFilterWithMergeOperator) {
-  std::string one, two, three, four;
+  std::string one;
+  std::string two;
+  std::string three;
+  std::string four;
   PutFixed64(&one, 1);
   PutFixed64(&two, 2);
   PutFixed64(&three, 3);

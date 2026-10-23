@@ -355,10 +355,6 @@ ARFLAGS = -X64 rs
 STRIPFLAGS = -X64 -x
 endif
 
-ifeq ($(PLATFORM), OS_SOLARIS)
-	PLATFORM_CXXFLAGS += -D _GLIBCXX_USE_C99
-endif
-
 ifeq ($(LIB_MODE),shared)
 # So that binaries are executable from build location, in addition to install location
 EXEC_LDFLAGS += -Wl,-rpath -Wl,'$$ORIGIN'
@@ -2407,9 +2403,7 @@ gen-pc:
 # Jni stuff
 # ---------------------------------------------------------------------------
 JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/linux
-ifeq ($(PLATFORM), OS_SOLARIS)
-	ARCH := $(shell isainfo -b)
-else ifeq ($(PLATFORM), OS_OPENBSD)
+ifeq ($(PLATFORM), OS_OPENBSD)
 	ifneq (,$(filter amd64 ppc64 ppc64le s390x arm64 aarch64 riscv64 sparc64 loongarch64, $(MACHINE)))
 		ARCH := 64
 	else
@@ -2489,12 +2483,6 @@ ifeq ($(PLATFORM), OS_FREEBSD)
 	JAVA_INCLUDE = -I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/freebsd
 	ROCKSDBJNILIB = librocksdbjni-freebsd$(ARCH).so
 	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_JAVA_VERSION)-freebsd$(ARCH).jar
-endif
-ifeq ($(PLATFORM), OS_SOLARIS)
-	ROCKSDBJNILIB = librocksdbjni-solaris$(ARCH).so
-	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-solaris$(ARCH).jar
-	JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/solaris
-	SHA256_CMD = digest -a sha256
 endif
 ifeq ($(PLATFORM), OS_AIX)
 	JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/aix

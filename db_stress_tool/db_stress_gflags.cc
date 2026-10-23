@@ -12,6 +12,7 @@
 #include "rocksdb/utilities/backup_engine.h"
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
+#include "util/cast_util.h"
 
 static bool ValidateUint32Range(const char* flagname, uint64_t value) {
   if (value > std::numeric_limits<uint32_t>::max()) {
@@ -216,6 +217,14 @@ DEFINE_uint64(db_write_buffer_size,
 
 DEFINE_bool(use_write_buffer_manager, false,
             "Charge WriteBufferManager memory to the block cache");
+
+DEFINE_int32(
+    wbm_flush_policy,
+    ROCKSDB_NAMESPACE::lossless_cast<int32_t>(
+        ROCKSDB_NAMESPACE::WriteBufferFlushPolicy::kFlushOldest),
+    "Which memtable the WriteBufferManager flushes to free memory (see `enum "
+    "class WriteBufferFlushPolicy` in write_buffer_manager.h): 0 = oldest, 1 = "
+    "largest in the same DB, 2 = largest across all DBs sharing the manager");
 
 DEFINE_int32(
     write_buffer_size,
@@ -1305,6 +1314,10 @@ DEFINE_bool(write_dbid_to_manifest,
             ROCKSDB_NAMESPACE::Options().write_dbid_to_manifest,
             "Write DB_ID to manifest");
 
+DEFINE_bool(track_options_file_number_in_manifest,
+            ROCKSDB_NAMESPACE::Options().track_options_file_number_in_manifest,
+            "Publish the committed OPTIONS file number in MANIFEST");
+
 DEFINE_bool(optimize_manifest_for_recovery,
             ROCKSDB_NAMESPACE::Options().optimize_manifest_for_recovery,
             "Reduce recovery work after a clean shutdown");
@@ -1551,6 +1564,11 @@ DEFINE_bool(
     "first verification succeeds. Expected state files from the last run will "
     "be preserved similarly under `FLAGS_expected_values_dir/unverified` when "
     "`--expected_values_dir` is nonempty.");
+
+DEFINE_uint64(mutex_hold_log_threshold_us,
+              ROCKSDB_NAMESPACE::Options().mutex_hold_log_threshold_us,
+              "Completed global mutex hold threshold in microseconds; 0 "
+              "disables hold logs.");
 
 DEFINE_uint64(stats_dump_period_sec,
               ROCKSDB_NAMESPACE::Options().stats_dump_period_sec,

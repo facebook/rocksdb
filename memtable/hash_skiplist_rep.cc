@@ -81,6 +81,11 @@ class HashSkipListRep : public MemTableRep {
     explicit Iterator(Bucket* list, bool own_list = true,
                       Arena* arena = nullptr)
         : list_(list), iter_(list), own_list_(own_list), arena_(arena) {}
+    // No copying allowed
+    Iterator(const Iterator&) = delete;
+    Iterator& operator=(const Iterator&) = delete;
+    Iterator(Iterator&&) = delete;
+    Iterator& operator=(Iterator&&) = delete;
 
     ~Iterator() override {
       // if we own the list, we should also delete it

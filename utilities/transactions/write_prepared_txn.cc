@@ -31,7 +31,7 @@ WritePreparedTxn::WritePreparedTxn(WritePreparedTxnDB* txn_db,
   // Call Initialize outside PessimisticTransaction constructor otherwise it
   // would skip overridden functions in WritePreparedTxn since they are not
   // defined yet in the constructor of PessimisticTransaction
-  Initialize(txn_options);
+  WritePreparedTxn::Initialize(txn_options);
 }
 
 void WritePreparedTxn::Initialize(const TransactionOptions& txn_options) {
@@ -62,7 +62,8 @@ void WritePreparedTxn::MultiGet(const ReadOptions& _read_options,
     read_options.io_activity = Env::IOActivity::kMultiGet;
   }
 
-  SequenceNumber min_uncommitted, snap_seq;
+  SequenceNumber min_uncommitted;
+  SequenceNumber snap_seq;
   const SnapshotBackup backed_by_snapshot = wpt_db_->AssignMinMaxSeqs(
       read_options.snapshot, &min_uncommitted, &snap_seq);
   WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted,
@@ -100,7 +101,8 @@ Status WritePreparedTxn::GetImpl(const ReadOptions& options,
                                  ColumnFamilyHandle* column_family,
                                  const Slice& key,
                                  PinnableSlice* pinnable_val) {
-  SequenceNumber min_uncommitted, snap_seq;
+  SequenceNumber min_uncommitted;
+  SequenceNumber snap_seq;
   const SnapshotBackup backed_by_snapshot =
       wpt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
   WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted,

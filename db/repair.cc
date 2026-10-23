@@ -133,6 +133,12 @@ class Repairer {
     }
   }
 
+  // No copying allowed
+  Repairer(const Repairer&) = delete;
+  Repairer& operator=(const Repairer&) = delete;
+  Repairer(Repairer&&) = delete;
+  Repairer& operator=(Repairer&&) = delete;
+
   const ColumnFamilyOptions* GetColumnFamilyOptions(
       const std::string& cf_name) {
     if (cf_name_to_opts_.find(cf_name) == cf_name_to_opts_.end()) {

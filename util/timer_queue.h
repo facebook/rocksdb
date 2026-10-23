@@ -144,6 +144,8 @@ class TimerQueue {
   using Clock = std::chrono::steady_clock;
   TimerQueue(const TimerQueue&) = delete;
   TimerQueue& operator=(const TimerQueue&) = delete;
+  TimerQueue(TimerQueue&&) = delete;
+  TimerQueue& operator=(TimerQueue&&) = delete;
 
   void run() {
     std::unique_lock<std::mutex> lk(m_mtx);

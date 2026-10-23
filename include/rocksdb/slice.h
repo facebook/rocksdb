@@ -189,6 +189,8 @@ class PinnableSlice : public Slice, public Cleanable {
   PinnableSlice(PinnableSlice&) = delete;
   PinnableSlice& operator=(PinnableSlice&) = delete;
 
+  ~PinnableSlice() = default;
+
   inline void PinSlice(const Slice& s, CleanupFunction f, void* arg1,
                        void* arg2) {
     assert(!pinned_);
@@ -286,10 +288,11 @@ inline int Slice::compare(const Slice& b) const {
   const size_t min_len = (size_ < b.size_) ? size_ : b.size_;
   int r = memcmp(data_, b.data_, min_len);
   if (r == 0) {
-    if (size_ < b.size_)
+    if (size_ < b.size_) {
       r = -1;
-    else if (size_ > b.size_)
+    } else if (size_ > b.size_) {
       r = +1;
+    }
   }
   return r;
 }

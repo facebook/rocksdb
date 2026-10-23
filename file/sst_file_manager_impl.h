@@ -33,8 +33,10 @@ class SstFileManagerImpl : public SstFileManager {
   // No copy
   SstFileManagerImpl(const SstFileManagerImpl& sfm) = delete;
   SstFileManagerImpl& operator=(const SstFileManagerImpl& sfm) = delete;
+  SstFileManagerImpl(SstFileManagerImpl&&) = delete;
+  SstFileManagerImpl& operator=(SstFileManagerImpl&&) = delete;
 
-  ~SstFileManagerImpl();
+  ~SstFileManagerImpl() override;
 
   // DB will call OnAddFile whenever a new sst/blob file is added.
   Status OnAddFile(const std::string& file_path);

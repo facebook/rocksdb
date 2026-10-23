@@ -49,6 +49,11 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
         block_iter_points_to_real_block_(false) {
     multi_scan_status_.PermitUncheckedError();
   }
+  // No copying allowed
+  BlockBasedTableIterator(const BlockBasedTableIterator&) = delete;
+  BlockBasedTableIterator& operator=(const BlockBasedTableIterator&) = delete;
+  BlockBasedTableIterator(BlockBasedTableIterator&&) = delete;
+  BlockBasedTableIterator& operator=(BlockBasedTableIterator&&) = delete;
 
   ~BlockBasedTableIterator() override { ClearBlockHandles(); }
 
@@ -56,7 +61,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   void SeekForPrev(const Slice& target) override;
   void SeekToFirst() override;
   void SeekToLast() override;
-  void Next() final override;
+  void Next() final;
   bool NextAndGetResult(IterateResult* result) override;
   void Prev() override;
   bool Valid() const override {

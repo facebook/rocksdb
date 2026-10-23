@@ -108,7 +108,7 @@ TEST_F(PinnableSliceTest, Move) {
 
     // Since v1's Cleanable has been moved to v2,
     // no cleanup should happen in Reset.
-    v1.Reset();
+    v1.Reset();  // NOLINT(bugprone-use-after-move)
     ASSERT_EQ(1, res);
 
     AssertSameData(const_str1, v2);
@@ -140,7 +140,7 @@ TEST_F(PinnableSliceTest, Move) {
     ASSERT_EQ(2, res);
     // Since v1's Cleanable has been moved to v2,
     // no cleanup should happen in Reset.
-    v1.Reset();
+    v1.Reset();  // NOLINT(bugprone-use-after-move)
     ASSERT_EQ(2, res);
 
     AssertSameData(const_str1, v2);
@@ -160,7 +160,7 @@ TEST_F(PinnableSliceTest, Move) {
 
     // Since v1's Cleanable has been moved to v2,
     // no cleanup should happen in Reset.
-    v1.Reset();
+    v1.Reset();  // NOLINT(bugprone-use-after-move)
     ASSERT_EQ(1, res);
 
     AssertSameData(const_str1, v2);
@@ -205,7 +205,7 @@ TEST_F(PinnableSliceTest, Move) {
 class SmallEnumSetTest : public testing::Test {
  public:
   SmallEnumSetTest() = default;
-  ~SmallEnumSetTest() = default;
+  ~SmallEnumSetTest() override = default;
 };
 
 TEST_F(SmallEnumSetTest, SmallEnumSetTest1) {
@@ -596,7 +596,8 @@ TEST(BitFieldsTest, BitFields) {
     ASSERT_EQ(state, relaxed.LoadRelaxed());
 
     auto transform1 = Field2::ClearTransform() + Field3::ClearTransform();
-    MyState before, after;
+    MyState before;
+    MyState after;
     relaxed.ApplyRelaxed(transform1, &before, &after);
     ASSERT_EQ(before, state);
     ASSERT_NE(after, state);
@@ -685,7 +686,8 @@ TEST(BitFieldsTest, BitFields) {
     ASSERT_EQ(state, acqrel.Load());
 
     auto transform1 = Field2::ClearTransform() + Field3::ClearTransform();
-    MyState before, after;
+    MyState before;
+    MyState after;
     acqrel.Apply(transform1, &before, &after);
     ASSERT_EQ(before, state);
     ASSERT_NE(after, state);

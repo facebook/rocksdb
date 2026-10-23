@@ -54,7 +54,7 @@ PessimisticTransaction::PessimisticTransaction(
   txn_db_impl_ = static_cast_with_check<PessimisticTransactionDB>(txn_db);
   db_impl_ = static_cast_with_check<DBImpl>(db_);
   if (init) {
-    Initialize(txn_options);
+    PessimisticTransaction::Initialize(txn_options);
   }
 }
 

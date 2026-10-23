@@ -173,6 +173,12 @@ class PlainTableIndexBuilder {
           current_group_(nullptr),
           num_records_in_current_group_(num_records_per_group) {}
 
+    // No copying allowed
+    IndexRecordList(const IndexRecordList&) = delete;
+    IndexRecordList& operator=(const IndexRecordList&) = delete;
+    IndexRecordList(IndexRecordList&&) = delete;
+    IndexRecordList& operator=(IndexRecordList&&) = delete;
+
     ~IndexRecordList() {
       for (size_t i = 0; i < groups_.size(); i++) {
         delete[] groups_[i];

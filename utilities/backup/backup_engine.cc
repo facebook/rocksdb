@@ -130,6 +130,12 @@ class BackupEngineImpl {
                    bool read_only = false);
   ~BackupEngineImpl();
 
+  // No copying allowed
+  BackupEngineImpl(const BackupEngineImpl&) = delete;
+  BackupEngineImpl& operator=(const BackupEngineImpl&) = delete;
+  BackupEngineImpl(BackupEngineImpl&&) = delete;
+  BackupEngineImpl& operator=(BackupEngineImpl&&) = delete;
+
   IOStatus CreateNewBackupWithMetadata(const CreateBackupOptions& options,
                                        DB* db, const std::string& app_metadata,
                                        BackupID* new_backup_id_ptr);
@@ -210,6 +216,10 @@ class BackupEngineImpl {
 
     FileInfo(const FileInfo&) = delete;
     FileInfo& operator=(const FileInfo&) = delete;
+    FileInfo(FileInfo&&) = delete;
+    FileInfo& operator=(FileInfo&&) = delete;
+
+    ~FileInfo() = default;
 
     int refs;
     // Relative path from backup dir
@@ -371,6 +381,8 @@ class BackupEngineImpl {
 
     BackupMeta(const BackupMeta&) = delete;
     BackupMeta& operator=(const BackupMeta&) = delete;
+    BackupMeta(BackupMeta&&) = delete;
+    BackupMeta& operator=(BackupMeta&&) = delete;
 
     ~BackupMeta() = default;
 
@@ -614,6 +626,8 @@ class BackupEngineImpl {
       return *this;
     }
 
+    ~BackupAfterCopyOrCreateWorkItem() = default;
+
     BackupAfterCopyOrCreateWorkItem(std::future<WorkItemResult>&& _result,
                                     bool _shared, bool _needed_to_copy,
                                     Env* _backup_env, std::string _dst_path_tmp,
@@ -674,17 +688,6 @@ class BackupEngineImpl {
           from_file(_from_file),
           to_file(_to_file),
           checksum_hex(_checksum_hex) {}
-    RestoreAfterCopyOrCreateWorkItem(
-        RestoreAfterCopyOrCreateWorkItem&& o) noexcept {
-      *this = std::move(o);
-    }
-
-    RestoreAfterCopyOrCreateWorkItem& operator=(
-        RestoreAfterCopyOrCreateWorkItem&& o) noexcept {
-      result = std::move(o.result);
-      checksum_hex = std::move(o.checksum_hex);
-      return *this;
-    }
   };
 
   bool initialized_;
@@ -2501,7 +2504,7 @@ void BackupEngineImpl::InferDBFilesToRetainInRestore(
         continue;
       }
 
-      const std::string checksum_hex = "";
+      const std::string checksum_hex;
       std::string shared_file_name = GenerateSharedFileWithDbSessionIdAndSize(
           f, size_bytes, db_session_id);
       bool found = false;

@@ -20,7 +20,7 @@ namespace ROCKSDB_NAMESPACE {
 HistogramWindowingImpl::HistogramWindowingImpl() {
   clock_ = SystemClock::Default();
   window_stats_.reset(new HistogramStat[static_cast<size_t>(num_windows_)]);
-  Clear();
+  HistogramWindowingImpl::Clear();
 }
 
 HistogramWindowingImpl::HistogramWindowingImpl(uint64_t num_windows,
@@ -31,7 +31,7 @@ HistogramWindowingImpl::HistogramWindowingImpl(uint64_t num_windows,
       min_num_per_window_(min_num_per_window) {
   clock_ = SystemClock::Default();
   window_stats_.reset(new HistogramStat[static_cast<size_t>(num_windows_)]);
-  Clear();
+  HistogramWindowingImpl::Clear();
 }
 
 HistogramWindowingImpl::~HistogramWindowingImpl() = default;

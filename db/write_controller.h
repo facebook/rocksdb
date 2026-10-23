@@ -122,27 +122,29 @@ class WriteControllerToken {
   // no copying allowed
   WriteControllerToken(const WriteControllerToken&) = delete;
   void operator=(const WriteControllerToken&) = delete;
+  WriteControllerToken(WriteControllerToken&&) = delete;
+  void operator=(WriteControllerToken&&) = delete;
 };
 
 class StopWriteToken : public WriteControllerToken {
  public:
   explicit StopWriteToken(WriteController* controller)
       : WriteControllerToken(controller) {}
-  virtual ~StopWriteToken();
+  ~StopWriteToken() override;
 };
 
 class DelayWriteToken : public WriteControllerToken {
  public:
   explicit DelayWriteToken(WriteController* controller)
       : WriteControllerToken(controller) {}
-  virtual ~DelayWriteToken();
+  ~DelayWriteToken() override;
 };
 
 class CompactionPressureToken : public WriteControllerToken {
  public:
   explicit CompactionPressureToken(WriteController* controller)
       : WriteControllerToken(controller) {}
-  virtual ~CompactionPressureToken();
+  ~CompactionPressureToken() override;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -45,7 +45,7 @@ const std::set<uint32_t> kFooterFormatVersionsToTest{
     6U,
     // In case any interesting future changes
     kDefaultFormatVersion,
-    kLatestBbtFormatVersion,
+    BlockBasedTableOptions::kLatestSupportedFormatVersion,
     // Unpublished draft format_version 8 (index value-delta escape). Writing it
     // requires the TEST_AllowUnsupportedFormatVersion() opt-in, enabled by the
     // test files that instantiate parameterized suites over this set.

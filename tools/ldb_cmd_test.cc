@@ -1119,15 +1119,15 @@ TEST_F(LdbCmdTest, FileTemperatureUpdateManifest) {
   // Close for update_manifest
   db.reset();
 
-  char arg1[] = "./ldb";
-  char arg2[1024];
-  snprintf(arg2, sizeof(arg2), "--db=%s", dbname.c_str());
-  char arg3[] = "update_manifest";
-  char arg4[] = "--update_temperatures";
-  char* argv[] = {arg1, arg2, arg3, arg4};
-
-  ASSERT_EQ(0,
-            LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), nullptr));
+  std::vector<std::string> args = {"update_manifest", "--db=" + dbname,
+                                   "--update_temperatures"};
+  std::unique_ptr<LDBCommand> command(LDBCommand::InitFromCmdLineArgs(
+      args, opts, LDBOptions(), /*column_families=*/nullptr));
+  ASSERT_NE(nullptr, command);
+  command->Run();
+  ASSERT_TRUE(command->GetExecuteState().IsSucceed());
+  ASSERT_EQ("Manifest updates successful",
+            command->GetExecuteState().ToString());
 
   // Re-open, get, and verify manifest temps (based on request)
   test_fs->PopRequestedSstFileTemperatures();

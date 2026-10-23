@@ -19,8 +19,10 @@ class DBImplReadOnly : public DBImpl {
   // No copying allowed
   DBImplReadOnly(const DBImplReadOnly&) = delete;
   void operator=(const DBImplReadOnly&) = delete;
+  DBImplReadOnly(DBImplReadOnly&&) = delete;
+  void operator=(DBImplReadOnly&&) = delete;
 
-  virtual ~DBImplReadOnly();
+  ~DBImplReadOnly() override;
 
   // Implementations of the DB interface
   using DBImpl::GetImpl;

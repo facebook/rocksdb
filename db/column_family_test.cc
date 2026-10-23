@@ -25,6 +25,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_util.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -32,6 +33,7 @@
 #include "util/defer.h"
 #include "util/string_util.h"
 #include "utilities/fault_injection_env.h"
+#include "utilities/fault_injection_fs.h"
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -113,7 +115,8 @@ class ColumnFamilyTestBase : public testing::Test {
   }
 
   void Build(int base, int n, int flush_every = 0) {
-    std::string key_space, value_space;
+    std::string key_space;
+    std::string value_space;
     WriteBatch batch;
 
     for (int i = 0; i < n; i++) {
@@ -177,6 +180,35 @@ class ColumnFamilyTestBase : public testing::Test {
     handles_.clear();
     names_.clear();
     db_.reset();
+  }
+
+  void AssertColumnFamilyNames(const std::vector<std::string>& expected) {
+    std::vector<std::string> column_families;
+    ASSERT_OK(DB::ListColumnFamilies(db_options_, dbname_, &column_families));
+    ASSERT_EQ(expected, column_families);
+  }
+
+  void LoadLatestColumnFamilyDescriptors(
+      std::vector<ColumnFamilyDescriptor>* descriptors) {
+    ConfigOptions config_options;
+    config_options.env = db_options_.env;
+    DBOptions loaded_db_options;
+    ASSERT_OK(LoadLatestOptions(config_options, dbname_, &loaded_db_options,
+                                descriptors));
+  }
+
+  size_t CountOptionsFiles() {
+    std::vector<std::string> children;
+    EXPECT_OK(db_options_.env->GetChildren(dbname_, &children));
+    size_t count = 0;
+    for (const auto& child : children) {
+      uint64_t number = 0;
+      FileType type;
+      if (ParseFileName(child, &number, &type) && type == kOptionsFile) {
+        ++count;
+      }
+    }
+    return count;
   }
 
   Status TryOpen(std::vector<std::string> cf,
@@ -514,8 +546,9 @@ class ColumnFamilyTest
 
 INSTANTIATE_TEST_CASE_P(FormatDef, ColumnFamilyTest,
                         testing::Values(test::kDefaultFormatVersion));
-INSTANTIATE_TEST_CASE_P(FormatLatest, ColumnFamilyTest,
-                        testing::Values(kLatestBbtFormatVersion));
+INSTANTIATE_TEST_CASE_P(
+    FormatLatest, ColumnFamilyTest,
+    testing::Values(BlockBasedTableOptions::kLatestSupportedFormatVersion));
 
 TEST_P(ColumnFamilyTest, DontReuseColumnFamilyID) {
   for (int iter = 0; iter < 3; ++iter) {
@@ -705,8 +738,11 @@ INSTANTIATE_TEST_CASE_P(
                     std::make_tuple(test::kDefaultFormatVersion, false)));
 INSTANTIATE_TEST_CASE_P(
     FormatLatest, FlushEmptyCFTestWithParam,
-    testing::Values(std::make_tuple(kLatestBbtFormatVersion, true),
-                    std::make_tuple(kLatestBbtFormatVersion, false)));
+    testing::Values(
+        std::make_tuple(BlockBasedTableOptions::kLatestSupportedFormatVersion,
+                        true),
+        std::make_tuple(BlockBasedTableOptions::kLatestSupportedFormatVersion,
+                        false)));
 
 TEST_P(ColumnFamilyTest, AddDrop) {
   Open();
@@ -917,7 +953,9 @@ TEST_P(ColumnFamilyTest, IgnoreRecoveredLog) {
   CreateColumnFamilies({"cf1", "cf2"});
 
   // fill up the DB
-  std::string one, two, three;
+  std::string one;
+  std::string two;
+  std::string three;
   PutFixed64(&one, 1);
   PutFixed64(&two, 2);
   PutFixed64(&three, 3);
@@ -1125,7 +1163,10 @@ TEST_P(ColumnFamilyTest, DifferentWriteBufferSizes) {
   db_options_.max_total_wal_size = std::numeric_limits<uint64_t>::max();
   Open();
   CreateColumnFamilies({"one", "two", "three"});
-  ColumnFamilyOptions default_cf, one, two, three;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
+  ColumnFamilyOptions two;
+  ColumnFamilyOptions three;
   // setup options. all column families have max_write_buffer_number setup to 10
   // "default" -> 100KB memtable, start flushing immediately
   // "one" -> 200KB memtable, start flushing with two immutable memtables
@@ -1277,7 +1318,9 @@ TEST_P(ColumnFamilyTest, GetComparator) {
 
   // Add three column families - one with no comparator and two
   // with comparators specified
-  ColumnFamilyOptions second, third, fourth;
+  ColumnFamilyOptions second;
+  ColumnFamilyOptions third;
+  ColumnFamilyOptions fourth;
   second.comparator = &third_comparator;
   third.comparator = &fourth_comparator;
   CreateColumnFamilies({"second", "third", "fourth"}, {second, third, fourth});
@@ -1290,12 +1333,16 @@ TEST_P(ColumnFamilyTest, GetComparator) {
 TEST_P(ColumnFamilyTest, DifferentMergeOperators) {
   Open();
   CreateColumnFamilies({"first", "second"});
-  ColumnFamilyOptions default_cf, first, second;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions first;
+  ColumnFamilyOptions second;
   first.merge_operator = MergeOperators::CreateUInt64AddOperator();
   second.merge_operator = MergeOperators::CreateStringAppendOperator();
   Reopen({default_cf, first, second});
 
-  std::string one, two, three;
+  std::string one;
+  std::string two;
+  std::string three;
   PutFixed64(&one, 1);
   PutFixed64(&two, 2);
   PutFixed64(&three, 3);
@@ -1320,7 +1367,9 @@ TEST_P(ColumnFamilyTest, DifferentMergeOperators) {
 TEST_P(ColumnFamilyTest, DifferentCompactionStyles) {
   Open();
   CreateColumnFamilies({"one", "two"});
-  ColumnFamilyOptions default_cf, one, two;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
+  ColumnFamilyOptions two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
 
   default_cf.level_compaction_dynamic_level_bytes = false;
@@ -1392,7 +1441,9 @@ TEST_P(ColumnFamilyTest, DifferentCompactionStyles) {
 TEST_P(ColumnFamilyTest, MultipleManualCompactions) {
   Open();
   CreateColumnFamilies({"one", "two"});
-  ColumnFamilyOptions default_cf, one, two;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
+  ColumnFamilyOptions two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
@@ -1492,7 +1543,9 @@ TEST_P(ColumnFamilyTest, MultipleManualCompactions) {
 TEST_P(ColumnFamilyTest, AutomaticAndManualCompactions) {
   Open();
   CreateColumnFamilies({"one", "two"});
-  ColumnFamilyOptions default_cf, one, two;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
+  ColumnFamilyOptions two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
@@ -1589,7 +1642,9 @@ TEST_P(ColumnFamilyTest, AutomaticAndManualCompactions) {
 TEST_P(ColumnFamilyTest, ManualAndAutomaticCompactions) {
   Open();
   CreateColumnFamilies({"one", "two"});
-  ColumnFamilyOptions default_cf, one, two;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
+  ColumnFamilyOptions two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
@@ -1688,7 +1743,8 @@ TEST_P(ColumnFamilyTest, ManualAndAutomaticCompactions) {
 TEST_P(ColumnFamilyTest, SameCFManualManualCompactions) {
   Open();
   CreateColumnFamilies({"one"});
-  ColumnFamilyOptions default_cf, one;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
@@ -1788,7 +1844,8 @@ TEST_P(ColumnFamilyTest, SameCFManualManualCompactions) {
 TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
   Open();
   CreateColumnFamilies({"one"});
-  ColumnFamilyOptions default_cf, one;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
@@ -1879,7 +1936,8 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
 TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
   Open();
   CreateColumnFamilies({"one"});
-  ColumnFamilyOptions default_cf, one;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
@@ -1976,7 +2034,8 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
 TEST_P(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
   Open();
   CreateColumnFamilies({"one"});
-  ColumnFamilyOptions default_cf, one;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
@@ -2189,7 +2248,9 @@ TEST_P(ColumnFamilyTest, DontRollEmptyLogs) {
 TEST_P(ColumnFamilyTest, FlushStaleColumnFamilies) {
   Open();
   CreateColumnFamilies({"one", "two"});
-  ColumnFamilyOptions default_cf, one, two;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
+  ColumnFamilyOptions two;
   default_cf.write_buffer_size = 100000;  // small write buffer size
   default_cf.arena_block_size = 4096;
   default_cf.disable_auto_compactions = true;
@@ -2250,7 +2311,377 @@ struct CountOptionsFilesFs : public FileSystemWrapper {
 
   std::atomic<int> options_files_created{};
 };
+
+struct FailOptionsFilesFs : public FileSystemWrapper {
+  explicit FailOptionsFilesFs(const std::shared_ptr<FileSystem>& t)
+      : FileSystemWrapper(t) {}
+  const char* Name() const override { return "FailOptionsFilesFs"; }
+
+  IOStatus NewWritableFile(const std::string& f, const FileOptions& file_opts,
+                           std::unique_ptr<FSWritableFile>* r,
+                           IODebugContext* dbg) override {
+    if (fail_options_writes.load(std::memory_order_relaxed) &&
+        f.find("OPTIONS-") != std::string::npos) {
+      return IOStatus::IOError("injected OPTIONS-file creation failure");
+    }
+    return FileSystemWrapper::NewWritableFile(f, file_opts, r, dbg);
+  }
+
+  std::atomic<bool> fail_options_writes{false};
+};
 }  // namespace
+
+TEST_P(ColumnFamilyTest, TrackedOptionsWriteFailureDoesNotChangeManifest) {
+  db_options_.track_options_file_number_in_manifest = true;
+  db_options_.max_manifest_file_size = 1;
+  db_options_.max_manifest_space_amp_pct = 0;
+  auto fail_fs =
+      std::make_shared<FailOptionsFilesFs>(db_options_.env->GetFileSystem());
+  auto fail_env =
+      std::make_unique<CompositeEnvWrapper>(db_options_.env, fail_fs);
+  SaveAndRestore<Env*> save_restore_env(&db_options_.env, fail_env.get());
+
+  Open();
+  OptionsFileManifestState before_failure;
+  ASSERT_OK(VersionSet::GetOptionsFileManifestState(
+      dbname_, db_options_.env->GetFileSystem().get(), &before_failure));
+  fail_fs->fail_options_writes.store(true, std::memory_order_relaxed);
+  ColumnFamilyHandle* handle = nullptr;
+  ASSERT_NOK(db_->CreateColumnFamily(ColumnFamilyOptions(), "one", &handle));
+  ASSERT_EQ(nullptr, handle);
+  fail_fs->fail_options_writes.store(false, std::memory_order_relaxed);
+
+  OptionsFileManifestState after_failure;
+  ASSERT_OK(VersionSet::GetOptionsFileManifestState(
+      dbname_, db_options_.env->GetFileSystem().get(), &after_failure));
+  ASSERT_EQ(before_failure.has_committed_options_file_number,
+            after_failure.has_committed_options_file_number);
+  ASSERT_EQ(before_failure.committed_options_file_number,
+            after_failure.committed_options_file_number);
+
+  std::vector<ColumnFamilyDescriptor> loaded_cfs;
+  LoadLatestColumnFamilyDescriptors(&loaded_cfs);
+  ASSERT_EQ(1U, loaded_cfs.size());
+  ASSERT_EQ(kDefaultColumnFamilyName, loaded_cfs.front().name);
+
+  const uint64_t old_manifest_number =
+      dbfull()->GetVersionSet()->manifest_file_number();
+  ASSERT_OK(db_->Put(WriteOptions(), "key", "value"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_NE(old_manifest_number,
+            dbfull()->GetVersionSet()->manifest_file_number());
+
+  OptionsFileManifestState after_rotation;
+  ASSERT_OK(VersionSet::GetOptionsFileManifestState(
+      dbname_, db_options_.env->GetFileSystem().get(), &after_rotation));
+  ASSERT_EQ(before_failure.has_committed_options_file_number,
+            after_rotation.has_committed_options_file_number);
+  ASSERT_EQ(before_failure.committed_options_file_number,
+            after_rotation.committed_options_file_number);
+  Close();
+
+  AssertColumnFamilyNames({kDefaultColumnFamilyName});
+}
+
+TEST_P(ColumnFamilyTest, TrackedDropFailsBeforeManifestOnOptionsError) {
+  db_options_.track_options_file_number_in_manifest = true;
+  auto fail_fs =
+      std::make_shared<FailOptionsFilesFs>(db_options_.env->GetFileSystem());
+  auto fail_env =
+      std::make_unique<CompositeEnvWrapper>(db_options_.env, fail_fs);
+  SaveAndRestore<Env*> save_restore_env(&db_options_.env, fail_env.get());
+
+  Open();
+  ColumnFamilyHandle* handle = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(ColumnFamilyOptions(), "one", &handle));
+  ASSERT_NE(nullptr, handle);
+
+  fail_fs->fail_options_writes.store(true, std::memory_order_relaxed);
+  ASSERT_NOK(db_->DropColumnFamily(handle));
+  fail_fs->fail_options_writes.store(false, std::memory_order_relaxed);
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(handle));
+  Close();
+
+  AssertColumnFamilyNames({kDefaultColumnFamilyName, "one"});
+}
+
+TEST_P(ColumnFamilyTest, TrackedManifestFailureKeepsPreviousOptions) {
+  db_options_.track_options_file_number_in_manifest = true;
+  auto fault_fs =
+      std::make_shared<FaultInjectionTestFS>(db_options_.env->GetFileSystem());
+  std::unique_ptr<Env> fault_env(NewCompositeEnv(fault_fs));
+  SaveAndRestore<Env*> save_restore_env(&db_options_.env, fault_env.get());
+
+  Open();
+  std::string selected_options_before;
+  ASSERT_OK(GetLatestOptionsFileName(dbname_, db_options_.env,
+                                     &selected_options_before));
+
+  std::atomic<bool> inject_error{true};
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest", [&](void*) {
+        if (inject_error.exchange(false)) {
+          fault_fs->SetThreadLocalErrorContext(
+              FaultInjectionIOType::kWrite, /*seed=*/0, /*one_in=*/1,
+              /*retryable=*/false, /*has_data_loss=*/false);
+          fault_fs->EnableThreadLocalErrorInjection(
+              FaultInjectionIOType::kWrite);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ColumnFamilyHandle* handle = nullptr;
+  ASSERT_NOK(db_->CreateColumnFamily(ColumnFamilyOptions(), "one", &handle));
+  ASSERT_EQ(nullptr, handle);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  fault_fs->DisableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+
+  std::string selected_options_after;
+  ASSERT_OK(GetLatestOptionsFileName(dbname_, db_options_.env,
+                                     &selected_options_after));
+  ASSERT_EQ(selected_options_before, selected_options_after);
+  Close();
+
+  AssertColumnFamilyNames({kDefaultColumnFamilyName});
+}
+
+TEST_P(ColumnFamilyTest, FirstTrackedCreateFailureIgnoresUncommittedOptions) {
+  // Create a legacy DB without a committed number, then enable tracking while
+  // Open also
+  // needs to create a missing CF. The current topology must be bound before
+  // the proposed topology OPTIONS file can become a durable orphan.
+  Open();
+  Close();
+  db_options_.track_options_file_number_in_manifest = true;
+  db_options_.create_missing_column_families = true;
+
+  auto fault_fs =
+      std::make_shared<FaultInjectionTestFS>(db_options_.env->GetFileSystem());
+  std::unique_ptr<Env> fault_env(NewCompositeEnv(fault_fs));
+  SaveAndRestore<Env*> save_restore_env(&db_options_.env, fault_env.get());
+
+  bool injected = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::CreateColumnFamilyImpl:AfterPersistOptions", [&](void*) {
+        if (!injected) {
+          injected = true;
+          fault_fs->SetThreadLocalErrorContext(
+              FaultInjectionIOType::kWrite, /*seed=*/0, /*one_in=*/1,
+              /*retryable=*/false, /*has_data_loss=*/false);
+          fault_fs->EnableThreadLocalErrorInjection(
+              FaultInjectionIOType::kWrite);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_NOK(TryOpen({kDefaultColumnFamilyName, "one"}));
+  ASSERT_TRUE(injected);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  fault_fs->DisableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+
+  std::vector<ColumnFamilyDescriptor> loaded_cfs;
+  LoadLatestColumnFamilyDescriptors(&loaded_cfs);
+  ASSERT_EQ(1U, loaded_cfs.size());
+  ASSERT_EQ(kDefaultColumnFamilyName, loaded_cfs.front().name);
+
+  OptionsFileManifestState protocol_state;
+  ASSERT_OK(VersionSet::GetOptionsFileManifestState(
+      dbname_, db_options_.env->GetFileSystem().get(), &protocol_state));
+  ASSERT_TRUE(protocol_state.has_committed_options_file_number);
+  std::string selected_options;
+  ASSERT_OK(
+      GetLatestOptionsFileName(dbname_, db_options_.env, &selected_options));
+  ASSERT_EQ(OptionsFileName(protocol_state.committed_options_file_number),
+            selected_options);
+
+  AssertColumnFamilyNames({kDefaultColumnFamilyName});
+}
+
+TEST_P(ColumnFamilyTest, TrackedCreatePersistsCommittedOptions) {
+  db_options_.track_options_file_number_in_manifest = true;
+  Open();
+
+  ColumnFamilyOptions requested;
+  requested.arena_block_size = 0;
+  ColumnFamilyHandle* handle = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(requested, "one", &handle));
+  const ColumnFamilyOptions effective = db_->GetOptions(handle);
+  ASSERT_GT(effective.arena_block_size, 0U);
+
+  std::vector<ColumnFamilyDescriptor> loaded_cfs;
+  LoadLatestColumnFamilyDescriptors(&loaded_cfs);
+  ASSERT_EQ(2U, loaded_cfs.size());
+  ASSERT_EQ("one", loaded_cfs[1].name);
+  ASSERT_EQ(effective.arena_block_size, loaded_cfs[1].options.arena_block_size);
+
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(handle));
+}
+
+TEST_P(ColumnFamilyTest, TrackedBatchTopologyWritesOneOptionsSnapshot) {
+  db_options_.track_options_file_number_in_manifest = true;
+  auto count_fs =
+      std::make_shared<CountOptionsFilesFs>(db_options_.env->GetFileSystem());
+  auto count_env =
+      std::make_unique<CompositeEnvWrapper>(db_options_.env, count_fs);
+  SaveAndRestore<Env*> save_restore_env(&db_options_.env, count_env.get());
+
+  Open();
+  count_fs->options_files_created.store(0, std::memory_order_relaxed);
+  std::vector<ColumnFamilyHandle*> handles;
+  ASSERT_OK(db_->CreateColumnFamilies(ColumnFamilyOptions(),
+                                      {"one", "two", "three"}, &handles));
+  ASSERT_EQ(3U, handles.size());
+  ASSERT_EQ(1, count_fs->options_files_created.load(std::memory_order_relaxed));
+
+  count_fs->options_files_created.store(0, std::memory_order_relaxed);
+  ASSERT_OK(db_->DropColumnFamilies(handles));
+  ASSERT_EQ(1, count_fs->options_files_created.load(std::memory_order_relaxed));
+  for (auto* handle : handles) {
+    ASSERT_OK(db_->DestroyColumnFamilyHandle(handle));
+  }
+
+  std::vector<ColumnFamilyDescriptor> loaded_cfs;
+  LoadLatestColumnFamilyDescriptors(&loaded_cfs);
+  ASSERT_EQ(1U, loaded_cfs.size());
+  ASSERT_EQ(kDefaultColumnFamilyName, loaded_cfs.front().name);
+  Close();
+}
+
+TEST_P(ColumnFamilyTest, TrackedPartialBatchFiltersOptionsSuperset) {
+  db_options_.track_options_file_number_in_manifest = true;
+  auto fault_fs =
+      std::make_shared<FaultInjectionTestFS>(db_options_.env->GetFileSystem());
+  std::unique_ptr<Env> fault_env(NewCompositeEnv(fault_fs));
+  SaveAndRestore<Env*> save_restore_env(&db_options_.env, fault_env.get());
+
+  Open();
+  std::atomic<int> manifest_writes{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest", [&](void*) {
+        if (manifest_writes.fetch_add(1, std::memory_order_relaxed) == 1) {
+          fault_fs->SetThreadLocalErrorContext(
+              FaultInjectionIOType::kWrite, /*seed=*/0, /*one_in=*/1,
+              /*retryable=*/false, /*has_data_loss=*/false);
+          fault_fs->EnableThreadLocalErrorInjection(
+              FaultInjectionIOType::kWrite);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<ColumnFamilyHandle*> handles;
+  ASSERT_NOK(db_->CreateColumnFamilies(ColumnFamilyOptions(), {"one", "two"},
+                                       &handles));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  fault_fs->DisableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+  ASSERT_EQ(1U, handles.size());
+
+  std::vector<ColumnFamilyDescriptor> loaded_cfs;
+  LoadLatestColumnFamilyDescriptors(&loaded_cfs);
+  ASSERT_EQ(2U, loaded_cfs.size());
+  ASSERT_EQ(kDefaultColumnFamilyName, loaded_cfs[0].name);
+  ASSERT_EQ("one", loaded_cfs[1].name);
+
+  ConfigOptions config_options;
+  config_options.env = db_options_.env;
+  DBOptions loaded_db_options;
+  ASSERT_OK(LoadLatestOptions(config_options, dbname_, &loaded_db_options,
+                              &loaded_cfs));
+  ASSERT_OK(CheckOptionsCompatibility(config_options, dbname_,
+                                      loaded_db_options, loaded_cfs));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(handles.front()));
+  Close();
+}
+
+TEST_P(ColumnFamilyTest, TrackedPartialBatchDropFiltersOptionsSuperset) {
+  db_options_.track_options_file_number_in_manifest = true;
+  auto fault_fs =
+      std::make_shared<FaultInjectionTestFS>(db_options_.env->GetFileSystem());
+  std::unique_ptr<Env> fault_env(NewCompositeEnv(fault_fs));
+  SaveAndRestore<Env*> save_restore_env(&db_options_.env, fault_env.get());
+
+  Open();
+  std::vector<ColumnFamilyHandle*> handles;
+  ASSERT_OK(db_->CreateColumnFamilies(ColumnFamilyOptions(), {"one", "two"},
+                                      &handles));
+  ASSERT_EQ(2U, handles.size());
+
+  std::atomic<int> manifest_writes{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest", [&](void*) {
+        if (manifest_writes.fetch_add(1, std::memory_order_relaxed) == 1) {
+          fault_fs->SetThreadLocalErrorContext(
+              FaultInjectionIOType::kWrite, /*seed=*/0, /*one_in=*/1,
+              /*retryable=*/false, /*has_data_loss=*/false);
+          fault_fs->EnableThreadLocalErrorInjection(
+              FaultInjectionIOType::kWrite);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_NOK(db_->DropColumnFamilies(handles));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  fault_fs->DisableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+
+  std::vector<ColumnFamilyDescriptor> loaded_cfs;
+  LoadLatestColumnFamilyDescriptors(&loaded_cfs);
+  ASSERT_EQ(2U, loaded_cfs.size());
+  ASSERT_EQ(kDefaultColumnFamilyName, loaded_cfs[0].name);
+  ASSERT_EQ("two", loaded_cfs[1].name);
+  for (auto* handle : handles) {
+    ASSERT_OK(db_->DestroyColumnFamilyHandle(handle));
+  }
+  Close();
+}
+
+TEST_P(ColumnFamilyTest, InvalidTrackedTopologyChangeCreatesNoOptionsOrphan) {
+  db_options_.track_options_file_number_in_manifest = true;
+  Open();
+
+  ColumnFamilyHandle* handle = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(ColumnFamilyOptions(), "one", &handle));
+  const size_t before_duplicate_create = CountOptionsFiles();
+  ColumnFamilyHandle* duplicate = nullptr;
+  ASSERT_TRUE(db_->CreateColumnFamily(ColumnFamilyOptions(), "one", &duplicate)
+                  .IsInvalidArgument());
+  ASSERT_EQ(nullptr, duplicate);
+  ASSERT_EQ(before_duplicate_create, CountOptionsFiles());
+
+  ASSERT_OK(db_->DropColumnFamily(handle));
+  const size_t before_duplicate_drop = CountOptionsFiles();
+  ASSERT_TRUE(db_->DropColumnFamily(handle).IsInvalidArgument());
+  ASSERT_EQ(before_duplicate_drop, CountOptionsFiles());
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(handle));
+}
+
+TEST_P(ColumnFamilyTest,
+       PartialMultiDropConsumesLegacyOptionsPersistenceFailure) {
+  auto fail_fs =
+      std::make_shared<FailOptionsFilesFs>(db_options_.env->GetFileSystem());
+  auto fail_env =
+      std::make_unique<CompositeEnvWrapper>(db_options_.env, fail_fs);
+  SaveAndRestore<Env*> save_restore_env(&db_options_.env, fail_env.get());
+
+  Open();
+  ColumnFamilyHandle* handle = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(ColumnFamilyOptions(), "one", &handle));
+
+  fail_fs->fail_options_writes.store(true, std::memory_order_relaxed);
+  Status s = db_->DropColumnFamilies({handle, db_->DefaultColumnFamily()});
+  ASSERT_TRUE(s.IsInvalidArgument());
+  fail_fs->fail_options_writes.store(false, std::memory_order_relaxed);
+
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(handle));
+  Close();
+  AssertColumnFamilyNames({kDefaultColumnFamilyName});
+}
 
 TEST_P(ColumnFamilyTest, CreateMissingColumnFamilies) {
   // Can't accidentally add CFs to an existing DB
@@ -2284,6 +2715,16 @@ TEST_P(ColumnFamilyTest, CreateMissingColumnFamilies) {
   ASSERT_OK(TryOpen({"default", "one", "two", "three", "four"}));
   Close();
   ASSERT_EQ(my_fs->options_files_created.load(), 2);
+
+  Destroy();
+  db_options_.track_options_file_number_in_manifest = true;
+  my_fs->options_files_created.store(0, std::memory_order_relaxed);
+  ASSERT_OK(TryOpen({"default", "one", "two", "three", "four"}));
+  Close();
+  // A new tracked DB writes its initial snapshot, one proposed batch snapshot,
+  // and the normal final DB::Open snapshot, independent of the number of
+  // missing CFs.
+  ASSERT_EQ(my_fs->options_files_created.load(), 3);
 }
 
 TEST_P(ColumnFamilyTest, SanitizeCfOptions) {
@@ -3271,6 +3712,12 @@ TEST_P(ColumnFamilyTest, FlushCloseWALFiles) {
 TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
   SpecialEnv env(Env::Default());
   db_options_.env = &env;
+  // The DB keeps its Env pointer until Close(). Close it before the local Env
+  // is destroyed, including when an ASSERT below exits the test early.
+  Defer close_db_on_exit([this] {
+    Close();
+    db_options_.env = env_;
+  });
   db_options_.max_background_flushes = 1;
   // When this option is removed, the test will need re-engineering
   db_options_.background_close_inactive_wals = true;
@@ -3280,25 +3727,38 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
   CreateColumnFamilies({"one"});
   ASSERT_OK(Put(1, "fodor", "mirko"));
   // Create an iterator holding the current super version.
-  Iterator* it = db_->NewIterator(ReadOptions(), handles_[1]);
+  std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions(), handles_[1]));
   ASSERT_OK(it->status());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::BGWorkFlush:done",
+       "ColumnFamilyTest::IteratorCloseWALFile1:SetupFlushDone"},
+  });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  Defer disable_sync_points(
+      [] { ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing(); });
+
   // A flush will make `it` hold the last reference of its super version.
   ASSERT_OK(Flush(1));
+  // Flush() can return before the background function releases all temporary
+  // references to the old super version.
+  TEST_SYNC_POINT("ColumnFamilyTest::IteratorCloseWALFile1:SetupFlushDone");
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
+      {"ColumnFamilyTest::IteratorCloseWALFile1:ReleaseFlush",
+       "DBImpl::BackgroundCallFlush:start"},
+  });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_OK(Put(1, "fodor", "mirko"));
   ASSERT_OK(Put(0, "fodor", "mirko"));
   ASSERT_OK(Put(1, "fodor", "mirko"));
 
-  // Flush jobs will close previous WAL files after finishing. By
-  // block flush jobs from running, we trigger a condition where
-  // the iterator destructor should close the WAL files.
-  test::SleepingBackgroundTask sleeping_task;
-  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
-                 Env::Priority::HIGH);
-  // Make sure the task is sleeping. Otherwise, it might start to execute
-  // after sleeping_task.WaitUntilDone() and cause TSAN warning.
-  sleeping_task.WaitUntilSleeping();
-
+  // Flush jobs close previous WAL files after finishing. Keep the next flush
+  // from starting so the iterator destructor is responsible for closing the
+  // WAL. Occupying one Env worker is insufficient because the shared Env can
+  // have multiple HIGH-priority workers.
   WriteOptions wo;
   wo.sync = true;
   ASSERT_OK(db_->Put(wo, handles_[1], "fodor", "mirko"));
@@ -3306,18 +3766,15 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
   ASSERT_EQ(2, env.num_open_wal_file_.load());
   // Deleting the iterator will clear its super version, triggering
   // closing all files
-  delete it;
+  it.reset();
   ASSERT_EQ(1, env.num_open_wal_file_.load());
 
-  sleeping_task.WakeUp();
-  sleeping_task.WaitUntilDone();
+  TEST_SYNC_POINT("ColumnFamilyTest::IteratorCloseWALFile1:ReleaseFlush");
   WaitForFlush(1);
 
   Reopen();
   ASSERT_EQ("mirko", Get(0, "fodor"));
   ASSERT_EQ("mirko", Get(1, "fodor"));
-  db_options_.env = env_;
-  Close();
 }
 
 TEST_P(ColumnFamilyTest, IteratorCloseWALFile2) {
@@ -3574,7 +4031,8 @@ TEST_P(ColumnFamilyTest, DefaultCfPathsTest) {
   // Leave cf_paths for one column families to be empty.
   // Files should be generated according to db_paths for that
   // column family.
-  ColumnFamilyOptions cf_opt1, cf_opt2;
+  ColumnFamilyOptions cf_opt1;
+  ColumnFamilyOptions cf_opt2;
   cf_opt1.cf_paths.emplace_back(dbname_ + "_one_1",
                                 std::numeric_limits<uint64_t>::max());
   CreateColumnFamilies({"one", "two"}, {cf_opt1, cf_opt2});
@@ -3599,7 +4057,8 @@ TEST_P(ColumnFamilyTest, DefaultCfPathsTest) {
 TEST_P(ColumnFamilyTest, MultipleCFPathsTest) {
   Open();
   // Configure Column family specific paths.
-  ColumnFamilyOptions cf_opt1, cf_opt2;
+  ColumnFamilyOptions cf_opt1;
+  ColumnFamilyOptions cf_opt2;
   cf_opt1.cf_paths.emplace_back(dbname_ + "_one_1",
                                 std::numeric_limits<uint64_t>::max());
   cf_opt2.cf_paths.emplace_back(dbname_ + "_two_1",
@@ -3715,7 +4174,9 @@ TEST(ColumnFamilyTest, ValidateMemtableKVChecksumOption) {
 // the behavior of manual flush is that it skips retaining UDTs.
 class ColumnFamilyRetainUDTTest : public ColumnFamilyTestBase {
  public:
-  ColumnFamilyRetainUDTTest() : ColumnFamilyTestBase(kLatestBbtFormatVersion) {}
+  ColumnFamilyRetainUDTTest()
+      : ColumnFamilyTestBase(
+            BlockBasedTableOptions::kLatestSupportedFormatVersion) {}
 
   void SetUp() override {
     db_options_.allow_concurrent_memtable_write = false;
