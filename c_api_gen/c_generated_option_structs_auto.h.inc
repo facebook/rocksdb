@@ -708,6 +708,14 @@ extern ROCKSDB_LIBRARY_API void rocksdb_trace_options_set_preserve_write_order(
 extern ROCKSDB_LIBRARY_API unsigned char
 rocksdb_trace_options_get_preserve_write_order(rocksdb_trace_options_t* opt);
 
+extern ROCKSDB_LIBRARY_API void
+rocksdb_trace_options_set_include_read_write_options(
+    rocksdb_trace_options_t* opt, unsigned char v);
+
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_trace_options_get_include_read_write_options(
+    rocksdb_trace_options_t* opt);
+
 /* BlockCacheTraceOptions */
 
 extern ROCKSDB_LIBRARY_API void

@@ -205,7 +205,8 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
       // TODO: maybe handle the tracing status?
-      tracer_->Get(get_impl_options.column_family, key).PermitUncheckedError();
+      tracer_->Get(get_impl_options.column_family, key, read_options)
+          .PermitUncheckedError();
     }
   }
 
@@ -815,7 +816,8 @@ DEFINE_SYNC_AND_ASYNC(void, DBImpl::MultiGetCommon)
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
       // TODO: maybe handle the tracing status?
-      tracer_->MultiGet(num_keys, column_families, keys).PermitUncheckedError();
+      tracer_->MultiGet(num_keys, column_families, keys, read_options)
+          .PermitUncheckedError();
     }
   }
 

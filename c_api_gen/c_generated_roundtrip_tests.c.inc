@@ -1112,6 +1112,12 @@ static void rocksdb_roundtrip_test_rocksdb_trace_options(void) {
   CheckCondition(rocksdb_trace_options_get_filter(obj) == 1);
   rocksdb_trace_options_set_filter(obj, 0);
   CheckCondition(rocksdb_trace_options_get_filter(obj) == 0);
+  rocksdb_trace_options_set_include_read_write_options(obj, 1);
+  CheckCondition(rocksdb_trace_options_get_include_read_write_options(obj) ==
+                 1);
+  rocksdb_trace_options_set_include_read_write_options(obj, 0);
+  CheckCondition(rocksdb_trace_options_get_include_read_write_options(obj) ==
+                 0);
   rocksdb_trace_options_set_max_trace_file_size(obj, 1);
   CheckCondition(rocksdb_trace_options_get_max_trace_file_size(obj) == 1);
   rocksdb_trace_options_set_max_trace_file_size(obj, 0);

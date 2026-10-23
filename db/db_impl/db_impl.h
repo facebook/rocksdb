@@ -986,10 +986,12 @@ class DBImpl : public DB
                                  bool* is_blob_index);
 
   Status TraceIteratorSeek(const uint32_t& cf_id, const Slice& key,
-                           const Slice& lower_bound, const Slice upper_bound);
+                           const Slice& lower_bound, const Slice upper_bound,
+                           const TracedReadOptions& read_options);
   Status TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
                                   const Slice& lower_bound,
-                                  const Slice upper_bound);
+                                  const Slice upper_bound,
+                                  const TracedReadOptions& read_options);
 
   // Similar to GetSnapshot(), but also lets the db know that this snapshot
   // will be used for transaction write-conflict checking.  The DB can then

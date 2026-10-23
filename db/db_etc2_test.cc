@@ -5012,6 +5012,464 @@ TEST_F(DBTest2, TraceReplayDefaultColumnFamilyWithoutHandles) {
   ASSERT_OK(DestroyDB(dbname2, options));
 }
 
+// With TraceOptions::include_read_write_options, each query record holds the
+// options of its call and replay uses them; without it, records hold none.
+TEST_F(DBTest2, TraceRecordsReadWriteOptions) {
+  for (const bool include : {false, true}) {
+    for (const bool preserve_write_order : {false, true}) {
+      SCOPED_TRACE(
+          "include=" + std::to_string(include) +
+          " preserve_write_order=" + std::to_string(preserve_write_order));
+      DestroyAndReopen(CurrentOptions());
+      const std::string trace_filename = dbname_ + "/rocksdb.trace";
+      std::unique_ptr<TraceWriter> trace_writer;
+      ASSERT_OK(NewFileTraceWriter(env_, EnvOptions(), trace_filename,
+                                   &trace_writer));
+      TraceOptions trace_options;
+      trace_options.include_read_write_options = include;
+      trace_options.preserve_write_order = preserve_write_order;
+      ASSERT_OK(db_->StartTrace(trace_options, std::move(trace_writer)));
+
+      WriteOptions write_options;
+      write_options.disableWAL = true;
+      write_options.no_slowdown = true;
+      ASSERT_OK(db_->Put(write_options, "a", "1"));
+      ReadOptions get_options;
+      get_options.fill_cache = false;
+      get_options.verify_checksums = false;
+      get_options.readahead_size = 4096;
+      get_options.read_tier = kBlockCacheTier;
+      std::string value;
+      ASSERT_OK(db_->Get(get_options, "a", &value));
+      std::vector<std::string> values;
+      for (const Status& s :
+           db_->MultiGet(get_options, {Slice("a")}, &values)) {
+        ASSERT_OK(s);
+      }
+      const Slice upper("b");
+      ReadOptions iter_options;
+      iter_options.fill_cache = false;
+      iter_options.total_order_seek = true;
+      iter_options.readahead_size = 8192;
+      iter_options.iterate_upper_bound = &upper;
+      {
+        std::unique_ptr<Iterator> iter(db_->NewIterator(iter_options));
+        iter->Seek("a");
+        iter->SeekForPrev("a");
+        ASSERT_OK(iter->status());
+      }
+      ASSERT_OK(db_->EndTrace());
+
+      auto check_get_options = [&](const ReadOptions* recorded) {
+        if (!include) {
+          ASSERT_EQ(recorded, nullptr);
+          return;
+        }
+        ASSERT_NE(recorded, nullptr);
+        ASSERT_FALSE(recorded->fill_cache);
+        ASSERT_FALSE(recorded->verify_checksums);
+        ASSERT_EQ(recorded->readahead_size, 4096u);
+        ASSERT_EQ(recorded->read_tier, kBlockCacheTier);
+      };
+      std::unique_ptr<TraceReader> trace_reader;
+      ASSERT_OK(NewFileTraceReader(env_, EnvOptions(), trace_filename,
+                                   &trace_reader));
+      std::unique_ptr<Replayer> replayer;
+      ASSERT_OK(db_->NewDefaultReplayer({db_->DefaultColumnFamily()},
+                                        std::move(trace_reader), &replayer));
+      ASSERT_OK(replayer->Prepare());
+      int records = 0;
+      std::unique_ptr<TraceRecord> record;
+      Status s;
+      while ((s = replayer->Next(&record)).ok()) {
+        ++records;
+        switch (record->GetTraceType()) {
+          case kTraceWrite: {
+            const WriteOptions* recorded =
+                dynamic_cast<WriteQueryTraceRecord*>(record.get())
+                    ->GetWriteOptions();
+            if (!include) {
+              ASSERT_EQ(recorded, nullptr);
+              break;
+            }
+            ASSERT_NE(recorded, nullptr);
+            ASSERT_TRUE(recorded->disableWAL);
+            ASSERT_TRUE(recorded->no_slowdown);
+            ASSERT_FALSE(recorded->sync);
+            break;
+          }
+          case kTraceGet:
+            check_get_options(dynamic_cast<GetQueryTraceRecord*>(record.get())
+                                  ->GetReadOptions());
+            break;
+          case kTraceMultiGet:
+            check_get_options(
+                dynamic_cast<MultiGetQueryTraceRecord*>(record.get())
+                    ->GetReadOptions());
+            break;
+          case kTraceIteratorSeek:
+          case kTraceIteratorSeekForPrev: {
+            auto* seek =
+                dynamic_cast<IteratorSeekQueryTraceRecord*>(record.get());
+            ASSERT_EQ(seek->GetUpperBound(), upper);
+            const ReadOptions* recorded = seek->GetReadOptions();
+            if (!include) {
+              ASSERT_EQ(recorded, nullptr);
+              break;
+            }
+            ASSERT_NE(recorded, nullptr);
+            ASSERT_FALSE(recorded->fill_cache);
+            ASSERT_TRUE(recorded->verify_checksums);
+            ASSERT_TRUE(recorded->total_order_seek);
+            ASSERT_EQ(recorded->readahead_size, 8192u);
+            break;
+          }
+          default:
+            FAIL() << "unexpected trace type " << record->GetTraceType();
+        }
+      }
+      ASSERT_TRUE(s.IsIncomplete()) << s.ToString();
+      ASSERT_EQ(records, 5);
+
+      // Replayed into another DB, the recorded disableWAL write writes no WAL.
+      Options options2 = CurrentOptions();
+      options2.create_if_missing = true;
+      options2.statistics = CreateDBStatistics();
+      const std::string dbname2 =
+          test::PerThreadDBPath(env_, "/db_replay_opts");
+      ASSERT_OK(DestroyDB(dbname2, options2));
+      std::unique_ptr<DB> db2;
+      ASSERT_OK(DB::Open(options2, dbname2, &db2));
+      TraceExecutionResultHandler res_handler;
+      ASSERT_OK(ReplayTraceFile(env_, trace_filename, db2.get(),
+                                {db2->DefaultColumnFamily()},
+                                /*num_threads=*/1, &res_handler));
+      ASSERT_EQ(1, res_handler.GetNumWrites());
+      ASSERT_EQ(include,
+                options2.statistics->getTickerCount(WAL_FILE_BYTES) == 0);
+      db2.reset();
+      ASSERT_OK(DestroyDB(dbname2, options2));
+    }
+  }
+}
+
+// A call that the live DB served without I/O (here from the memtable) needs
+// I/O on the replay target, so with its recorded read_tier=kBlockCacheTier it
+// returns Incomplete; a write with sync and disableWAL fails live and on
+// replay. Those are the calls' results: the replay reports them and goes on to
+// the records after them.
+TEST_F(DBTest2, TraceReplayContinuesPastRecordedOptionsOutcomes) {
+  for (const uint32_t num_threads : {1U, 2U}) {
+    SCOPED_TRACE("num_threads=" + std::to_string(num_threads));
+    DestroyAndReopen(CurrentOptions());
+    ASSERT_OK(Put("a", "1"));
+    const std::string trace_filename = dbname_ + "/rocksdb.trace";
+    std::unique_ptr<TraceWriter> trace_writer;
+    ASSERT_OK(
+        NewFileTraceWriter(env_, EnvOptions(), trace_filename, &trace_writer));
+    TraceOptions trace_options;
+    trace_options.include_read_write_options = true;
+    ASSERT_OK(db_->StartTrace(trace_options, std::move(trace_writer)));
+    ReadOptions no_io;
+    no_io.read_tier = kBlockCacheTier;
+    std::string value;
+    ASSERT_OK(db_->Get(no_io, "a", &value));
+    std::vector<std::string> values;
+    for (const Status& s : db_->MultiGet(no_io, {Slice("a")}, &values)) {
+      ASSERT_OK(s);
+    }
+    {
+      std::unique_ptr<Iterator> iter(db_->NewIterator(no_io));
+      iter->Seek("a");
+      ASSERT_OK(iter->status());
+    }
+    WriteOptions sync_without_wal;
+    sync_without_wal.sync = true;
+    sync_without_wal.disableWAL = true;
+    ASSERT_TRUE(db_->Put(sync_without_wal, "y", "1").IsInvalidArgument());
+    ASSERT_OK(Put("z", "2"));
+    ASSERT_OK(db_->EndTrace());
+
+    // The replay target holds "a" in an SST, with a cold block cache.
+    Options options2 = CurrentOptions();
+    options2.create_if_missing = true;
+    const std::string dbname2 = test::PerThreadDBPath(env_, "/db_replay_tier");
+    ASSERT_OK(DestroyDB(dbname2, options2));
+    std::unique_ptr<DB> db2;
+    ASSERT_OK(DB::Open(options2, dbname2, &db2));
+    ASSERT_OK(db2->Put(WriteOptions(), "a", "1"));
+    ASSERT_OK(db2->Flush(FlushOptions()));
+    ASSERT_TRUE(db2->Get(no_io, "a", &value).IsIncomplete());
+
+    TraceExecutionResultHandler res_handler;
+    ASSERT_OK(ReplayTraceFile(env_, trace_filename, db2.get(),
+                              {db2->DefaultColumnFamily()}, num_threads,
+                              &res_handler));
+    ASSERT_EQ(1, res_handler.GetNumGets());
+    ASSERT_EQ(1, res_handler.GetNumMultiGets());
+    ASSERT_EQ(1, res_handler.GetNumIterSeeks());
+    ASSERT_EQ(2, res_handler.GetNumWrites());
+    ASSERT_TRUE(db2->Get(ReadOptions(), "y", &value).IsNotFound());
+    ASSERT_OK(db2->Get(ReadOptions(), "z", &value));
+    ASSERT_EQ("2", value);
+    db2.reset();
+    ASSERT_OK(DestroyDB(dbname2, options2));
+  }
+}
+
+// Recorded options do not hide failures they do not cause: a DeleteRange on a
+// replay DB with row_cache (NotSupported) and a write to a column family the
+// replay DB lacks still fail the replay, as they do without the options.
+TEST_F(DBTest2, TraceReplayWithRecordedOptionsReturnsReplayErrors) {
+  for (const bool include : {false, true}) {
+    for (const uint32_t num_threads : {1U, 2U}) {
+      SCOPED_TRACE("include=" + std::to_string(include) +
+                   " num_threads=" + std::to_string(num_threads));
+      TraceOptions trace_options;
+      trace_options.include_read_write_options = include;
+      const std::string trace_filename = dbname_ + "/rocksdb.trace";
+      const std::string dbname2 =
+          test::PerThreadDBPath(env_, "/db_replay_errors");
+
+      // DeleteRange, replayed on a DB with row_cache.
+      DestroyAndReopen(CurrentOptions());
+      std::unique_ptr<TraceWriter> trace_writer;
+      ASSERT_OK(NewFileTraceWriter(env_, EnvOptions(), trace_filename,
+                                   &trace_writer));
+      ASSERT_OK(db_->StartTrace(trace_options, std::move(trace_writer)));
+      ASSERT_OK(Put("a", "1"));
+      ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                                 "a", "z"));
+      ASSERT_OK(db_->EndTrace());
+      Options row_cache_options = CurrentOptions();
+      row_cache_options.create_if_missing = true;
+      row_cache_options.row_cache = NewLRUCache(1 << 20);
+      ASSERT_OK(DestroyDB(dbname2, row_cache_options));
+      std::unique_ptr<DB> db2;
+      ASSERT_OK(DB::Open(row_cache_options, dbname2, &db2));
+      Status s = ReplayTraceFile(env_, trace_filename, db2.get(),
+                                 /*handles=*/{}, num_threads);
+      ASSERT_TRUE(s.IsNotSupported()) << s.ToString();
+      db2.reset();
+      ASSERT_OK(DestroyDB(dbname2, row_cache_options));
+
+      // A write to a column family the replay DB does not have.
+      Options options = CurrentOptions();
+      DestroyAndReopen(options);
+      CreateAndReopenWithCF({"pikachu"}, options);
+      ASSERT_OK(NewFileTraceWriter(env_, EnvOptions(), trace_filename,
+                                   &trace_writer));
+      ASSERT_OK(db_->StartTrace(trace_options, std::move(trace_writer)));
+      ASSERT_OK(Put(1, "a", "1"));
+      ASSERT_OK(db_->EndTrace());
+      options.create_if_missing = true;
+      ASSERT_OK(DestroyDB(dbname2, options));
+      ASSERT_OK(DB::Open(options, dbname2, &db2));
+      s = ReplayTraceFile(env_, trace_filename, db2.get(),
+                          {db2->DefaultColumnFamily()}, num_threads);
+      ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+      db2.reset();
+      ASSERT_OK(DestroyDB(dbname2, options));
+    }
+  }
+}
+
+// With a recorded allow_unprepared_value, a captured seek result still holds
+// the value: the replayer prepares a blob value before copying it.
+TEST_F(DBTest2, TraceReplayPreparesValuesOfCapturedSeekResults) {
+  Options options = CurrentOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("a", "payload"));
+  ASSERT_OK(Flush());  // The value is now in a blob file.
+  const std::string trace_filename = dbname_ + "/rocksdb.trace";
+  std::unique_ptr<TraceWriter> trace_writer;
+  ASSERT_OK(
+      NewFileTraceWriter(env_, EnvOptions(), trace_filename, &trace_writer));
+  TraceOptions trace_options;
+  trace_options.include_read_write_options = true;
+  ASSERT_OK(db_->StartTrace(trace_options, std::move(trace_writer)));
+  ReadOptions lazy;
+  lazy.allow_unprepared_value = true;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(lazy));
+    iter->Seek("a");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_TRUE(iter->value().empty());  // Not prepared yet.
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_EQ(iter->value(), "payload");
+  }
+  ASSERT_OK(db_->EndTrace());
+
+  std::unique_ptr<TraceReader> trace_reader;
+  ASSERT_OK(
+      NewFileTraceReader(env_, EnvOptions(), trace_filename, &trace_reader));
+  std::unique_ptr<Replayer> replayer;
+  ASSERT_OK(db_->NewDefaultReplayer({db_->DefaultColumnFamily()},
+                                    std::move(trace_reader), &replayer));
+  ASSERT_OK(replayer->Prepare());
+  int seeks = 0;
+  ASSERT_OK(replayer->Replay(
+      ReplayOptions(1, 1.0),
+      [&](Status exec_s, std::unique_ptr<TraceRecordResult>&& res) {
+        ASSERT_OK(exec_s);
+        auto* seek = dynamic_cast<IteratorTraceExecutionResult*>(res.get());
+        ASSERT_NE(seek, nullptr);
+        ++seeks;
+        ASSERT_OK(seek->GetStatus());
+        ASSERT_TRUE(seek->GetValid());
+        ASSERT_EQ(seek->GetValue(), "payload");
+      }));
+  ASSERT_EQ(seeks, 1);
+}
+
+// A seek with a recorded max_skippable_internal_keys returns Incomplete after
+// skipping that many entries, even with kReadAllTier. That is the seek's
+// result: the replay reports it and goes on.
+TEST_F(DBTest2, TraceReplayContinuesPastSkipLimitedSeek) {
+  auto write_tombstones = [](DB* db) {
+    for (const char* key : {"a", "b", "c"}) {
+      ASSERT_OK(db->Put(WriteOptions(), key, "1"));
+      ASSERT_OK(db->Delete(WriteOptions(), key));
+    }
+    ASSERT_OK(db->Put(WriteOptions(), "z", "1"));
+  };
+  for (const uint32_t num_threads : {1U, 2U}) {
+    SCOPED_TRACE("num_threads=" + std::to_string(num_threads));
+    DestroyAndReopen(CurrentOptions());
+    write_tombstones(db_.get());
+    const std::string trace_filename = dbname_ + "/rocksdb.trace";
+    std::unique_ptr<TraceWriter> trace_writer;
+    ASSERT_OK(
+        NewFileTraceWriter(env_, EnvOptions(), trace_filename, &trace_writer));
+    TraceOptions trace_options;
+    trace_options.include_read_write_options = true;
+    ASSERT_OK(db_->StartTrace(trace_options, std::move(trace_writer)));
+    ReadOptions capped;
+    capped.max_skippable_internal_keys = 1;
+    {
+      std::unique_ptr<Iterator> iter(db_->NewIterator(capped));
+      iter->Seek("a");
+      ASSERT_TRUE(iter->status().IsIncomplete()) << iter->status().ToString();
+    }
+    ASSERT_OK(Put("zz", "2"));
+    ASSERT_OK(db_->EndTrace());
+
+    Options options2 = CurrentOptions();
+    options2.create_if_missing = true;
+    const std::string dbname2 = test::PerThreadDBPath(env_, "/db_replay_skip");
+    ASSERT_OK(DestroyDB(dbname2, options2));
+    std::unique_ptr<DB> db2;
+    ASSERT_OK(DB::Open(options2, dbname2, &db2));
+    write_tombstones(db2.get());
+    TraceExecutionResultHandler res_handler;
+    ASSERT_OK(ReplayTraceFile(env_, trace_filename, db2.get(),
+                              {db2->DefaultColumnFamily()}, num_threads,
+                              &res_handler));
+    ASSERT_EQ(1, res_handler.GetNumIterSeeks());
+    ASSERT_EQ(1, res_handler.GetNumWrites());
+    std::string value;
+    ASSERT_OK(db2->Get(ReadOptions(), "zz", &value));
+    ASSERT_EQ("2", value);
+    db2.reset();
+    ASSERT_OK(DestroyDB(dbname2, options2));
+  }
+}
+
+// A tailing iterator does not support SeekForPrev(): the live call fails with
+// NotSupported, and so does the replayed one with the recorded tailing=true.
+// That is the seek's result: the replay reports it and goes on.
+TEST_F(DBTest2, TraceReplayContinuesPastTailingSeekForPrev) {
+  for (const uint32_t num_threads : {1U, 2U}) {
+    SCOPED_TRACE("num_threads=" + std::to_string(num_threads));
+    DestroyAndReopen(CurrentOptions());
+    ASSERT_OK(Put("a", "1"));
+    const std::string trace_filename = dbname_ + "/rocksdb.trace";
+    std::unique_ptr<TraceWriter> trace_writer;
+    ASSERT_OK(
+        NewFileTraceWriter(env_, EnvOptions(), trace_filename, &trace_writer));
+    TraceOptions trace_options;
+    trace_options.include_read_write_options = true;
+    ASSERT_OK(db_->StartTrace(trace_options, std::move(trace_writer)));
+    ReadOptions tailing;
+    tailing.tailing = true;
+    {
+      std::unique_ptr<Iterator> iter(db_->NewIterator(tailing));
+      iter->SeekForPrev("a");
+      ASSERT_TRUE(iter->status().IsNotSupported()) << iter->status().ToString();
+    }
+    ASSERT_OK(Put("zz", "2"));
+    ASSERT_OK(db_->EndTrace());
+
+    Options options2 = CurrentOptions();
+    options2.create_if_missing = true;
+    const std::string dbname2 = test::PerThreadDBPath(env_, "/db_replay_tail");
+    ASSERT_OK(DestroyDB(dbname2, options2));
+    std::unique_ptr<DB> db2;
+    ASSERT_OK(DB::Open(options2, dbname2, &db2));
+    ASSERT_OK(db2->Put(WriteOptions(), "a", "1"));
+    // A new tailing iterator over this fails until its first seek.
+    ASSERT_OK(
+        db2->DeleteRange(WriteOptions(), db2->DefaultColumnFamily(), "m", "n"));
+    TraceExecutionResultHandler res_handler;
+    ASSERT_OK(ReplayTraceFile(env_, trace_filename, db2.get(),
+                              {db2->DefaultColumnFamily()}, num_threads,
+                              &res_handler));
+    ASSERT_EQ(1, res_handler.GetNumIterSeeks());
+    ASSERT_EQ(1, res_handler.GetNumWrites());
+    std::string value;
+    ASSERT_OK(db2->Get(ReadOptions(), "zz", &value));
+    ASSERT_EQ("2", value);
+    db2.reset();
+    ASSERT_OK(DestroyDB(dbname2, options2));
+  }
+}
+
+// A secondary DB cannot create tailing iterators, so the replayed seek never
+// runs. Unlike the outcomes above, that is a replay error.
+TEST_F(DBTest2, TraceReplayReturnsSecondaryTailingSeekError) {
+  Options options = CurrentOptions();
+  options.max_open_files = -1;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("a", "1"));
+  ASSERT_OK(Flush());
+  const std::string trace_filename = dbname_ + "/rocksdb.trace";
+  std::unique_ptr<TraceWriter> trace_writer;
+  ASSERT_OK(
+      NewFileTraceWriter(env_, EnvOptions(), trace_filename, &trace_writer));
+  TraceOptions trace_options;
+  trace_options.include_read_write_options = true;
+  ASSERT_OK(db_->StartTrace(trace_options, std::move(trace_writer)));
+  ReadOptions tailing;
+  tailing.tailing = true;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(tailing));
+    iter->Seek("a");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+  ASSERT_OK(db_->EndTrace());
+
+  const std::string secondary_path =
+      test::PerThreadDBPath(env_, "/db_replay_secondary");
+  std::unique_ptr<DB> secondary;
+  ASSERT_OK(DB::OpenAsSecondary(options, dbname_, secondary_path, &secondary));
+  for (const uint32_t num_threads : {1U, 2U}) {
+    SCOPED_TRACE("num_threads=" + std::to_string(num_threads));
+    TraceExecutionResultHandler res_handler;
+    for (TraceExecutionResultHandler* handler :
+         {&res_handler, static_cast<TraceExecutionResultHandler*>(nullptr)}) {
+      Status s = ReplayTraceFile(env_, trace_filename, secondary.get(),
+                                 {secondary->DefaultColumnFamily()},
+                                 num_threads, handler);
+      ASSERT_TRUE(s.IsNotSupported()) << s.ToString();
+    }
+  }
+  secondary.reset();
+  ASSERT_OK(DestroyDB(secondary_path, options));
+}
+
 TEST_F(DBTest2, TraceReplayReturnsExecutionError) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu"}, options);
