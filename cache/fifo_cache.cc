@@ -327,6 +327,10 @@ FIFOCacheShard::FIFOCacheShard(size_t capacity, bool strict_capacity_limit,
       resident_hand_(nullptr),
       aside_slot_(SlotIndexAt(max_length_)),
       aside_unpinned_(false),
+      ghost_ring_length_(0),
+      ghost_head_seq_(0),
+      ghost_size_(0),
+      ghost_records_(0),
       mutex_(use_adaptive_mutex),
       allocator_(allocator),
       eviction_callback_(*eviction_callback),
@@ -516,6 +520,11 @@ size_t FIFOCacheShard::ProbationBudget() const {
          (capacity_.Get() % 100) * kProbationPercent / 100;
 }
 
+size_t FIFOCacheShard::TEST_GetGhostSize() const {
+  DMutexLock l(mutex_);
+  return ghost_size_;
+}
+
 void FIFOCacheShard::TEST_GetFIFOList(FIFOHandle** fifo) {
   DMutexLock l(mutex_);
   *fifo = probation();
@@ -664,6 +673,11 @@ size_t FIFOCacheShard::ProbationUnpinnedUsage() {
   return pinned >= probation_usage_ ? 0 : probation_usage_ - pinned;
 }
 
+bool FIFOCacheShard::IsPlaceholder(const FIFOHandle* e) const {
+  return e->helper == &kNoopCacheItemHelper &&
+         e->GetCharge(metadata_charge_policy_) == 0;
+}
+
 void FIFOCacheShard::SyncOverCapacity() {
   const bool over = usage_.Get() > capacity_.Get();
   if (over_capacity_.load(std::memory_order_relaxed) != over) {
@@ -780,6 +794,9 @@ bool FIFOCacheShard::EvictFromProbation(EvictionData* data,
         promoted = true;
       } else {
         FIFO_Remove(cur, /*in_probation=*/true);
+        if (!IsPlaceholder(cur)) {
+          GhostRecord(GhostHash(cur->hashed_key));
+        }
         EvictClaimed(cur, data, deleted);
       }
     }
@@ -842,6 +859,44 @@ void FIFOCacheShard::EvictFromResident(EvictionData* data,
       rotated = 0;
     }
   }
+}
+
+void FIFOCacheShard::GhostRecord(uint32_t hash) {
+  ++ghost_records_;
+  if (ghost_size_ == ghost_ring_length_) {
+    // Double the ring, keeping each slot at its sequence number.
+    const size_t new_length =
+        ghost_ring_length_ == 0 ? size_t{16} : ghost_ring_length_ * 2;
+    std::unique_ptr<uint32_t[]> new_ring(new uint32_t[new_length]);
+    for (uint64_t seq = ghost_head_seq_; seq < ghost_head_seq_ + ghost_size_;
+         ++seq) {
+      new_ring[seq & (new_length - 1)] =
+          ghost_ring_[seq & (ghost_ring_length_ - 1)];
+    }
+    ghost_ring_ = std::move(new_ring);
+    ghost_ring_length_ = new_length;
+  }
+  const uint64_t seq = ghost_head_seq_ + ghost_size_;
+  ghost_index_[hash] = seq;
+  ghost_ring_[seq & (ghost_ring_length_ - 1)] = hash;
+  ++ghost_size_;
+  GhostTrim();
+}
+
+void FIFOCacheShard::GhostTrim() {
+  while (ghost_size_ > occupancy_) {
+    GhostIndex::iterator it = ghost_index_.find(
+        ghost_ring_[ghost_head_seq_ & (ghost_ring_length_ - 1)]);
+    if (it != ghost_index_.end() && it->second == ghost_head_seq_) {
+      ghost_index_.erase(it);
+    }
+    --ghost_size_;
+    ++ghost_head_seq_;
+  }
+}
+
+bool FIFOCacheShard::GhostTake(uint32_t hash) {
+  return ghost_index_.erase(hash) > 0;
 }
 
 void FIFOCacheShard::NotifyEvicted(
@@ -1066,6 +1121,7 @@ void FIFOCacheShard::SetCapacity(size_t capacity) {
     // The probation budget is derived from capacity_ at each use, so it
     // already tracks the new capacity when eviction below runs.
     EvictFromFIFO(0, &last_reference_list);
+    GhostTrim();
     SyncOverCapacity();
   }
 
@@ -1122,6 +1178,10 @@ Status FIFOCacheShard::InsertItem(const Slice& key, HashCref hash,
   Status s = Status::OK();
   autovector<FIFOHandle*> last_reference_list;
   std::vector<FIFOHandle::HeapKey*> heap_keys;
+  const bool placeholder =
+      helper == &kNoopCacheItemHelper &&
+      total_charge == HeapKeyCharge(heap_key, metadata_charge_policy_);
+
   // Allocates the caller's ReaderSlot chunk, which eviction reads, before
   // mutex_.
   MySlot();
@@ -1131,7 +1191,12 @@ Status FIFOCacheShard::InsertItem(const Slice& key, HashCref hash,
     scan = MaybeReclaim(&heap_keys);
 
     // Free the space following strict FIFO policy until enough space
-    // is freed or no unpinned entry remains.
+    // is freed or no unpinned entry remains. A placeholder never uses the
+    // ghost (see ghost_index_).
+    GhostIndex::iterator ghost =
+        placeholder ? ghost_index_.end() : ghost_index_.find(GhostHash(hash));
+    const bool remembered = ghost != ghost_index_.end();
+    const uint64_t ghost_records_before = ghost_records_;
     EvictFromFIFO(total_charge, &last_reference_list);
 
     if (occupancy_ == 0 && TableAboveInitialLength()) {
@@ -1227,6 +1292,17 @@ Status FIFOCacheShard::InsertItem(const Slice& key, HashCref hash,
         }
       }
       if (e != nullptr) {
+        // One ghost probe: the iterator from above is still valid unless
+        // eviction recorded a ghost since.
+        bool to_resident = false;
+        if (remembered) {
+          if (ghost_records_ == ghost_records_before) {
+            ghost_index_.erase(ghost);
+            to_resident = true;
+          } else {
+            to_resident = GhostTake(GhostHash(hash));
+          }
+        }
         SetKey(e, hash, heap_key, FIFOHandle::kOccupied);
         e->value = value;
         e->helper = helper;
@@ -1236,10 +1312,11 @@ Status FIFOCacheShard::InsertItem(const Slice& key, HashCref hash,
         // The final state, set before the chain publishes e to Lookup.
         // Release: GetPinnedUsage reads total_charge after an acquire load
         // of state, without the chain.
-        e->state.store(FIFOHandle::kInCache | FIFOHandle::kInProbation |
+        e->state.store(FIFOHandle::kInCache |
+                           (to_resident ? 0 : FIFOHandle::kInProbation) |
                            (handle != nullptr ? 1 : 0),
                        std::memory_order_release);
-        if (handle != nullptr) {
+        if (handle != nullptr && !to_resident) {
           probation_pinned_usage_ += total_charge;
         }
         LinkIntoChain(e);
@@ -1251,7 +1328,7 @@ Status FIFOCacheShard::InsertItem(const Slice& key, HashCref hash,
           }
         }
         usage_ += total_charge;
-        FIFO_Append(probation(), e);
+        FIFO_Append(to_resident ? resident() : probation(), e);
         if (handle != nullptr) {
           *handle = e;
         }
