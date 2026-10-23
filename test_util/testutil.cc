@@ -17,6 +17,7 @@
 #include <fstream>
 #include <sstream>
 
+#include "db/log_format.h"
 #include "db/memtable_list.h"
 #include "env/composite_env_wrapper.h"
 #include "file/random_access_file_reader.h"
@@ -594,6 +595,32 @@ uint64_t GetFileNumber(const std::string& path) {
   uint64_t number = 0;
   ParseFileName(file_name, &number, &type);
   return number;
+}
+
+int CountIndexedWALFiles(Env* env, const std::string& dir) {
+  std::vector<std::string> children;
+  if (!env->GetChildren(dir, &children).ok()) {
+    return -1;
+  }
+  int indexed = 0;
+  for (const std::string& child : children) {
+    uint64_t number = 0;
+    FileType type = kTempFile;
+    if (!ParseFileName(child, &number, &type) || type != kWalFile) {
+      continue;
+    }
+    std::string contents;
+    if (!ReadFileToString(env, dir + "/" + child, &contents).ok()) {
+      return -1;
+    }
+    if (contents.size() >= static_cast<size_t>(log::kHeaderSize) &&
+        (contents[6] == static_cast<char>(log::kWALIndexMarkerType) ||
+         contents[6] ==
+             static_cast<char>(log::kRecyclableWALIndexMarkerType))) {
+      ++indexed;
+    }
+  }
+  return indexed;
 }
 
 Status CreateEnvFromSystem(const ConfigOptions& config_options, Env** result,

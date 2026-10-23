@@ -302,6 +302,32 @@ TEST_F(RepairTest, UnflushedSst) {
   ASSERT_EQ(Get("key"), "val");
 }
 
+// Repair converts an unflushed indexed WAL into a table file holding every
+// acknowledged write.
+TEST_F(RepairTest, UnflushedIndexedWAL) {
+  Options options = CurrentOptions();
+  options.partition_wal_usage = PartitionWALUsage::kPartitionByColumnFamily;
+  DestroyAndReopen(options);
+  for (int i = 0; i < 10; ++i) {
+    ASSERT_OK(Put("key" + std::to_string(i), "val" + std::to_string(i)));
+  }
+  Close();
+  ASSERT_GT(test::CountIndexedWALFiles(env_, dbname_), 0);
+  ASSERT_OK(RepairDB(dbname_, options));
+  Reopen(options);
+
+  VectorLogPtr wal_files;
+  ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));
+  ASSERT_EQ(wal_files.size(), 0);
+  uint64_t total_ssts_size;
+  std::unordered_map<std::string, uint64_t> sst_files;
+  ASSERT_OK(GetAllDataFiles(kTableFile, &sst_files, &total_ssts_size));
+  ASSERT_GT(total_ssts_size, 0);
+  for (int i = 0; i < 10; ++i) {
+    ASSERT_EQ("val" + std::to_string(i), Get("key" + std::to_string(i)));
+  }
+}
+
 // Test parameters:
 // param 0): paranoid file check
 // param 1): user-defined timestamp test mode
