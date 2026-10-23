@@ -434,6 +434,15 @@ default_params = {
     "periodic_compaction_phase_recovery_percent": lambda: random.choice(
         [0, 25, 33, 50, 100]
     ),
+    "periodic_compaction_policy": lambda: random.choice(
+        [
+            "",
+            "",
+            "id=FixedLookaheadPeriodicCompactionPolicy;lookahead_seconds=0",
+            "id=FixedLookaheadPeriodicCompactionPolicy;lookahead_seconds=5",
+            "id=FixedLookaheadPeriodicCompactionPolicy;lookahead_seconds=600",
+        ]
+    ),
     # 0 = never (used by some), 10 = often (for threading bugs), 600 = default
     "stats_dump_period_sec": lambda: random.choice([0, 10, 600]),
     "mutex_hold_log_threshold_us": lambda: random.choice([0, 100000, 25000, 500000]),
@@ -1853,6 +1862,7 @@ def finalize_and_sanitize(src_params):
     # If periodic_compaction_seconds is not set, daily_offpeak_time_utc doesn't do anything
     if dest_params.get("periodic_compaction_seconds") == 0:
         dest_params["daily_offpeak_time_utc"] = ""
+        dest_params["periodic_compaction_policy"] = ""
     # `use_put_entity_one_in` cannot be enabled/disabled across runs, modify
     # `use_timed_put_one_in` option so that they make sense together.
     if dest_params.get("use_put_entity_one_in") == 1:

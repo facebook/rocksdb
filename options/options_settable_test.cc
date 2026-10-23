@@ -591,6 +591,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       {offsetof(struct ColumnFamilyOptions,
                 table_properties_collector_factories),
        sizeof(ColumnFamilyOptions::TablePropertiesCollectorFactories)},
+      {offsetof(struct ColumnFamilyOptions, periodic_compaction_policy),
+       sizeof(std::shared_ptr<PeriodicCompactionPolicy>)},
       {offsetof(struct ColumnFamilyOptions, preclude_last_level_data_seconds),
        sizeof(uint64_t)},
       {offsetof(struct ColumnFamilyOptions, preserve_internal_time_seconds),

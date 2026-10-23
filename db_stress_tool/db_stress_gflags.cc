@@ -498,6 +498,12 @@ DEFINE_uint64(periodic_compaction_seconds, 1000,
 DEFINE_string(daily_offpeak_time_utc, "",
               "If set, process periodic compactions during this period only");
 
+DEFINE_string(periodic_compaction_policy, "",
+              "If non-empty, a PeriodicCompactionPolicy created with "
+              "PeriodicCompactionPolicy::CreateFromString(), e.g. "
+              "\"id=FixedLookaheadPeriodicCompactionPolicy;"
+              "lookahead_seconds=10\"");
+
 DEFINE_uint64(compaction_ttl, 1000,
               "Files older than TTL will be compacted to the next level.");
 
