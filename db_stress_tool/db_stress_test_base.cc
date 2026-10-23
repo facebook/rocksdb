@@ -5807,6 +5807,14 @@ void StressTest::Open(SharedState* shared, bool reopen) {
   }
   InitializeOptionsGeneral(block_cache, filter_policy_, sqfc_factory_,
                            options_);
+  // Auto compactions scheduled at the end of DB::Open() can append to the
+  // MANIFEST before VerifyManifestNotRewritten() runs, so keep them off until
+  // Reopen() has verified the MANIFEST.
+  if (reopen && manifest_verify_mode_ != MANIFEST_VERIFY_NONE &&
+      !options_.disable_auto_compactions) {
+    options_.disable_auto_compactions = true;
+    auto_compactions_paused_for_manifest_verify_ = true;
+  }
   // InitializeOptions* helpers set options_.env = raw_env (no fault injection).
   // Override with per-StressTest env that includes FaultInjectionTestFS +
   // DbStressFSWrapper for all DB I/O.
@@ -6404,10 +6412,17 @@ void StressTest::RecordManifestStateBeforeReopen() {
         options_.track_options_file_number_in_manifest;
     // Check if ALL conditions for complete avoidance are met.
     // If so, use STRICT mode where failures are fatal.
+    // A WriteBufferManager limit enforced during recovery can force a flush
+    // even with avoid_flush_during_recovery.
+    const bool wbm_flush_possible_during_recovery =
+        options_.enforce_write_buffer_manager_during_recovery &&
+        (options_.db_write_buffer_size > 0 ||
+         options_.write_buffer_manager != nullptr);
     const bool no_manifest_writes_expected =
         FLAGS_avoid_flush_during_recovery &&  // No flush during recovery
-        !FLAGS_write_dbid_to_manifest &&      // No DB_ID write on open
-        !options_manifest_tracking_active;    // No OPTIONS MANIFEST commit
+        !wbm_flush_possible_during_recovery &&
+        !FLAGS_write_dbid_to_manifest &&    // No DB_ID write on open
+        !options_manifest_tracking_active;  // No OPTIONS MANIFEST commit
     // Note: avoid_flush_during_shutdown is NOT required for STRICT mode.
     // If avoid_flush_during_shutdown=true leaves data in WAL, but
     // avoid_flush_during_recovery=true prevents flushing it, so MANIFEST
@@ -6688,6 +6703,14 @@ void StressTest::Reopen(ThreadState* thread) {
 
   // Verify MANIFEST was not unnecessarily rewritten
   VerifyManifestNotRewritten();
+
+  if (auto_compactions_paused_for_manifest_verify_) {
+    auto_compactions_paused_for_manifest_verify_ = false;
+    options_.disable_auto_compactions = false;
+    Status s = db_->EnableAutoCompaction(column_families_);
+    DB_STRESS_ASSERT_OK_MSG(
+        s, "Error re-enabling auto compactions after MANIFEST verification");
+  }
 
   if (thread->shared->GetStressTest()->MightHaveUnsyncedDataLoss() &&
       IsStateTracked()) {
