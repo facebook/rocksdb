@@ -37,6 +37,7 @@
 #include "util/concurrent_task_limiter_impl.h"
 #include "util/fastrange.h"
 #include "util/hash.h"
+#include "util/mutexlock.h"
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
 #include "utilities/fault_injection_fs.h"
@@ -4961,17 +4962,31 @@ TEST_F(DBCompactionTest, DeleteFilesInRangeConflictWithCompaction) {
       {{"VersionSet::LogAndApply:WriteManifestStart",
         "BackgroundCallCompaction:0"},
        {"DBImpl::BackgroundCompaction:Finish",
-        "VersionSet::LogAndApply:WriteManifestDone"}});
+        "VersionSet::LogAndApply:WriteManifestDone"},
+       {"DBImpl::WaitForCompact:StartWaiting",
+        "DBCompactionTest::DeleteFilesInRangeConflictWithCompaction:"
+        "WaitStarted"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
-  // release snapshot which mark bottommost file for compaction
+  // Release no longer schedules work directly. WaitForCompact refreshes the
+  // oldest snapshot and schedules the compaction that this test races against
+  // DeleteFilesInRange().
   db_->ReleaseSnapshot(snapshot);
+  Status wait_status;
+  port::Thread wait_thread(
+      [&]() { wait_status = dbfull()->TEST_WaitForCompact(); });
+  TEST_SYNC_POINT(
+      "DBCompactionTest::DeleteFilesInRangeConflictWithCompaction:"
+      "WaitStarted");
   std::string begin_string = Key(0);
   std::string end_string = Key(kMaxKey + 1);
   Slice begin(begin_string);
   Slice end(end_string);
-  ASSERT_OK(
-      DeleteFilesInRange(db_.get(), db_->DefaultColumnFamily(), &begin, &end));
+  Status delete_status =
+      DeleteFilesInRange(db_.get(), db_->DefaultColumnFamily(), &begin, &end);
+  wait_thread.join();
+  ASSERT_OK(delete_status);
+  ASSERT_OK(wait_status);
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
@@ -5016,10 +5031,9 @@ TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
   std::vector<LiveFileMetaData> pre_release_metadata;
   std::vector<LiveFileMetaData> post_release_metadata;
   db_->GetLiveFilesMetaData(&pre_release_metadata);
-  // just need to bump seqnum so ReleaseSnapshot knows the newest key in the SST
-  // files does not need to be preserved in case of a future snapshot.
+  // Bump the published sequence so a maintenance refresh after the release can
+  // advance beyond the newest key in the SST files.
   ASSERT_OK(Put(Key(0), "val"));
-  ASSERT_NE(kMaxSequenceNumber, dbfull()->bottommost_files_mark_threshold_);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
         Compaction* compaction = static_cast<Compaction*>(arg);
@@ -5027,11 +5041,9 @@ TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
                     CompactionReason::kBottommostFiles);
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-  // release snapshot and wait for compactions to finish. Single-file
-  // compactions should be triggered, which reduce the size of each bottom-level
-  // file without changing file count.
+  // Release does not schedule work. WaitForCompact refreshes the oldest
+  // snapshot before waiting and triggers the single-file compactions.
   db_->ReleaseSnapshot(snapshot);
-  ASSERT_EQ(kMaxSequenceNumber, dbfull()->bottommost_files_mark_threshold_);
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   db_->GetLiveFilesMetaData(&post_release_metadata);
   ASSERT_EQ(pre_release_metadata.size(), post_release_metadata.size());
@@ -5046,6 +5058,113 @@ TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
     ASSERT_LT(post_file.size, pre_file.size);
   }
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBCompactionTest, SnapshotReleaseDuringSuperVersionInstall) {
+  // A snapshot release can race with SuperVersion installation. The installer
+  // must observe the exact oldest-snapshot sequence after the release and
+  // schedule newly eligible bottommost work.
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.level0_file_num_compaction_trigger = 100;
+  CreateAndReopenWithCF({"one"}, options);
+
+  constexpr int kNumKeys = 100;
+  for (int i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(Put(1, Key(i), std::string(100, 'v')));
+  }
+  const Snapshot* snapshot = db_->GetSnapshot();
+  for (int i = 0; i < kNumKeys; i += 2) {
+    ASSERT_OK(Delete(1, Key(i)));
+  }
+  // Advance the published sequence beyond the largest sequence in CF "one".
+  ASSERT_OK(Put("advance", "value"));
+  bool released_during_install = false;
+  std::atomic_int bottommost_compactions{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::InstallSuperVersionAndScheduleWork:"
+      "BeforeSnapshotRefresh",
+      [&](void*) {
+        if (snapshot != nullptr) {
+          db_->ReleaseSnapshot(snapshot);
+          snapshot = nullptr;
+          released_during_install = true;
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        auto* compaction = static_cast<Compaction*>(arg);
+        if (compaction->compaction_reason() ==
+            CompactionReason::kBottommostFiles) {
+          ++bottommost_compactions;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Flush(1));
+  ASSERT_TRUE(released_during_install);
+  ASSERT_EQ(snapshot, nullptr);
+  // The exact scan must observe the release and schedule newly eligible work.
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_GT(bottommost_compactions.load(), 0);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(DBCompactionTest,
+       StandaloneRangeTombstoneSnapshotAdvanceRequeuesScheduling) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = 2;
+  options.level0_file_num_compaction_trigger = 100;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("old", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("new", "value"));
+  ASSERT_OK(Flush());
+
+  DBImpl* impl = dbfull();
+  InstrumentedMutexLock lock(&impl->mutex_);
+  ColumnFamilyData* cfd =
+      impl->GetVersionSet()->GetColumnFamilySet()->GetDefault();
+  VersionStorageInfo* vstorage = cfd->current()->storage_info();
+  ASSERT_EQ(vstorage->LevelFiles(0).size(), 2);
+
+  // Only the scheduling metadata matters here. Simulate an L0 standalone
+  // range tombstone that a prior Universal picker can defer.
+  FileMetaData* file = vstorage->LevelFiles(0).front();
+  file->marked_for_compaction = true;
+  file->num_entries = 1;
+  file->num_range_deletions = 1;
+  ASSERT_TRUE(file->FileIsStandAloneRangeTombstone());
+  vstorage->ComputeFilesMarkedForCompaction(
+      vstorage->MaxOutputLevel(cfd->AllowIngestBehind()));
+  const SequenceNumber threshold =
+      vstorage->standalone_range_tombstone_files_mark_threshold();
+  ASSERT_EQ(threshold, file->fd.smallest_seqno);
+  ASSERT_TRUE(impl->compaction_queue_.empty());
+  const SequenceNumber oldest_snapshot =
+      std::max(threshold, vstorage->oldest_snapshot_seqnum() + 1);
+
+  auto consume_queued_attempt = [&]() {
+    ASSERT_EQ(impl->compaction_queue_.size(), 1);
+    ColumnFamilyData* queued_cfd = impl->PopFirstFromCompactionQueue();
+    ASSERT_EQ(queued_cfd, cfd);
+    ASSERT_FALSE(queued_cfd->UnrefAndTryDelete());
+  };
+
+  ASSERT_TRUE(
+      impl->ReconcileOldestSnapshotForColumnFamily(cfd, oldest_snapshot));
+  consume_queued_attempt();
+
+  // The prior attempt was skipped and consumed its queue entry. A later
+  // snapshot advance must enqueue another attempt even though the threshold
+  // was already crossed.
+  ASSERT_TRUE(
+      impl->ReconcileOldestSnapshotForColumnFamily(cfd, oldest_snapshot + 1));
+  consume_queued_attempt();
 }
 
 TEST_F(DBCompactionTest, DelayCompactBottomLevelFilesWithDeletions) {
@@ -5084,13 +5203,11 @@ TEST_F(DBCompactionTest, DelayCompactBottomLevelFilesWithDeletions) {
         compaction_count++;
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-  // just need to bump seqnum so ReleaseSnapshot knows the newest key in the SST
-  // files does not need to be preserved in case of a future snapshot.
+  // Bump the published sequence so a later maintenance refresh can advance.
   ASSERT_OK(Put(Key(0), "val"));
-  ASSERT_NE(kMaxSequenceNumber, dbfull()->bottommost_files_mark_threshold_);
-  // release snapshot will not trigger compaction.
+  // Release and the first maintenance refresh do not trigger compaction while
+  // the bottommost file is still too young.
   db_->ReleaseSnapshot(snapshot);
-  ASSERT_EQ(kMaxSequenceNumber, dbfull()->bottommost_files_mark_threshold_);
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(0, compaction_count);
   // Now the file is old enough for compaction.

@@ -245,9 +245,9 @@ class VersionStorageInfo {
   //
   // Among bottommost files (assumes they've already been computed), marks the
   // ones that have keys that would be eliminated if recompacted, according to
-  // the seqnum of the oldest existing snapshot. Must be called every time
-  // oldest snapshot changes as that is when bottom-level files can become
-  // eligible for compaction.
+  // the seqnum of the oldest existing snapshot. It is recomputed when a new
+  // Version is installed and when deferred snapshot maintenance observes that
+  // the oldest snapshot crossed the next eligibility threshold.
   //
   // For columns with User Defined Timestamps (UDT), also checks that the
   // file's largest timestamp is below full_history_ts_low before marking,
@@ -692,6 +692,10 @@ class VersionStorageInfo {
     return bottommost_files_mark_threshold_;
   }
 
+  SequenceNumber oldest_snapshot_seqnum() const {
+    return oldest_snapshot_seqnum_;
+  }
+
   SequenceNumber standalone_range_tombstone_files_mark_threshold() const {
     return standalone_range_tombstone_files_mark_threshold_;
   }
@@ -806,9 +810,9 @@ class VersionStorageInfo {
 
   autovector<std::pair<int, FileMetaData*>> read_triggered_compaction_files_;
 
-  // Threshold for needing to mark another bottommost file. Maintain it so we
-  // can quickly check when releasing a snapshot whether more bottommost files
-  // became eligible for compaction. It's defined as the min of the max nonzero
+  // Threshold for needing to mark another bottommost file. Deferred snapshot
+  // maintenance uses it to avoid recomputing marks until the oldest snapshot
+  // can make another file eligible. It's defined as the min of the max nonzero
   // seqnums of unmarked bottommost files.
   SequenceNumber bottommost_files_mark_threshold_ = kMaxSequenceNumber;
 

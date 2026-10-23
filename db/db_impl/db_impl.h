@@ -1115,17 +1115,25 @@ class DBImpl : public DB
   // Schedule a background job to actually delete obsolete files.
   void SchedulePurge();
 
-  const SnapshotList& snapshots() const { return snapshots_; }
+  // Thread-safe; does not require any DB lock.
+  const ShardedSnapshotList& snapshots() const { return snapshots_; }
 
-  // load list of snapshots to `snap_vector` that is no newer than `max_seq`
-  // in ascending order.
+  // Loads snapshots no newer than `max_seq` into `snap_vector` in ascending
+  // order. Returns an exact oldest live snapshot sequence, or the last
+  // published sequence if there are no snapshots, from a separate all-shard
+  // scan. `snapshot_release_count` receives the release count observed by that
+  // exact scan when non-null.
   // `oldest_write_conflict_snapshot` is filled with the oldest snapshot
   // which satisfies SnapshotImpl.is_write_conflict_boundary_ = true.
-  void LoadSnapshots(std::vector<SequenceNumber>* snap_vector,
-                     SequenceNumber* oldest_write_conflict_snapshot,
-                     const SequenceNumber& max_seq) const {
-    InstrumentedMutexLock l(mutex());
+  // Thread-safe; callers that use the return values for DB-wide maintenance
+  // must hold mutex_.
+  SequenceNumber LoadSnapshots(std::vector<SequenceNumber>* snap_vector,
+                               SequenceNumber* oldest_write_conflict_snapshot,
+                               const SequenceNumber& max_seq,
+                               uint64_t* snapshot_release_count) const {
     snapshots().GetAll(snap_vector, oldest_write_conflict_snapshot, max_seq);
+    return snapshots().OldestOr([this]() { return GetLastPublishedSequence(); },
+                                snapshot_release_count);
   }
 
   const ImmutableDBOptions& immutable_db_options() const {
@@ -2246,6 +2254,8 @@ class DBImpl : public DB
   friend class DBTest_ConcurrentFlushWAL_Test;
   friend class DBTest_MixedSlowdownOptionsStop_Test;
   friend class DBCompactionTest_CompactBottomLevelFilesWithDeletions_Test;
+  friend class
+      DBCompactionTest_StandaloneRangeTombstoneSnapshotAdvanceRequeuesScheduling_Test;
   friend class DBCompactionTest_CompactionDuringShutdown_Test;
   friend class DBCompactionTest_DelayCompactBottomLevelFilesWithDeletions_Test;
   friend class DBCompactionTest_DisableCompactBottomLevelFiles_Test;
@@ -3206,8 +3216,23 @@ class DBImpl : public DB
   // WALs with log number up to up_to are not synced successfully.
   void MarkLogsNotSynced(uint64_t up_to);
 
+  enum class SnapshotLockMode {
+    kTryWithoutDBMutex,
+    kDBMutexHeld,
+    kAcquireDBMutex,
+  };
   SnapshotImpl* GetSnapshotImpl(bool is_write_conflict_boundary,
-                                bool lock = true);
+                                SnapshotLockMode lock_mode);
+
+  // Updates compaction state after the oldest snapshot advances and also
+  // reconciles `installed_cfd`, when non-null, if its Version has not processed
+  // the current oldest snapshot yet. Requires mutex_.
+  void UpdateOldestSnapshotAndScheduleWork(SequenceNumber oldest_snapshot,
+                                           uint64_t snapshot_release_count,
+                                           ColumnFamilyData* installed_cfd);
+  bool ReconcileOldestSnapshotForColumnFamily(ColumnFamilyData* cfd,
+                                              SequenceNumber oldest_snapshot);
+  void UpdateSnapshotCompactionThresholds();
 
   // If snapshot_seq != kMaxSequenceNumber, then this function can only be
   // called from the write thread that publishes sequence numbers to readers.
@@ -3243,6 +3268,7 @@ class DBImpl : public DB
   // See also InstallSuperVersionForConfigChange().
   void InstallSuperVersionAndScheduleWork(
       ColumnFamilyData* cfd, SuperVersionContext* sv_context,
+      bool defer_snapshot_refresh,
       std::optional<std::shared_ptr<SeqnoToTimeMapping>>
           new_seqno_to_time_mapping = {});
 
@@ -3744,7 +3770,8 @@ class DBImpl : public DB
   // threads. Protected by wal_write_mutex_.
   autovector<log::Writer*> wals_to_free_;
 
-  bool is_snapshot_supported_ = true;
+  // Written with mutex_ held. Read without mutex_ when creating a snapshot.
+  std::atomic<bool> is_snapshot_supported_{true};
 
   std::map<uint64_t, std::map<std::string, uint64_t>> stats_history_;
 
@@ -3774,7 +3801,13 @@ class DBImpl : public DB
 
   TrimHistoryScheduler trim_history_scheduler_;
 
-  SnapshotList snapshots_;
+  // Shard locks inside snapshots_ are leaf locks: they may be acquired while
+  // holding mutex_, but mutex_ must never be acquired while holding one.
+  // GetSnapshotImpl() reads a snapshot's sequence number inside the shard lock
+  // that adds it. Flush and compaction combine that ordering with their
+  // DB-mutex-protected input boundary and, when required, a managed snapshot or
+  // published-sequence pin in InitSnapshotContext().
+  ShardedSnapshotList snapshots_;
 
   TimestampedSnapshotList timestamped_snapshots_;
 
@@ -3980,14 +4013,21 @@ class DBImpl : public DB
   // Guard against multiple concurrent refitting
   bool refitting_level_ = false;
 
-  // The min threshold to triggere bottommost compaction for removing
-  // garbages, among all column families.
+  // The minimum threshold for triggering bottommost compaction to remove
+  // garbage across all column families. Protected by mutex_.
   SequenceNumber bottommost_files_mark_threshold_ = kMaxSequenceNumber;
 
-  // The min threshold to trigger compactions for standalone range deletion
-  // files that are marked for compaction.
+  // The minimum threshold for triggering compactions of standalone range
+  // deletion files across all column families. Protected by mutex_.
   SequenceNumber standalone_range_deletion_files_mark_threshold_ =
       kMaxSequenceNumber;
+
+  // Largest exact oldest-snapshot sequence processed. Protected by mutex_.
+  SequenceNumber last_processed_oldest_snapshot_ = 0;
+
+  // Sum of the per-shard snapshot release counts at the last exact refresh.
+  // Protected by mutex_.
+  uint64_t last_processed_snapshot_release_count_ = 0;
 
   LogsWithPrepTracker logs_with_prep_tracker_;
 

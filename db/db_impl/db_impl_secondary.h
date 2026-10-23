@@ -149,6 +149,8 @@ class DBImplSecondary : public DBImpl {
                       const std::vector<ColumnFamilyHandle*>& column_families,
                       std::vector<Iterator*>* iterators) override;
 
+  const Snapshot* GetSnapshot() override;
+
   using DBImpl::Put;
   Status Put(const WriteOptions& /*options*/,
              ColumnFamilyHandle* /*column_family*/, const Slice& /*key*/,

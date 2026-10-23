@@ -885,6 +885,12 @@ Status DBImplSecondary::NewIterators(
   return NewIteratorsImpl(read_options, column_families, iterators);
 }
 
+const Snapshot* DBImplSecondary::GetSnapshot() {
+  TEST_SYNC_POINT("DBImplSecondary::GetSnapshot:BeforeMutexLock");
+  return GetSnapshotImpl(/*is_write_conflict_boundary=*/false,
+                         SnapshotLockMode::kAcquireDBMutex);
+}
+
 Status DBImplSecondary::NewIteratorsImpl(
     const std::vector<ReadOptions>& read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
