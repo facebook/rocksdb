@@ -1796,12 +1796,14 @@ TEST_F(IODispatcherTest, StatisticsTracking) {
   std::shared_ptr<ReadSet> read_set2;
   s = dispatcher->SubmitJob(job, &read_set2);
   ASSERT_OK(s);
+  EXPECT_EQ(read_set2->GetNumCacheHits(), block_handles.size());
 
   for (size_t i = 0; i < block_handles.size(); ++i) {
     CachableEntry<Block> block;
     Status read_status = read_set2->ReadIndex(i, &block);
     ASSERT_OK(read_status);
     ASSERT_NE(block.GetValue(), nullptr);
+    read_set2->ReleaseBlock(i);
   }
 
   // After reading all blocks, verify statistics
@@ -2571,6 +2573,57 @@ TEST_F(IODispatcherTest, BlockReleaseTriggersWaitingJob) {
   }
 }
 
+TEST_F(IODispatcherTest, DrainedSchedulerDoesNotStrandWaitingJob) {
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = nullptr;
+  table_options.block_size = 16 * 1024;
+  table_options.no_block_cache = true;
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(20, &table, &block_handles, &table_options));
+  ASSERT_GE(block_handles.size(), 2);
+
+  size_t second_block = 1;
+  const size_t budget =
+      BlockBasedTable::BlockSizeWithTrailer(block_handles.front());
+  while (second_block < block_handles.size() &&
+         BlockBasedTable::BlockSizeWithTrailer(block_handles[second_block]) >
+             budget) {
+    ++second_block;
+  }
+  ASSERT_LT(second_block, block_handles.size());
+
+  IODispatcherOptions options;
+  options.max_prefetch_memory_bytes = budget;
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(options));
+
+  auto first_job = std::make_shared<IOJob>();
+  first_job->block_handles = {block_handles.front(),
+                              block_handles[second_block]};
+  first_job->table = table.get();
+  first_job->job_options.read_options.async_io = false;
+  first_job->job_options.block_handles_are_sorted = true;
+
+  std::shared_ptr<ReadSet> first_read_set;
+  ASSERT_OK(dispatcher->SubmitJob(first_job, &first_read_set));
+  ASSERT_EQ(first_read_set->GetNumBlocksPrefetched(), 1);
+
+  auto waiting_job = std::make_shared<IOJob>();
+  waiting_job->block_handles = {block_handles.front()};
+  waiting_job->table = table.get();
+  waiting_job->job_options.read_options.async_io = false;
+  waiting_job->job_options.block_handles_are_sorted = true;
+
+  std::shared_ptr<ReadSet> waiting_read_set;
+  ASSERT_OK(dispatcher->SubmitJob(waiting_job, &waiting_read_set));
+  ASSERT_EQ(waiting_read_set->GetNumBlocksPrefetched(), 0);
+
+  first_read_set->ReleaseBlock(1);
+  first_read_set->ReleaseBlock(0);
+  EXPECT_EQ(waiting_read_set->GetNumBlocksPrefetched(), 1);
+}
+
 // Test that multiple ReadSets share the memory budget
 TEST_F(IODispatcherTest, MultipleReadSetsShareMemoryBudget) {
   IODispatcherOptions opts;
@@ -2721,6 +2774,43 @@ TEST_F(IODispatcherTest, MemoryReleasedOnReadSetDestruction) {
     CachableEntry<Block> block;
     Status read_status = read_set2->ReadIndex(i, &block);
     ASSERT_OK(read_status);
+    ASSERT_NE(block.GetValue(), nullptr);
+  }
+}
+
+TEST_F(IODispatcherTest, ReadSetOutlivesDispatcher) {
+  auto statistics = CreateDBStatistics();
+  IODispatcherOptions options;
+  options.max_prefetch_memory_bytes = 10 * 1024 * 1024;
+  options.statistics = statistics.get();
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(20, &table, &block_handles));
+
+  std::shared_ptr<ReadSet> read_set;
+  {
+    std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(options));
+    auto job = std::make_shared<IOJob>();
+    job->block_handles = block_handles;
+    job->table = table.get();
+    job->job_options.read_options.async_io = false;
+    ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  }
+
+  const uint64_t released_before =
+      statistics->getTickerCount(PREFETCH_MEMORY_BYTES_RELEASED);
+  for (size_t block_index = 0; block_index < block_handles.size();
+       ++block_index) {
+    read_set->ReleaseBlock(block_index);
+  }
+  EXPECT_EQ(released_before,
+            statistics->getTickerCount(PREFETCH_MEMORY_BYTES_RELEASED));
+
+  for (size_t block_index = 0; block_index < block_handles.size();
+       ++block_index) {
+    CachableEntry<Block> block;
+    ASSERT_OK(read_set->ReadIndex(block_index, &block));
     ASSERT_NE(block.GetValue(), nullptr);
   }
 }
