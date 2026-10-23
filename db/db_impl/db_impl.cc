@@ -7861,6 +7861,20 @@ Status DBImpl::CommitFileIngestionHandles(
           versions_->SetLastSequence(max_assigned_seqno);
         }
       }
+      // An iterator whose Version predates the ingestion cannot see the
+      // ingested files, whatever sequence number it reads at: files can get
+      // no new seqno (seqno zero, ingest_behind, DB-generated files), and an
+      // iterator can pair an older SuperVersion with a newer sequence number.
+      // Such iterators must not convert tombstones over the ingested files.
+      // We still hold the per-CF ingest_sst_lock as a ReadLock, so no
+      // conversion runs until the barrier is in place.
+      if (status.ok()) {
+        for (auto* job : ingestion_jobs) {
+          auto* cfd = job->GetColumnFamilyData();
+          cfd->mem()->BumpIngestVersionBarrier(
+              cfd->current()->GetVersionNumber());
+        }
+      }
     }
 
     for (auto* job : ingestion_jobs) {

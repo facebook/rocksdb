@@ -1427,6 +1427,7 @@ struct AdvancedColumnFamilyOptions {
   // * prefix extractor reads that are neither total-order
   //   (ReadOptions::total_order_seek / ReadOptions::auto_prefix_mode) nor
   //   bounded by ReadOptions::prefix_same_as_start
+  // * reads with ReadOptions::read_tier other than kReadAllTier
   //
   // Even if the above restrictions are met, there are still scenarios where a
   // converted range tombstone may be discarded:
@@ -1439,7 +1440,8 @@ struct AdvancedColumnFamilyOptions {
   //     and the snapshot seq is at or above its min uncommitted seq.
   //   * An IngestExternalFile call is currently in flight on this column
   //     family OR the inserted range tombstone seqno would be lower than the
-  //     ingested file seqno.
+  //     ingested file seqno OR the iterator's Version predates a file
+  //     ingested while the active memtable was current.
   //
   // Read-write iterators using ReadOptions::table_filter are rejected while
   // this option is enabled, see more details in ReadOptions::table_filter

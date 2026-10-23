@@ -972,7 +972,7 @@ void MemTable::ConstructFragmentedRangeTombstones() {
 
 bool MemTable::AddLogicallyRedundantRangeTombstone(
     SequenceNumber seq, const Slice& start_key, const Slice& end_key,
-    port::RWMutex& ingest_sst_lock) {
+    uint64_t version_number, port::RWMutex& ingest_sst_lock) {
   // Fast path: skip if already immutable.
   if (is_immutable_.LoadRelaxed()) {
     return false;
@@ -1016,6 +1016,11 @@ bool MemTable::AddLogicallyRedundantRangeTombstone(
   if (seq < ingest_seqno_barrier_.LoadRelaxed()) {
     return false;
   }
+  // The iterator's Version predates an ingestion, so the deleted run it saw
+  // can surround ingested keys that it cannot see.
+  if (version_number < ingest_version_barrier_.LoadRelaxed()) {
+    return false;
+  }
 
   MemTablePostProcessInfo post_process_info;
   Status s = Add(seq, kTypeRangeDeletion, start_key, end_key,
@@ -1031,6 +1036,12 @@ bool MemTable::AddLogicallyRedundantRangeTombstone(
 void MemTable::BumpIngestSeqnoBarrier(SequenceNumber y) {
   if (ingest_seqno_barrier_.LoadRelaxed() < y) {
     ingest_seqno_barrier_.StoreRelaxed(y);
+  }
+}
+
+void MemTable::BumpIngestVersionBarrier(uint64_t version_number) {
+  if (ingest_version_barrier_.LoadRelaxed() < version_number) {
+    ingest_version_barrier_.StoreRelaxed(version_number);
   }
 }
 

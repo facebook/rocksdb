@@ -96,6 +96,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       trace_cf_id_(cfd != nullptr ? cfd->GetID() : 0),
       has_trace_state_(db_impl != nullptr && cfd != nullptr),
       ingest_sst_lock_(cfd != nullptr ? &cfd->GetIngestSstLock() : nullptr),
+      version_number_(version != nullptr ? version->GetVersionNumber() : 0),
       timestamp_ub_(read_options.timestamp),
       timestamp_lb_(read_options.iter_start_ts),
       timestamp_size_(timestamp_ub_ ? timestamp_ub_->size() : 0),
@@ -117,13 +118,15 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                                      read_options.total_order_seek ||
                                      read_options.auto_prefix_mode),
       // Read-path range conversion assumes the scan can observe all interior
-      // live keys. table_filter can hide whole SSTs, and timestamp filtering
+      // live keys. table_filter can hide whole SSTs, read tiers other than
+      // kReadAllTier can skip SSTs or uncached blocks, and timestamp filtering
       // can hide newer UDT versions unless the read is at max timestamp with no
       // lower timestamp bound. Legacy prefix iterators without
       // prefix_same_as_start do not guarantee complete scans, so conversion
       // must stay disabled for the iterator lifetime.
       min_tombstones_for_range_conversion_(
           active_mem != nullptr && !HasTableFilter(read_options) &&
+                  read_options.read_tier == kReadAllTier &&
                   (expect_total_order_inner_iter_ || prefix_same_as_start_) &&
                   HasFullTimestampVisibility(read_options)
               ? mutable_cf_options.min_tombstones_for_range_conversion
@@ -1831,7 +1834,7 @@ void DBIter::MaybeInsertRangeTombstone(const Slice& end_key) {
   assert(ingest_sst_lock_ != nullptr);
   if (active_mem_->AddLogicallyRedundantRangeTombstone(
           insert_seq, range_tomb_first_key_.GetUserKey(), end_key,
-          *ingest_sst_lock_)) {
+          version_number_, *ingest_sst_lock_)) {
     RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_INSERTED);
     ROCKS_LOG_DEBUG(logger_,
                     "Inserted range tombstone [%s, %s) @ seq %" PRIu64
