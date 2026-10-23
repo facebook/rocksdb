@@ -268,6 +268,22 @@ std::string SessionTmpDir(const std::string& dbname) {
   return result;
 }
 
+std::string AutoTuneDirName(const std::string& tuning_dir) {
+  if (tuning_dir.empty()) {
+    return kAutoTuneDirName;
+  }
+  if (tuning_dir.find_first_of("/\\") != std::string::npos) {
+    return "";
+  }
+  return tuning_dir;
+}
+
+std::string AutoTuneDir(const std::string& dbname,
+                        const std::string& tuning_dir) {
+  const std::string name = AutoTuneDirName(tuning_dir);
+  return name.empty() ? tuning_dir : dbname + "/" + name;
+}
+
 std::string RemoteCompactionJobDir(const std::string& dbname,
                                    bool use_output_root_dir,
                                    const std::string& job_dir_name) {

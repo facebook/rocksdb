@@ -26,6 +26,7 @@
 #include "options/options_helper.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
+#include "rocksdb/utilities/auto_tune.h"
 #include "rocksdb/wal_filter.h"
 #include "test_util/sync_point.h"
 #include "util/rate_limiter_impl.h"
@@ -243,6 +244,8 @@ Status DBImpl::ValidateOptions(
 }
 
 Status DBImpl::ValidateOptions(const DBOptions& db_options) {
+  // auto_tune is not checked here: StartAutoTune() logs bad settings and the
+  // DB runs without auto-tuning.
   if (db_options.read_io_executor_threads <= 0) {
     return Status::InvalidArgument(
         "read_io_executor_threads must be greater than zero");
@@ -3070,6 +3073,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
   if (s.ok()) {
     s = impl->RegisterRecordSeqnoTimeWorker();
+  }
+  if (s.ok()) {
+    impl->StartAutoTune();
   }
   options_lock.Unlock();
   if (cleanup_obsolete_options_files) {

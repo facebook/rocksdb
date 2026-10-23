@@ -36,6 +36,20 @@ public class MutableDBOptionsTest {
     assertThat(builder.avoidFlushDuringShutdown()).isEqualTo(false);
   }
 
+  // auto_tune has empty braced strings by default, and its intent can be JSON.
+  @Test
+  public void parseSkipsBracedFreeFormValues() {
+    for (final String intent :
+        new String[] {"{}", "{{\"objectives\"\\: [{\"metric\"\\: \"ops_per_sec\"}]}}"}) {
+      final MutableDBOptionsBuilder builder =
+          MutableDBOptions.parse("max_background_jobs=5;auto_tune={mode=kOff;intent=" + intent
+                  + ";allowed_options={};tuning_dir=;tuner=nullptr};max_open_files=7",
+              true);
+      assertThat(builder.maxBackgroundJobs()).isEqualTo(5);
+      assertThat(builder.maxOpenFiles()).isEqualTo(7);
+    }
+  }
+
   @Test(expected = NoSuchElementException.class)
   public void builder_getWhenNotSet() {
     final MutableDBOptionsBuilder builder =

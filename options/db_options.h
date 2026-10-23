@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/auto_tune.h"
 #include "rocksdb/options.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -163,6 +164,7 @@ struct MutableDBOptions {
   bool optimize_manifest_for_recovery;
   bool fast_sst_open;
   bool remote_compaction_manifest_floor;
+  AutoTuneOptions auto_tune;
 };
 
 Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,
@@ -176,5 +178,10 @@ Status GetMutableDBOptionsFromStrings(
 
 bool MutableDBOptionsAreEqual(const MutableDBOptions& this_options,
                               const MutableDBOptions& that_options);
+
+// Same settings, including a tuner of the same type with the same options
+// (not necessarily the same object).
+bool AutoTuneOptionsAreEqual(const AutoTuneOptions& this_options,
+                             const AutoTuneOptions& that_options);
 
 }  // namespace ROCKSDB_NAMESPACE

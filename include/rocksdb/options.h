@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "rocksdb/advanced_options.h"
+#include "rocksdb/auto_tune.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/customizable.h"
@@ -2027,6 +2028,23 @@ struct DBOptions {
   // re-opening of those files on DB open. This will help cut down DB open
   // latency on remote storage systems.
   bool fast_sst_open = false;
+
+  // EXPERIMENTAL
+  // Auto-tuning: trace short windows of live traffic, hand them to a tuner,
+  // and report or apply the options it recommends after checks RocksDB owns.
+  // Off by default. See rocksdb/auto_tune.h. Can be changed with
+  // SetDBOptions("auto_tune={...}"): a new setting stops the running driver
+  // (a window in progress ends) and starts one with the new setting;
+  // mode=kOff stops it; the same setting changes nothing. A value that leaves
+  // out `tuner` keeps the tuner object (and whatever it holds), and with it a
+  // watch in progress and the recommendations already acted on; one with
+  // `tuner=...` makes a new tuner. SetDBOptions() rejects a setting that fails
+  // AutoTuneDriver::ValidateOptions(). Read-only and secondary instances do
+  // not run it. A setting that cannot start (for example, an allowed option
+  // the DB does not have) fails neither DB::Open() nor SetDBOptions(): the
+  // reason is logged and the DB runs without auto-tuning until a later
+  // SetDBOptions() with auto_tune.
+  AutoTuneOptions auto_tune;
 
   // End EXPERIMENTAL
 };

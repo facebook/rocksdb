@@ -95,6 +95,7 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.delete_obsolete_files_period_micros =
       mutable_db_options.delete_obsolete_files_period_micros;
   options.max_background_jobs = mutable_db_options.max_background_jobs;
+  options.auto_tune = mutable_db_options.auto_tune;
   options.max_background_compactions =
       mutable_db_options.max_background_compactions;
   options.max_subcompactions = mutable_db_options.max_subcompactions;
