@@ -40,12 +40,24 @@ bool CassandraValueMergeOperator::FullMergeV2(
   merge_out->new_value.clear();
   std::vector<RowValue> row_values;
   if (merge_in.existing_value) {
-    row_values.push_back(RowValue::Deserialize(
-        merge_in.existing_value->data(), merge_in.existing_value->size()));
+    RowValue val;
+    if (!RowValue::Deserialize(merge_in.existing_value->data(),
+                               merge_in.existing_value->size(), &val)) {
+      return false;
+    }
+    row_values.push_back(std::move(val));
   }
 
   for (auto& operand : merge_in.operand_list) {
-    row_values.push_back(RowValue::Deserialize(operand.data(), operand.size()));
+    RowValue val;
+    if (!RowValue::Deserialize(operand.data(), operand.size(), &val)) {
+      return false;
+    }
+    row_values.push_back(std::move(val));
+  }
+
+  if (row_values.empty()) {
+    return false;
   }
 
   RowValue merged = RowValue::Merge(std::move(row_values));
@@ -65,8 +77,17 @@ bool CassandraValueMergeOperator::PartialMergeMulti(
 
   std::vector<RowValue> row_values;
   for (auto& operand : operand_list) {
-    row_values.push_back(RowValue::Deserialize(operand.data(), operand.size()));
+    RowValue val;
+    if (!RowValue::Deserialize(operand.data(), operand.size(), &val)) {
+      return false;
+    }
+    row_values.push_back(std::move(val));
   }
+
+  if (row_values.empty()) {
+    return false;
+  }
+
   RowValue merged = RowValue::Merge(std::move(row_values));
   new_value->reserve(merged.Size());
   merged.Serialize(new_value);

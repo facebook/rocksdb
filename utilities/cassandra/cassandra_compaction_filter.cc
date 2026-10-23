@@ -36,9 +36,13 @@ CompactionFilter::Decision CassandraCompactionFilter::FilterV2(
     int /*level*/, const Slice& /*key*/, ValueType value_type,
     const Slice& existing_value, std::string* new_value,
     std::string* /*skip_until*/) const {
+  RowValue row_value;
+  if (!RowValue::Deserialize(existing_value.data(), existing_value.size(),
+                             &row_value)) {
+    // Preserve malformed rows when decoding fails.
+    return Decision::kKeep;
+  }
   bool value_changed = false;
-  RowValue row_value =
-      RowValue::Deserialize(existing_value.data(), existing_value.size());
   RowValue compacted =
       options_.purge_ttl_on_expiration
           ? row_value.RemoveExpiredColumns(&value_changed)

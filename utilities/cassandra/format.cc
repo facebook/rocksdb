@@ -32,14 +32,28 @@ void ColumnBase::Serialize(std::string* dest) const {
 }
 
 std::shared_ptr<ColumnBase> ColumnBase::Deserialize(const char* src,
+                                                    std::size_t size,
                                                     std::size_t offset) {
+  if (src == nullptr || size < offset || size - offset < sizeof(int8_t)) {
+    return nullptr;
+  }
   int8_t mask = ROCKSDB_NAMESPACE::cassandra::Deserialize<int8_t>(src, offset);
+  constexpr int8_t kSupportedMasks =
+      ColumnTypeMask::DELETION_MASK | ColumnTypeMask::EXPIRATION_MASK;
+  if ((mask & ~kSupportedMasks) != 0) {
+    return nullptr;
+  }
+  if ((mask & ColumnTypeMask::DELETION_MASK) != 0 &&
+      (mask & ColumnTypeMask::EXPIRATION_MASK) != 0) {
+    return nullptr;
+  }
+
   if ((mask & ColumnTypeMask::DELETION_MASK) != 0) {
-    return Tombstone::Deserialize(src, offset);
+    return Tombstone::Deserialize(src, size, offset);
   } else if ((mask & ColumnTypeMask::EXPIRATION_MASK) != 0) {
-    return ExpiringColumn::Deserialize(src, offset);
+    return ExpiringColumn::Deserialize(src, size, offset);
   } else {
-    return Column::Deserialize(src, offset);
+    return Column::Deserialize(src, size, offset);
   }
 }
 
@@ -64,8 +78,13 @@ void Column::Serialize(std::string* dest) const {
   dest->append(value_, value_size_);
 }
 
-std::shared_ptr<Column> Column::Deserialize(const char* src,
+std::shared_ptr<Column> Column::Deserialize(const char* src, std::size_t size,
                                             std::size_t offset) {
+  constexpr std::size_t kHeaderSize =
+      sizeof(int8_t) + sizeof(int8_t) + sizeof(int64_t) + sizeof(int32_t);
+  if (src == nullptr || size < offset || size - offset < kHeaderSize) {
+    return nullptr;
+  }
   int8_t mask = ROCKSDB_NAMESPACE::cassandra::Deserialize<int8_t>(src, offset);
   offset += sizeof(mask);
   int8_t index = ROCKSDB_NAMESPACE::cassandra::Deserialize<int8_t>(src, offset);
@@ -76,6 +95,11 @@ std::shared_ptr<Column> Column::Deserialize(const char* src,
   int32_t value_size =
       ROCKSDB_NAMESPACE::cassandra::Deserialize<int32_t>(src, offset);
   offset += sizeof(value_size);
+
+  if (value_size < 0 ||
+      static_cast<std::size_t>(value_size) > (size - offset)) {
+    return nullptr;
+  }
   return std::make_shared<Column>(mask, index, timestamp, value_size,
                                   src + offset);
 }
@@ -120,7 +144,13 @@ std::shared_ptr<Tombstone> ExpiringColumn::ToTombstone() const {
 }
 
 std::shared_ptr<ExpiringColumn> ExpiringColumn::Deserialize(
-    const char* src, std::size_t offset) {
+    const char* src, std::size_t size, std::size_t offset) {
+  constexpr std::size_t kMinSize = sizeof(int8_t) + sizeof(int8_t) +
+                                   sizeof(int64_t) + sizeof(int32_t) +
+                                   sizeof(int32_t);
+  if (src == nullptr || size < offset || size - offset < kMinSize) {
+    return nullptr;
+  }
   int8_t mask = ROCKSDB_NAMESPACE::cassandra::Deserialize<int8_t>(src, offset);
   offset += sizeof(mask);
   int8_t index = ROCKSDB_NAMESPACE::cassandra::Deserialize<int8_t>(src, offset);
@@ -131,6 +161,11 @@ std::shared_ptr<ExpiringColumn> ExpiringColumn::Deserialize(
   int32_t value_size =
       ROCKSDB_NAMESPACE::cassandra::Deserialize<int32_t>(src, offset);
   offset += sizeof(value_size);
+
+  if (value_size < 0 || static_cast<std::size_t>(value_size) >
+                            (size - offset - sizeof(int32_t))) {
+    return nullptr;
+  }
   const char* value = src + offset;
   offset += value_size;
   int32_t ttl = ROCKSDB_NAMESPACE::cassandra::Deserialize<int32_t>(src, offset);
@@ -165,7 +200,13 @@ bool Tombstone::Collectable(int32_t gc_grace_period_in_seconds) const {
 }
 
 std::shared_ptr<Tombstone> Tombstone::Deserialize(const char* src,
+                                                  std::size_t size,
                                                   std::size_t offset) {
+  constexpr std::size_t kHeaderSize =
+      sizeof(int8_t) + sizeof(int8_t) + sizeof(int32_t) + sizeof(int64_t);
+  if (src == nullptr || size < offset || size - offset < kHeaderSize) {
+    return nullptr;
+  }
   int8_t mask = ROCKSDB_NAMESPACE::cassandra::Deserialize<int8_t>(src, offset);
   offset += sizeof(mask);
   int8_t index = ROCKSDB_NAMESPACE::cassandra::Deserialize<int8_t>(src, offset);
@@ -278,32 +319,67 @@ RowValue RowValue::RemoveTombstones(int32_t gc_grace_period) const {
 
 bool RowValue::Empty() const { return columns_.empty(); }
 
-RowValue RowValue::Deserialize(const char* src, std::size_t size) {
+bool RowValue::Deserialize(const char* src, std::size_t size, RowValue* value) {
+  constexpr std::size_t kRowHeaderSize = sizeof(int32_t) + sizeof(int64_t);
+  if (src == nullptr || size < kRowHeaderSize) {
+    return false;
+  }
   std::size_t offset = 0;
-  assert(size >= sizeof(local_deletion_time_) + sizeof(marked_for_delete_at_));
   int32_t local_deletion_time =
       ROCKSDB_NAMESPACE::cassandra::Deserialize<int32_t>(src, offset);
   offset += sizeof(int32_t);
   int64_t marked_for_delete_at =
       ROCKSDB_NAMESPACE::cassandra::Deserialize<int64_t>(src, offset);
   offset += sizeof(int64_t);
+
   if (offset == size) {
-    return RowValue(local_deletion_time, marked_for_delete_at);
+    if (value) {
+      *value = RowValue(local_deletion_time, marked_for_delete_at);
+    }
+    return true;
   }
 
-  assert(local_deletion_time == kDefaultLocalDeletionTime);
-  assert(marked_for_delete_at == kDefaultMarkedForDeleteAt);
+  if (local_deletion_time != kDefaultLocalDeletionTime ||
+      marked_for_delete_at != kDefaultMarkedForDeleteAt) {
+    return false;
+  }
+
   Columns columns;
   int64_t last_modified_time = 0;
   while (offset < size) {
-    auto c = ColumnBase::Deserialize(src, offset);
-    offset += c->Size();
-    assert(offset <= size);
+    auto c = ColumnBase::Deserialize(src, size, offset);
+    if (!c) {
+      return false;
+    }
+    std::size_t col_size = c->Size();
+    if (col_size == 0 || col_size > size - offset) {
+      return false;
+    }
+    offset += col_size;
     last_modified_time = std::max(last_modified_time, c->Timestamp());
     columns.push_back(std::move(c));
   }
 
-  return RowValue(std::move(columns), last_modified_time);
+  if (value) {
+    *value = RowValue(std::move(columns), last_modified_time);
+  }
+  return true;
+}
+
+RowValue RowValue::Deserialize(const char* src, std::size_t size,
+                               bool* success) {
+  RowValue row;
+  bool ok = Deserialize(src, size, &row);
+  if (success) {
+    *success = ok;
+  }
+  return row;
+}
+
+RowValue RowValue::Deserialize(const char* src, std::size_t size) {
+  RowValue row;
+  Deserialize(src, size, &row);
+  return row;
 }
 
 // Merge multiple row values into one.
@@ -312,7 +388,9 @@ RowValue RowValue::Deserialize(const char* src, std::size_t size) {
 // each row from reverse timestamp order, and stop once we hit the first
 // row tombstone.
 RowValue RowValue::Merge(std::vector<RowValue>&& values) {
-  assert(values.size() > 0);
+  if (values.empty()) {
+    return RowValue();
+  }
   if (values.size() == 1) {
     return std::move(values[0]);
   }
