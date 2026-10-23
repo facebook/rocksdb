@@ -362,6 +362,67 @@ TEST_F(DBSecondaryTest, ReopenAsSecondary) {
                            &result));
   ASSERT_EQ(result.columns(), columns);
 
+  {
+    PinnableWideColumns get_entity_result;
+    OutputMetadata get_entity_output_metadata;
+    get_entity_output_metadata.WantNewerVersionPresent();
+    ASSERT_OK(db_->GetEntityWithMetadata(
+        ReadOptions(), "baz", &get_entity_result, &get_entity_output_metadata));
+    ASSERT_EQ(get_entity_result.columns(), columns);
+    ASSERT_FALSE(*get_entity_output_metadata.newer_version_present);
+
+    const std::array<Slice, 2> entity_keys{{"baz", "missing"}};
+    std::array<PinnableWideColumns, 2> entity_results;
+    std::array<Status, 2> entity_statuses;
+    MultiGetOutputMetadata entity_output_metadata;
+    entity_output_metadata.WantNewerVersionPresent();
+    db_->MultiGetEntityWithMetadata(
+        ReadOptions(), db_->DefaultColumnFamily(), entity_keys.size(),
+        entity_keys.data(), entity_results.data(), entity_statuses.data(),
+        &entity_output_metadata);
+    ASSERT_OK(entity_statuses[0]);
+    ASSERT_EQ(entity_results[0].columns(), columns);
+    ASSERT_TRUE(entity_statuses[1].IsNotFound());
+    ASSERT_EQ(*entity_output_metadata.newer_version_present,
+              (std::vector<uint8_t>{0, 0}));
+
+    std::array<PinnableAttributeGroups, 2> attribute_group_results;
+    attribute_group_results[0].emplace_back(db_->DefaultColumnFamily());
+    attribute_group_results[1].emplace_back(db_->DefaultColumnFamily());
+    db_->MultiGetEntityWithMetadata(
+        ReadOptions(), entity_keys.size(), entity_keys.data(),
+        attribute_group_results.data(), &entity_output_metadata);
+    ASSERT_OK(attribute_group_results[0][0].status());
+    ASSERT_EQ(attribute_group_results[0][0].columns(), columns);
+    ASSERT_TRUE(attribute_group_results[1][0].status().IsNotFound());
+    ASSERT_EQ(*entity_output_metadata.newer_version_present,
+              (std::vector<uint8_t>{0, 0}));
+
+    // Explicit-snapshot tracking is rejected in secondary mode.
+    ManagedSnapshot snapshot(db_.get());
+    ReadOptions snapshot_read_options;
+    snapshot_read_options.snapshot = snapshot.snapshot();
+    ASSERT_NE(snapshot_read_options.snapshot, nullptr);
+    ASSERT_TRUE(db_->GetEntityWithMetadata(snapshot_read_options, "baz",
+                                           &get_entity_result,
+                                           &get_entity_output_metadata)
+                    .IsNotSupported());
+    db_->MultiGetEntityWithMetadata(
+        snapshot_read_options, db_->DefaultColumnFamily(), entity_keys.size(),
+        entity_keys.data(), entity_results.data(), entity_statuses.data(),
+        &entity_output_metadata);
+    for (const Status& s : entity_statuses) {
+      ASSERT_TRUE(s.IsNotSupported()) << s.ToString();
+    }
+    db_->MultiGetEntityWithMetadata(
+        snapshot_read_options, entity_keys.size(), entity_keys.data(),
+        attribute_group_results.data(), &entity_output_metadata);
+    for (const auto& group : attribute_group_results) {
+      ASSERT_TRUE(group[0].status().IsNotSupported())
+          << group[0].status().ToString();
+    }
+  }
+
   ReadOptions ropts;
   ropts.verify_checksums = true;
   auto db1 = static_cast<DBImplSecondary*>(db_.get());
