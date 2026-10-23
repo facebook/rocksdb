@@ -343,6 +343,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOB_DB_LAZY_PARTIAL_READ_COUNT, "rocksdb.blobdb.lazy.partial.read.count"},
     {BLOB_DB_LAZY_PARTIAL_BYTES_SAVED,
      "rocksdb.blobdb.lazy.partial.bytes.saved"},
+    {WRITE_BUFFER_MANAGER_STALL_MICROS,
+     "rocksdb.write_buffer_manager.stall.micros"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
