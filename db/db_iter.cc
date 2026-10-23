@@ -92,6 +92,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       num_internal_keys_skipped_(0),
       iterate_lower_bound_(read_options.iterate_lower_bound),
       iterate_upper_bound_(read_options.iterate_upper_bound),
+      trace_read_options_(read_options),
       trace_db_(db_impl),
       trace_cf_id_(cfd != nullptr ? cfd->GetID() : 0),
       has_trace_state_(db_impl != nullptr && cfd != nullptr),
@@ -2080,7 +2081,9 @@ void DBIter::Seek(const Slice& target) {
     } else {
       upper_bound = Slice("");
     }
-    trace_db_->TraceIteratorSeek(trace_cf_id_, target, lower_bound, upper_bound)
+    trace_db_
+        ->TraceIteratorSeek(trace_cf_id_, target, lower_bound, upper_bound,
+                            trace_read_options_)
         .PermitUncheckedError();
   }
 
@@ -2204,7 +2207,7 @@ void DBIter::SeekForPrev(const Slice& target) {
     }
     trace_db_
         ->TraceIteratorSeekForPrev(trace_cf_id_, target, lower_bound,
-                                   upper_bound)
+                                   upper_bound, trace_read_options_)
         .PermitUncheckedError();
   }
 

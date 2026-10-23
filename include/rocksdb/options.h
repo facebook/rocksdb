@@ -3270,6 +3270,24 @@ struct TraceOptions {
   // Default: false. This means write records in the trace may be in an order
   // different from the WAL's order.
   bool preserve_write_order = false;
+  // When true, each query record also holds the options of its call, and
+  // replay uses them instead of default options:
+  // - writes: WriteOptions::sync, disableWAL, no_slowdown and
+  //   rate_limiter_priority;
+  // - Get, MultiGet and iterator seeks: ReadOptions::verify_checksums,
+  //   fill_cache, ignore_range_deletions, async_io, optimize_multiget_for_io,
+  //   tailing, total_order_seek, auto_prefix_mode, prefix_same_as_start,
+  //   pin_data, adaptive_readahead, background_purge_on_iterator_cleanup,
+  //   auto_readahead_size, allow_unprepared_value, read_tier,
+  //   rate_limiter_priority, readahead_size, max_skippable_internal_keys and
+  //   value_size_soft_limit.
+  // Other fields (snapshots, timestamps, deadlines, callbacks and other
+  // pointers) are not recorded. See WriteQueryTraceRecord::GetWriteOptions()
+  // and GetQueryTraceRecord::GetReadOptions().
+  //
+  // Off by default because older RocksDB versions do not know these record
+  // fields: their release builds ignore them, their debug builds assert.
+  bool include_read_write_options = false;
 };
 
 // ImportColumnFamilyOptions is used by ImportColumnFamily()
