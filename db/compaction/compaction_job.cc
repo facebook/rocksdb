@@ -407,11 +407,14 @@ void CompactionJob::Prepare(
   // being re-marked forever (infinite compaction loop). Other compaction
   // reasons keep the per-input-file boundary so their seqno-zeroing behavior is
   // unchanged. When preserve/preclude is inactive the version value is
-  // kMaxSequenceNumber, making this a no-op.
+  // kMaxSequenceNumber, making this a no-op. A remote compaction worker does
+  // not know the reason or the live mapping; it gets this boundary from the
+  // primary in CompactionServiceInput.
   if (c->compaction_reason() == CompactionReason::kBottommostFiles) {
-    preserve_time_min_seqno = std::max(preserve_time_min_seqno,
-                                       storage_info->GetPreserveTimeMinSeqno());
+    preserve_time_min_seqno_floor_ = storage_info->GetPreserveTimeMinSeqno();
   }
+  preserve_time_min_seqno =
+      std::max(preserve_time_min_seqno, preserve_time_min_seqno_floor_);
 
   // Preserve sequence numbers for preserved write times and snapshots, though
   // the specific sequence number of the earliest snapshot can be zeroed.
@@ -2276,13 +2279,13 @@ Status CompactionJob::FinishCompactionOutputFile(
     }
   }
 
+  outputs.ResetBuilder();
   if (s.ok() && ShouldUpdateSubcompactionProgress(sub_compact, c_iter,
                                                   prev_iter_output_internal_key,
                                                   next_table_min_key, meta)) {
     UpdateSubcompactionProgress(c_iter, next_table_min_key, sub_compact);
     s = PersistSubcompactionProgress(sub_compact);
   }
-  outputs.ResetBuilder();
   return s;
 }
 
@@ -2303,6 +2306,13 @@ bool CompactionJob::ShouldUpdateSubcompactionProgress(
 
   // TODO(hx235): save progress even on the last output file
   if (next_table_min_internal_key.empty()) {
+    return false;
+  }
+
+  // LIMITATION: With per-key placement, the other output level can still be
+  // writing a file that holds keys before this boundary. Progress only records
+  // finished output files, so it is not saved until no output file is open.
+  if (sub_compact->HasOpenOutputFile()) {
     return false;
   }
 
@@ -2355,7 +2365,9 @@ bool CompactionJob::ShouldUpdateSubcompactionProgress(
   // (looked ahead) in the input but not yet output. This can happen with merge
   // operations, single deletes, and deletes at the bottommost level where
   // CompactionIterator needs to look ahead to process multiple entries for the
-  // same user key before outputting a result. If we saved progress and resumed
+  // same user key before outputting a result. It also happens when newer
+  // versions of the user key were dropped before the current key, e.g. when
+  // they are covered by a range deletion. If we saved progress and resumed
   // at this boundary, the resumed session would see and process the same input
   // key again through Seek(), leading to incorrect double-counting in
   // number of processed input entries and input count verification failure
@@ -3146,6 +3158,9 @@ Status CompactionJob::MaybeResumeSubcompactionProgressOnInputIterator(
 
     const auto& output_files =
         subcompaction_progress_per_level.GetOutputFiles();
+    if (output_files.empty()) {
+      continue;
+    }
 
     std::vector<std::shared_ptr<const TableProperties>>
         output_files_table_properties;

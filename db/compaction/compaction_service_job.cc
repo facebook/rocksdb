@@ -52,6 +52,12 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   compaction_input.options_file_number = options_file_number_;
   compaction_input.min_manifest_file_number = min_manifest_file_number_;
   compaction_input.min_manifest_file_size = min_manifest_file_size_;
+  compaction_input.preserve_internal_time_seconds =
+      compaction->mutable_cf_options().preserve_internal_time_seconds;
+  compaction_input.preclude_last_level_data_seconds =
+      compaction->mutable_cf_options().preclude_last_level_data_seconds;
+  compaction_input.preserve_time_min_seqno_floor =
+      preserve_time_min_seqno_floor_;
 
   TEST_SYNC_POINT_CALLBACK(
       "CompactionServiceJob::ProcessKeyValueCompactionWithCompactionService",
@@ -366,6 +372,8 @@ void CompactionServiceCompactionJob::Prepare(
   if (compaction_input_.has_end) {
     end = compaction_input_.end;
   }
+  preserve_time_min_seqno_floor_ =
+      compaction_input_.preserve_time_min_seqno_floor;
   CompactionJob::Prepare(std::make_pair(begin, end), compaction_progress,
                          compaction_progress_writer);
 }
@@ -571,6 +579,18 @@ static std::unordered_map<std::string, OptionTypeInfo> cs_input_type_info = {
       OptionTypeFlags::kNone}},
     {"min_manifest_file_size",
      {offsetof(struct CompactionServiceInput, min_manifest_file_size),
+      OptionType::kUInt64T, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone}},
+    {"preserve_internal_time_seconds",
+     {offsetof(struct CompactionServiceInput, preserve_internal_time_seconds),
+      OptionType::kUInt64T, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone}},
+    {"preclude_last_level_data_seconds",
+     {offsetof(struct CompactionServiceInput, preclude_last_level_data_seconds),
+      OptionType::kUInt64T, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone}},
+    {"preserve_time_min_seqno_floor",
+     {offsetof(struct CompactionServiceInput, preserve_time_min_seqno_floor),
       OptionType::kUInt64T, OptionVerificationType::kNormal,
       OptionTypeFlags::kNone}},
 };

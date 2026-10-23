@@ -192,6 +192,11 @@ class SubcompactionState {
     return *current_outputs_;
   }
 
+  bool HasOpenOutputFile() const {
+    return compaction_outputs_.HasBuilder() ||
+           proximal_level_outputs_.HasBuilder();
+  }
+
   CompactionOutputs* Outputs(bool is_proximal_level) {
     assert(compaction);
     if (is_proximal_level) {
