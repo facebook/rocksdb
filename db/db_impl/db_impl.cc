@@ -8258,11 +8258,16 @@ Status DBImpl::ClipColumnFamily(ColumnFamilyHandle* column_family,
     {
       // Lock db mutex
       InstrumentedMutexLock l(&mutex_);
-      Slice smallest_slice;
-      Slice largest_slice;
-      cfd->current()->GetSstFilesBoundaryKeys(&smallest_slice, &largest_slice);
-      smallest_buf.assign(smallest_slice.data(), smallest_slice.size());
-      largest_buf.assign(largest_slice.data(), largest_slice.size());
+      empty_after_delete =
+          cfd->current()->storage_info()->num_non_empty_levels() == 0;
+      if (!empty_after_delete) {
+        Slice smallest_slice;
+        Slice largest_slice;
+        cfd->current()->GetSstFilesBoundaryKeys(&smallest_slice,
+                                                &largest_slice);
+        smallest_buf.assign(smallest_slice.data(), smallest_slice.size());
+        largest_buf.assign(largest_slice.data(), largest_slice.size());
+      }
     }
     Slice smallest_user_key(smallest_buf);
     Slice largest_user_key(largest_buf);
@@ -8270,10 +8275,7 @@ Status DBImpl::ClipColumnFamily(ColumnFamilyHandle* column_family,
     // boundary keys were read from) can be replaced and freed by a background
     // job before the deletes below run.
     TEST_SYNC_POINT("DBImpl::ClipColumnFamily:PostBoundaryKeys");
-    // all the files has been deleted after DeleteFilesInRanges;
-    if (smallest_user_key.empty() && largest_user_key.empty()) {
-      empty_after_delete = true;
-    } else {
+    if (!empty_after_delete) {
       const Comparator* const ucmp = column_family->GetComparator();
       // TODO: plumb Env::IOActivity, Env::IOPriority
       WriteOptions wo;

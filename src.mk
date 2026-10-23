@@ -295,6 +295,7 @@ LIB_SOURCES =                                                   \
   utilities/checkpoint/checkpoint_impl.cc                       \
   utilities/copy_engine/copy_engine.cc                         \
   utilities/compaction_filters.cc                               \
+  utilities/db_split_merge.cc                                   \
   utilities/sorted_run_builder/sorted_run_builder.cc            \
   utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc    \
   utilities/convenience/info_log_finder.cc                      \
@@ -456,6 +457,7 @@ TOOLS_MAIN_SOURCES =                                                    \
   db_stress_tool/db_stress.cc                                           \
   tools/blob_dump.cc                                                    \
   tools/block_cache_analyzer/block_cache_trace_analyzer_tool.cc         \
+  tools/db_split_merge.cc                                               \
   tools/db_repl_stress.cc                                               \
   tools/db_sanity_test.cc                                               \
   tools/ldb.cc                                                          \
@@ -514,6 +516,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_compaction_filter_test.cc                                       \
   db/db_compaction_test.cc                                              \
   db/db_clip_test.cc                                                    \
+  utilities/db_split_merge_test.cc                                     \
   db/db_dynamic_level_test.cc                                           \
   db/db_encryption_test.cc                                              \
   db/db_etc2_test.cc                                                    \
