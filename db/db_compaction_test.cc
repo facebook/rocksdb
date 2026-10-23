@@ -592,8 +592,6 @@ class FlushedFileCollector : public EventListener {
     return result;
   }
 
-  void ClearFlushedFiles() { flushed_files_.clear(); }
-
  private:
   std::vector<std::string> flushed_files_;
   std::mutex mutex_;

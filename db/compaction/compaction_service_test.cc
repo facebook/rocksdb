@@ -1393,9 +1393,9 @@ TEST_F(CompactionServiceTest, EmptyResult) {
           ColumnFamilyMetaData cf_meta;
           db_->GetColumnFamilyMetaData(&cf_meta);
           for (const auto& level : cf_meta.levels) {
-            for (const auto& file : level.files) {
+            if (!level.files.empty()) {
               // Use one of the existing file name
-              *n = test::GetFileNumber(file.name);
+              *n = test::GetFileNumber(level.files.front().name);
               need_to_override_file_number = false;
               return;
             }
