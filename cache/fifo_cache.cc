@@ -51,13 +51,17 @@ struct ALIGN_AS(CACHE_LINE_SIZE) ThreadReader {
   std::atomic<uint64_t> epoch{0};
   std::atomic<bool> owned{true};
   ThreadReader* next = nullptr;
+  // Distinct per reader, kept when another thread adopts it. Each shard keeps
+  // the ReaderSlot of reader i at index i, so a slot has one writer at a time.
+  uint32_t index = 0;
 };
 
 std::atomic<ThreadReader*>& ThreadReaders() {
   static std::atomic<ThreadReader*> head{nullptr};
   return head;
 }
-// Readers in ThreadReaders(). Sets how often a shard visits them all (see
+// Readers in ThreadReaders(), which is also the next new reader's index.
+// Sets how often a shard visits them all (see
 // FIFOCacheShard::ReaderWorkInterval).
 std::atomic<uint32_t>& ThreadReaderCount() {
   static std::atomic<uint32_t> count{0};
@@ -75,7 +79,7 @@ ThreadReader* AcquireThreadReader() {
     }
   }
   auto* r = new ThreadReader();
-  ThreadReaderCount().fetch_add(1, std::memory_order_relaxed);
+  r->index = ThreadReaderCount().fetch_add(1, std::memory_order_relaxed);
   r->next = ThreadReaders().load(std::memory_order_relaxed);
   while (!ThreadReaders().compare_exchange_weak(
       r->next, r, std::memory_order_release, std::memory_order_relaxed)) {
@@ -316,6 +320,9 @@ FIFOCacheShard::FIFOCacheShard(size_t capacity, bool strict_capacity_limit,
       used_length_(0),
       max_length_(MaxLengthFor(std::max(capacity, max_capacity))),
       occupancy_(0),
+      probation_usage_(0),
+      probation_pinned_usage_(0),
+      folded_slot_sum_(0),
       detached_pinned_usage_(0),
       resident_hand_(nullptr),
       aside_slot_(SlotIndexAt(max_length_)),
@@ -352,6 +359,9 @@ FIFOCacheShard::FIFOCacheShard(size_t capacity, bool strict_capacity_limit,
 }
 
 FIFOCacheShard::~FIFOCacheShard() {
+  for (auto& chunk : reader_slot_chunks_) {
+    delete[] chunk.load(std::memory_order_relaxed);
+  }
   // Entries still referenced are the caller's leak, as before; their values
   // are not freed. Retired slots already released their values.
   for (size_t i = 0; i < used_length_; ++i) {
@@ -484,13 +494,26 @@ void FIFOCacheShard::ApplyToSomeEntries(
   }
 }
 
-void FIFOCacheShard::TEST_PromoteToResident(const Slice& key) {
+size_t FIFOCacheShard::TEST_GetProbationUsage() const {
   DMutexLock l(mutex_);
-  FIFOHandle* h = FindInTable(key, ComputeHash(key, hash_seed_));
-  assert(h != nullptr && h->InProbation());
-  FIFO_Remove(h, /*in_probation=*/true);
-  h->state.fetch_and(~FIFOHandle::kInProbation, std::memory_order_relaxed);
-  FIFO_Append(resident(), h);
+  return probation_usage_;
+}
+
+size_t FIFOCacheShard::TEST_GetProbationUnpinnedUsage() {
+  MySlot();
+  DMutexLock l(mutex_);
+  FoldSlots();
+  return ProbationUnpinnedUsage();
+}
+
+size_t FIFOCacheShard::TEST_GetProbationBudget() const {
+  DMutexLock l(mutex_);
+  return ProbationBudget();
+}
+
+size_t FIFOCacheShard::ProbationBudget() const {
+  return capacity_.Get() / 100 * kProbationPercent +
+         (capacity_.Get() % 100) * kProbationPercent / 100;
 }
 
 void FIFOCacheShard::TEST_GetFIFOList(FIFOHandle** fifo) {
@@ -516,7 +539,7 @@ size_t FIFOCacheShard::TEST_GetFIFOSize() {
   return size;
 }
 
-void FIFOCacheShard::FIFO_Remove(FIFOHandle* e, bool /*in_probation*/) {
+void FIFOCacheShard::FIFO_Remove(FIFOHandle* e, bool in_probation) {
   assert(e->next != kNoLink);
   assert(e->prev != kNoLink);
   if (e == resident_hand_) {
@@ -527,6 +550,10 @@ void FIFOCacheShard::FIFO_Remove(FIFOHandle* e, bool /*in_probation*/) {
   Prev(e)->next = e->next;
   e->prev = e->next = kNoLink;
   e->aside.store(0, std::memory_order_relaxed);
+  if (in_probation) {
+    assert(probation_usage_ >= e->total_charge);
+    probation_usage_ -= e->total_charge;
+  }
   // Queue membership alone does not affect usage_ (in-cache plus
   // detached-pinned).
 }
@@ -534,6 +561,9 @@ void FIFOCacheShard::FIFO_Remove(FIFOHandle* e, bool /*in_probation*/) {
 void FIFOCacheShard::FIFO_Append(FIFOHandle* queue, FIFOHandle* e) {
   assert(e->InProbation() == (queue == probation()));
   LinkAtTail(queue, e);
+  if (queue == probation()) {
+    probation_usage_ += e->total_charge;
+  }
 }
 
 void FIFOCacheShard::LinkAtTail(FIFOHandle* queue, FIFOHandle* e) {
@@ -597,6 +627,43 @@ void FIFOCacheShard::ReturnUnpinnedAside() {
   }
 }
 
+void FIFOCacheShard::FoldSlots() {
+  for (size_t c = 0; c < kReaderSlotChunks; ++c) {
+    const ReaderSlot* slots =
+        reader_slot_chunks_[c].load(std::memory_order_acquire);
+    if (slots == nullptr) {
+      continue;
+    }
+    const size_t first = c * kReaderSlotsPerChunk;
+    if (folded_slot_values_.size() < first + kReaderSlotsPerChunk) {
+      folded_slot_values_.resize(first + kReaderSlotsPerChunk, 0);
+    }
+    for (size_t i = 0; i < kReaderSlotsPerChunk; ++i) {
+      const size_t v =
+          slots[i].probation_pinned.load(std::memory_order_relaxed);
+      size_t& folded = folded_slot_values_[first + i];
+      folded_slot_sum_ += v - folded;
+      folded = v;
+    }
+  }
+}
+
+size_t FIFOCacheShard::ProbationUnpinnedUsage() {
+  const ReaderSlot* own = MySlot();
+  size_t own_live = 0;
+  size_t own_folded = 0;
+  if (own != nullptr) {
+    own_live = own->probation_pinned.load(std::memory_order_relaxed);
+    if (own->index < folded_slot_values_.size()) {
+      own_folded = folded_slot_values_[own->index];
+    }
+  }
+  const size_t pinned =
+      probation_pinned_usage_ + folded_slot_sum_ + own_live - own_folded;
+  // Out of range only while a ref change is in flight.
+  return pinned >= probation_usage_ ? 0 : probation_usage_ - pinned;
+}
+
 void FIFOCacheShard::SyncOverCapacity() {
   const bool over = usage_.Get() > capacity_.Get();
   if (over_capacity_.load(std::memory_order_relaxed) != over) {
@@ -636,10 +703,30 @@ void FIFOCacheShard::EvictNeed(EvictionData* data,
 
 void FIFOCacheShard::EvictFromQueues(EvictionData* data,
                                      autovector<FIFOHandle*>* deleted) {
-  // Probation drains first, then resident second-chance.
-  EvictFromProbation(data, deleted);
-  if (!data->Done()) {
+  // The budget selects the queue from the current unpinned probation
+  // charge, before the incoming entry is accounted. Pinned entries are
+  // excluded: they can be neither evicted nor promoted, so counting them
+  // would hold probation over budget for as long as they stay pinned and
+  // the resident clock would never run. Either pass can free nothing (all
+  // pinned), so the other queue is always tried when need remains.
+  const bool probation_first = (Next(resident()) == resident()) ||
+                               (ProbationUnpinnedUsage() > ProbationBudget());
+  if (probation_first) {
+    EvictFromProbation(data, deleted);
+    if (!data->Done()) {
+      EvictFromResident(data, deleted);
+    }
+  } else {
     EvictFromResident(data, deleted);
+    if (!data->Done()) {
+      // Entries the probation pass promotes are unpinned resident entries
+      // at freq 0, the next resident victims, so resident runs again
+      // whenever promotion happened and need remains.
+      const bool promoted = EvictFromProbation(data, deleted);
+      if (promoted && !data->Done()) {
+        EvictFromResident(data, deleted);
+      }
+    }
   }
 }
 
@@ -813,13 +900,15 @@ bool FIFOCacheShard::MaybeReclaim(
     return false;
   }
   reclaim_ticks_ = 0;
-  // Work that visits every reader in the process (the scan of their
-  // announcements) runs once per ReaderWorkInterval() calls: about
-  // kReadersPerReaderTick readers per call once the table has as many homes as
-  // there are readers, more in a smaller table (see ReaderWorkInterval).
+  // Work that visits every reader in the process (folding their pin slots and
+  // scanning their announcements) runs once per ReaderWorkInterval() calls:
+  // about kReadersPerReaderTick readers per call once the table has as many
+  // homes as there are readers, more in a smaller table (see
+  // ReaderWorkInterval).
   reader_ticks_ += kReclaimInterval;
   if (reader_ticks_ >= ReaderWorkInterval()) {
     reader_ticks_ = 0;
+    FoldSlots();
     scan_due_ = true;
   }
   StampPending();
@@ -927,11 +1016,55 @@ void FIFOCacheShard::FreeHeapKeys(
   }
 }
 
+FIFOCacheShard::ReaderSlot* FIFOCacheShard::MySlot() {
+  const ThreadReader* reader = OwnThreadReader();
+  if (UNLIKELY(reader == nullptr)) {
+    // Exiting thread: its reader may already belong to another thread.
+    return nullptr;
+  }
+  const size_t chunk = reader->index / kReaderSlotsPerChunk;
+  if (UNLIKELY(chunk >= kReaderSlotChunks)) {
+    return nullptr;
+  }
+  ReaderSlot* slots =
+      reader_slot_chunks_[chunk].load(std::memory_order_acquire);
+  if (UNLIKELY(slots == nullptr)) {
+    auto* fresh = new ReaderSlot[kReaderSlotsPerChunk];
+    for (size_t i = 0; i < kReaderSlotsPerChunk; ++i) {
+      fresh[i].index = static_cast<uint32_t>(chunk * kReaderSlotsPerChunk + i);
+    }
+    if (reader_slot_chunks_[chunk].compare_exchange_strong(
+            slots, fresh, std::memory_order_acq_rel,
+            std::memory_order_acquire)) {
+      slots = fresh;
+    } else {
+      delete[] fresh;
+    }
+  }
+  return &slots[reader->index % kReaderSlotsPerChunk];
+}
+
+void FIFOCacheShard::CreditProbationPin(size_t delta) {
+  ReaderSlot* slot = MySlot();
+  if (LIKELY(slot != nullptr)) {
+    slot->AddProbationPinned(delta);
+  } else {
+    DMutexLock l(mutex_);
+    probation_pinned_usage_ += delta;
+  }
+}
+
 void FIFOCacheShard::SetCapacity(size_t capacity) {
   autovector<FIFOHandle*> last_reference_list;
+  MySlot();
   {
     DMutexLock l(mutex_);
     capacity_ = capacity;
+    // Fresh pin counts for the queue choice: folds otherwise run only once
+    // per ReaderWorkInterval() calls.
+    FoldSlots();
+    // The probation budget is derived from capacity_ at each use, so it
+    // already tracks the new capacity when eviction below runs.
     EvictFromFIFO(0, &last_reference_list);
     SyncOverCapacity();
   }
@@ -989,6 +1122,9 @@ Status FIFOCacheShard::InsertItem(const Slice& key, HashCref hash,
   Status s = Status::OK();
   autovector<FIFOHandle*> last_reference_list;
   std::vector<FIFOHandle::HeapKey*> heap_keys;
+  // Allocates the caller's ReaderSlot chunk, which eviction reads, before
+  // mutex_.
+  MySlot();
   bool scan = false;
   {
     DMutexLock l(mutex_);
@@ -1103,6 +1239,9 @@ Status FIFOCacheShard::InsertItem(const Slice& key, HashCref hash,
         e->state.store(FIFOHandle::kInCache | FIFOHandle::kInProbation |
                            (handle != nullptr ? 1 : 0),
                        std::memory_order_release);
+        if (handle != nullptr) {
+          probation_pinned_usage_ += total_charge;
+        }
         LinkIntoChain(e);
         ++occupancy_;
         if (old != nullptr) {
@@ -1194,6 +1333,9 @@ FIFOHandle* FIFOCacheShard::Lookup(const Slice& key, HashCref hash,
     return nullptr;
   }
   TEST_SYNC_POINT_CALLBACK("FIFOCacheShard::Lookup:AfterRef", e);
+  if ((s & FIFOHandle::kRefMask) == 0 && (s & FIFOHandle::kInProbation) != 0) {
+    CreditProbationPin(e->total_charge);
+  }
   // A hit only credits frequency; the entry stays where it is.
   const uint8_t freq = e->freq.load(std::memory_order_relaxed);
   if (freq < kMaxFrequency) {
@@ -1214,6 +1356,8 @@ bool FIFOCacheShard::Release(FIFOHandle* e, bool /*useful*/,
   if (e == nullptr) {
     return false;
   }
+  // Once the ref is dropped, e may be freed.
+  const size_t charge = e->total_charge;
   uint32_t s = e->state.load(std::memory_order_relaxed);
   do {
     assert((s & FIFOHandle::kRefMask) > 0);
@@ -1232,6 +1376,9 @@ bool FIFOCacheShard::Release(FIFOHandle* e, bool /*useful*/,
     aside_unpinned_.store(true, std::memory_order_release);
   }
   TEST_SYNC_POINT("FIFOCacheShard::Release:AfterUnref");
+  if ((s & FIFOHandle::kRefMask) == 1 && (s & FIFOHandle::kInProbation) != 0) {
+    CreditProbationPin(size_t{0} - charge);
+  }
   return false;
 }
 
@@ -1252,6 +1399,9 @@ bool FIFOCacheShard::ReleaseLocked(FIFOHandle* e, bool erase_if_last_ref) {
         s, desired, std::memory_order_acq_rel, std::memory_order_relaxed));
     if ((s & FIFOHandle::kRefMask) != 1) {
       return false;
+    }
+    if ((s & FIFOHandle::kInProbation) != 0) {
+      probation_pinned_usage_ -= charge;
     }
     if ((s & FIFOHandle::kInCache) != 0) {
       if (desired != 0) {
@@ -1299,6 +1449,9 @@ bool FIFOCacheShard::Detach(FIFOHandle* e) {
   }
   // e stays charged until its last Release.
   detached_pinned_usage_ += e->total_charge;
+  if (in_probation) {
+    probation_pinned_usage_ -= e->total_charge;
+  }
   return false;
 }
 
@@ -1345,6 +1498,7 @@ FIFOHandle* FIFOCacheShard::CreateStandalone(
 
   autovector<FIFOHandle*> last_reference_list;
 
+  MySlot();
   {
     DMutexLock l(mutex_);
 
