@@ -3885,6 +3885,29 @@ void VersionStorageInfo::ComputeCompactionScore(
   EstimateCompactionBytesNeeded(mutable_cf_options);
 }
 
+void VersionStorageInfo::RemoveFilesBeingCompactedFromCompactionCandidates() {
+  for (auto* candidates :
+       {&files_marked_for_compaction_, &bottommost_files_marked_for_compaction_,
+        &expired_ttl_files_, &files_marked_for_periodic_compaction_,
+        &files_marked_for_forced_blob_gc_, &read_triggered_compaction_files_}) {
+    const size_t remaining =
+        std::remove_if(candidates->begin(), candidates->end(),
+                       [](const auto& level_file) {
+                         return level_file.second->being_compacted;
+                       }) -
+        candidates->begin();
+    candidates->resize(remaining);
+  }
+  standalone_range_tombstone_files_mark_threshold_ = kMaxSequenceNumber;
+  for (const auto& level_file : files_marked_for_compaction_) {
+    if (level_file.second->FileIsStandAloneRangeTombstone()) {
+      standalone_range_tombstone_files_mark_threshold_ =
+          std::min(standalone_range_tombstone_files_mark_threshold_,
+                   level_file.second->fd.smallest_seqno);
+    }
+  }
+}
+
 void VersionStorageInfo::ComputeFilesMarkedForCompaction(int last_level) {
   files_marked_for_compaction_.clear();
   int last_qualify_level = 0;

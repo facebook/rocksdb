@@ -221,6 +221,9 @@ class VersionStorageInfo {
                               const MutableCFOptions& mutable_cf_options,
                               const std::string& full_history_ts_low);
 
+  // REQUIRES: DB mutex held
+  void RemoveFilesBeingCompactedFromCompactionCandidates();
+
   // Estimate est_comp_needed_bytes_
   void EstimateCompactionBytesNeeded(
       const MutableCFOptions& mutable_cf_options);

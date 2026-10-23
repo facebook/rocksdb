@@ -3217,6 +3217,7 @@ struct IngestExternalFileArg {
   // * Checks for memtable overlap and possible blocking flush will apply
   //   to this range (not just the file ranges).
   // * Not compatible with ingest_behind=true.
+  // * Not supported with FIFO compaction.
   // * When options.snapshot_consistency = false, the range is cleared
   // similarly to DeleteFilesInRange. With universal compaction and a table
   // factory that supports range deletion, a partial overlap is handled by
