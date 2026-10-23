@@ -629,6 +629,115 @@ class DBCrashTestTest(unittest.TestCase):
         self.assertIn("--wbm_flush_policy=0", command)
         self.assertIn("--num_dbs=1", command)
 
+    def test_final_verification_disables_regular_filesystem_faults(self):
+        db_crashtest = self.load_db_crashtest()
+        read_faults = (
+            "read_fault_one_in",
+            "metadata_read_fault_one_in",
+            "metadata_write_fault_one_in",
+        )
+        for file_scope_wal_write_faults in (0, 1):
+            for verification_only in (0, 1):
+                with self.subTest(
+                    file_scope_wal_write_faults=file_scope_wal_write_faults,
+                    verification_only=verification_only,
+                ):
+                    params = self.build_params(
+                        db_crashtest.default_params,
+                        dict(
+                            {flag: 1000 for flag in read_faults},
+                            write_fault_one_in=1000,
+                            verification_only=verification_only,
+                            file_scope_wal_write_faults=file_scope_wal_write_faults,
+                            use_txn=0,
+                            inplace_update_support=0,
+                            disable_wal=0,
+                            mmap_read=0,
+                            test_batches_snapshots=0,
+                            test_multi_ops_txns=0,
+                            use_multiscan=0,
+                            best_efforts_recovery=0,
+                            reopen=0,
+                            manual_wal_flush_one_in=0,
+                            remote_compaction_worker_threads=0,
+                            enable_blob_direct_write=0,
+                            sync_fault_injection=1,
+                            open_read_fault_one_in=1000,
+                        ),
+                    )
+                    finalized = db_crashtest.finalize_and_sanitize(params)
+                    regular_fault = 0 if verification_only else 1000
+                    read_fault = (
+                        0 if file_scope_wal_write_faults else regular_fault
+                    )
+                    write_fault = (
+                        1000 if file_scope_wal_write_faults else regular_fault
+                    )
+                    for flag in read_faults:
+                        self.assertEqual(read_fault, finalized[flag], flag)
+                    self.assertEqual(
+                        write_fault, finalized["write_fault_one_in"]
+                    )
+                    self.assertEqual(
+                        file_scope_wal_write_faults,
+                        finalized["file_scope_wal_write_faults"],
+                    )
+                    self.assertEqual(
+                        0 if file_scope_wal_write_faults else 1,
+                        finalized["sync_fault_injection"],
+                    )
+                    self.assertEqual(
+                        0 if file_scope_wal_write_faults else 1000,
+                        finalized["open_read_fault_one_in"],
+                    )
+
+    def test_periodic_compaction_with_open_fault_recovery(self):
+        db_crashtest = self.load_db_crashtest()
+        faults = dict.fromkeys(
+            (
+                "sync_fault_injection",
+                "open_metadata_read_fault_one_in",
+                "open_metadata_write_fault_one_in",
+                "open_read_fault_one_in",
+                "open_write_fault_one_in",
+            ),
+            0,
+        )
+        for fault in [None, *faults]:
+            for use_txn in (0, 1):
+                with self.subTest(fault=fault, use_txn=use_txn):
+                    overrides = dict(
+                        faults,
+                        use_txn=use_txn,
+                        txn_write_policy=0,
+                        inplace_update_support=0,
+                        remote_compaction_worker_threads=0,
+                        file_scope_wal_write_faults=0,
+                        enable_blob_direct_write=0,
+                        open_files=-1,
+                        compaction_style=0,
+                        periodic_compaction_seconds=1,
+                        daily_offpeak_time_utc="00:00-23:59",
+                    )
+                    if fault:
+                        overrides[fault] = 1
+                    finalized = db_crashtest.finalize_and_sanitize(
+                        self.build_params(
+                            db_crashtest.default_params, overrides
+                        )
+                    )
+                    disabled = fault is not None and not use_txn
+                    self.assertEqual(
+                        0 if disabled else 1,
+                        finalized["periodic_compaction_seconds"],
+                    )
+                    self.assertEqual(
+                        "" if disabled else "00:00-23:59",
+                        finalized["daily_offpeak_time_utc"],
+                    )
+                    for flag in faults:
+                        self.assertEqual(overrides[flag], finalized[flag], flag)
+
     def test_cache_and_write_buffer_size_multiplier_respects_write_buffer_minimum(
         self,
     ):
@@ -1062,6 +1171,86 @@ class DBCrashTestTest(unittest.TestCase):
         )
         self.assertEqual("other stdout\n", filtered_stdout)
         self.assertEqual(stderr, filtered_stderr)
+
+    def test_sanitize_known_stderr_suppresses_only_asan_swapcontext_warning(self):
+        db_crashtest = self.load_db_crashtest()
+        stdout = "Crash-recovery verification passed :)\n"
+        warning = (
+            "==29647==WARNING: ASan doesn't fully support makecontext/swapcontext "
+            "functions and may produce false positives in some cases!\n"
+        )
+        error = "==29647==ERROR: AddressSanitizer: heap-use-after-free\n"
+        unrelated_warning = "==29647==WARNING: unrelated ASan warning\n"
+        extended_warning = warning.rstrip("\n") + " extra\n"
+        for hit_timeout in (False, True):
+            for stderr, kept_stderr, ignored_stderr in (
+                (warning, "", warning),
+                (error, error, ""),
+                (warning + error, error, warning),
+                (unrelated_warning, unrelated_warning, ""),
+                (extended_warning, extended_warning, ""),
+            ):
+                with self.subTest(hit_timeout=hit_timeout, stderr=stderr):
+                    filtered_stdout, filtered_stderr = (
+                        db_crashtest.sanitize_known_stderr(
+                            stdout, stderr, hit_timeout, {}
+                        )
+                    )
+                    self.assertEqual(kept_stderr, filtered_stderr)
+                    self.assertEqual(
+                        stdout + "Ignored known stderr:\n" + ignored_stderr
+                        if ignored_stderr
+                        else stdout,
+                        filtered_stdout,
+                    )
+
+        args = self.build_mode_args()
+        with redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit) as raised:
+                db_crashtest.print_run_output_and_exit_on_error(
+                    args, {}, stdout, warning + error, True
+                )
+        self.assertEqual(2, raised.exception.code)
+
+    def test_blackbox_final_verification_checks_status_with_asan_warning(self):
+        warning = (
+            "==29647==WARNING: ASan doesn't fully support makecontext/swapcontext "
+            "functions and may produce false positives in some cases!\n"
+        )
+        for hit_timeout, retcode in (
+            (False, 0),
+            (False, 2),
+            (False, -9),
+            (True, -15),
+            (True, 0),
+        ):
+            with self.subTest(hit_timeout=hit_timeout, retcode=retcode):
+                db_crashtest = self.load_db_crashtest()
+                self.register_expected_values_dir_cleanup(db_crashtest)
+                self.register_diagnostics_dir_cleanup(db_crashtest)
+                output = io.StringIO()
+                with (
+                    mock.patch.object(db_crashtest.time, "time", return_value=1),
+                    mock.patch.object(
+                        db_crashtest,
+                        "execute_cmd",
+                        return_value=(hit_timeout, retcode, "", warning, 29647),
+                    ) as execute,
+                    mock.patch.object(db_crashtest, "print_fault_injection_log"),
+                    mock.patch.object(db_crashtest, "cleanup_after_success") as cleanup,
+                    redirect_stdout(output),
+                ):
+                    args = self.build_mode_args(test_type="blackbox", duration=0)
+                    if hit_timeout or retcode != 0:
+                        with self.assertRaises(SystemExit) as raised:
+                            db_crashtest.blackbox_crash_main(args, [])
+                        self.assertEqual(1, raised.exception.code)
+                        cleanup.assert_not_called()
+                    else:
+                        db_crashtest.blackbox_crash_main(args, [])
+                        cleanup.assert_called_once()
+                    execute.assert_called_once()
+                self.assertIn("Ignored known stderr:\n" + warning, output.getvalue())
 
     def test_sanitize_known_stderr_suppresses_only_cachelib_info(self):
         db_crashtest = self.load_db_crashtest()

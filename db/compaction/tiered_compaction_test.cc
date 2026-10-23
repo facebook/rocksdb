@@ -1313,6 +1313,9 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
       options.statistics->getTickerCount(COMPACTION_RANGE_DEL_DROP_OBSOLETE),
       0);
 
+  // Keep bottommost cleanup from erasing the sequence metadata used by the
+  // following manual-compaction placement assertions.
+  ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "true"}}));
   db_->ReleaseSnapshot(snap);
 
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));

@@ -3590,7 +3590,8 @@ Status DBImpl::SwitchMemtableImpl(ColumnFamilyData* cfd, WriteContext* context,
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
   UpdateWBMAccountingAfterMemtableSwitch(refresh_wbm_accounting);
-  InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context);
+  InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context,
+                                     /*defer_snapshot_refresh=*/false);
   MaybeScheduleAsyncWALPrecreate(preallocate_block_size);
 
   // Notify client that memtable is sealed, now that we have successfully

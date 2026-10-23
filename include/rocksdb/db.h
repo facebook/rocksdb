@@ -1750,8 +1750,10 @@ class DB {
     //      database.
     static const std::string kNumSnapshots;
 
-    //  "rocksdb.oldest-snapshot-time" - returns number representing unix
-    //      timestamp of oldest unreleased snapshot.
+    //  "rocksdb.oldest-snapshot-time" - returns number representing the
+    //      approximate Unix timestamp of the oldest unreleased snapshot. The
+    //      result can be approximate when snapshot creation is concurrent or
+    //      the wall clock moves backward.
     static const std::string kOldestSnapshotTime;
 
     //  "rocksdb.oldest-snapshot-sequence" - returns number representing

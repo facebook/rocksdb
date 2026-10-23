@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <atomic>
+#include <chrono>
 #include <cstdlib>
 #include <functional>
 #include <memory>
@@ -38,6 +39,16 @@ class DBTest2 : public DBTestBase {
  public:
   DBTest2() : DBTestBase("db_etc2_test", /*env_do_fsync=*/true) {}
 };
+
+std::vector<SequenceNumber> GetAllSnapshotsForTest(
+    DBImpl* db, SequenceNumber* oldest_write_conflict_snapshot,
+    SequenceNumber max_seq, SequenceNumber* oldest_snapshot) {
+  std::vector<SequenceNumber> snapshots =
+      db->snapshots().GetAll(oldest_write_conflict_snapshot, max_seq);
+  *oldest_snapshot = db->snapshots().OldestOr(
+      [db]() { return db->GetLastPublishedSequence(); }, nullptr);
+  return snapshots;
+}
 
 TEST_F(DBTest2, OpenForReadOnly) {
   std::unique_ptr<DB> db_ptr;
@@ -131,6 +142,27 @@ TEST_F(DBTest2, ReadOnlyDBWalInDbPathInitialized) {
     delete h;
   }
   db_ptr.reset();
+}
+
+TEST_F(DBTest2, WaitForCompactAfterSnapshotReleaseOnReadOnlyDB) {
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 100;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key2", "value2"));
+  ASSERT_OK(Flush());
+  Close();
+
+  std::unique_ptr<DB> read_only_db;
+  ASSERT_OK(DB::OpenForReadOnly(options, dbname_, &read_only_db));
+  const Snapshot* snapshot = read_only_db->GetSnapshot();
+  ASSERT_NE(snapshot, nullptr);
+  read_only_db->ReleaseSnapshot(snapshot);
+
+  WaitForCompactOptions wait_options;
+  wait_options.timeout = std::chrono::seconds(1);
+  ASSERT_OK(read_only_db->WaitForCompact(wait_options));
 }
 
 class PartitionedIndexTestListener : public EventListener {
@@ -1374,15 +1406,607 @@ TEST_F(DBTest2, DuplicateSnapshot) {
   snapshots.push_back(db_->GetSnapshot());
 
   {
-    InstrumentedMutexLock l(dbi->mutex());
-    auto seqs = dbi->snapshots().GetAll(&oldest_ww_snap);
+    SequenceNumber oldest_snapshot = 0;
+    std::vector<SequenceNumber> seqs = GetAllSnapshotsForTest(
+        dbi, &oldest_ww_snap, kMaxSequenceNumber, &oldest_snapshot);
     ASSERT_EQ(seqs.size(), 4);  // duplicates are not counted
     ASSERT_EQ(oldest_ww_snap, first_ww_snap);
+    ASSERT_EQ(oldest_snapshot, snapshots.front()->GetSequenceNumber());
   }
 
   for (auto s : snapshots) {
     db_->ReleaseSnapshot(s);
   }
+}
+
+TEST_F(DBTest2, SnapshotWithoutDBMutex) {
+  // Creating and releasing a snapshot must not need the DB mutex when no
+  // compaction marking is needed. If they did, this would self-deadlock.
+  ASSERT_OK(Put("k", "v1"));
+  auto* dbi = dbfull();
+  dbi->TEST_LockMutex();
+  const Snapshot* s1 = db_->GetSnapshot();
+  const Snapshot* s2 = db_->GetSnapshot();
+  ASSERT_NE(s1, nullptr);
+  ASSERT_NE(s2, nullptr);
+  ASSERT_EQ(s1->GetSequenceNumber(), s2->GetSequenceNumber());
+  db_->ReleaseSnapshot(s2);
+  db_->ReleaseSnapshot(s1);
+  dbi->TEST_UnlockMutex();
+
+  uint64_t num_snapshots = 0;
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kNumSnapshots, &num_snapshots));
+  ASSERT_EQ(num_snapshots, 0);
+}
+
+TEST_F(DBTest2, SnapshotsInMultipleShards) {
+  // Force snapshots into different shards of the snapshot list and check
+  // that readers merge them correctly.
+  auto* dbi = dbfull();
+  uint32_t next_shard = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "ShardedSnapshotList::New:Shard",
+      [&](void* arg) { *static_cast<uint32_t*>(arg) = next_shard; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put("k", "v"));
+  next_shard = 5;
+  const Snapshot* s1 = db_->GetSnapshot();
+  const SequenceNumber seq_a = s1->GetSequenceNumber();
+  ASSERT_OK(Put("k", "v"));
+  next_shard = 2;
+  const Snapshot* s2 = dbi->GetSnapshotForWriteConflictBoundary();
+  const Snapshot* s3 = db_->GetSnapshot();
+  const SequenceNumber seq_b = s2->GetSequenceNumber();
+  ASSERT_EQ(s3->GetSequenceNumber(), seq_b);
+  next_shard = 7;
+  const Snapshot* s4 = db_->GetSnapshot();
+  ASSERT_EQ(s4->GetSequenceNumber(), seq_b);
+  ASSERT_OK(Put("k", "v"));
+  next_shard = dbi->snapshots().num_shards() - 1;
+  const Snapshot* s5 = db_->GetSnapshot();
+  const SequenceNumber seq_c = s5->GetSequenceNumber();
+  ASSERT_LT(seq_a, seq_b);
+  ASSERT_LT(seq_b, seq_c);
+
+  const ShardedSnapshotList& list = dbi->snapshots();
+  SequenceNumber oldest_ww = 0;
+  SequenceNumber oldest_snapshot = 0;
+  ASSERT_EQ(GetAllSnapshotsForTest(dbi, &oldest_ww, kMaxSequenceNumber,
+                                   &oldest_snapshot),
+            std::vector<SequenceNumber>({seq_a, seq_b, seq_c}));
+  ASSERT_EQ(oldest_snapshot, seq_a);
+  ASSERT_EQ(oldest_ww, seq_b);
+  ASSERT_EQ(GetAllSnapshotsForTest(dbi, &oldest_ww, seq_b, &oldest_snapshot),
+            std::vector<SequenceNumber>({seq_a, seq_b}));
+  ASSERT_EQ(oldest_snapshot, seq_a);
+  ASSERT_EQ(oldest_ww, seq_b);
+  ASSERT_EQ(GetAllSnapshotsForTest(dbi, &oldest_ww, seq_a, &oldest_snapshot),
+            std::vector<SequenceNumber>({seq_a}));
+  ASSERT_EQ(oldest_snapshot, seq_a);
+  ASSERT_EQ(oldest_ww, kMaxSequenceNumber);
+  ASSERT_FALSE(list.empty());
+  ASSERT_EQ(list.count(), 5);
+  ASSERT_EQ(list.OldestOr([dbi]() { return dbi->GetLastPublishedSequence(); },
+                          nullptr),
+            seq_a);
+  ASSERT_EQ(list.OldestOr([]() { return kMaxSequenceNumber; }, nullptr), seq_a);
+  ASSERT_EQ(list.GetOldestSnapshotSequence(), static_cast<int64_t>(seq_a));
+  ASSERT_EQ(list.GetOldestSnapshotTime(), s1->GetUnixTime());
+  uint64_t value = 0;
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumSnapshots, &value));
+  ASSERT_EQ(value, 5);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kOldestSnapshotSequence, &value));
+  ASSERT_EQ(value, seq_a);
+
+  uint64_t release_count = 0;
+  ASSERT_EQ(list.OldestOr([dbi]() { return dbi->GetLastPublishedSequence(); },
+                          &release_count),
+            seq_a);
+  ASSERT_EQ(release_count, 0);
+  db_->ReleaseSnapshot(s1);
+  ASSERT_EQ(list.OldestOr([dbi]() { return dbi->GetLastPublishedSequence(); },
+                          &release_count),
+            seq_b);
+  ASSERT_EQ(release_count, 1);
+  ASSERT_EQ(list.OldestOr([]() { return kMaxSequenceNumber; }, nullptr), seq_b);
+  db_->ReleaseSnapshot(s2);
+  ASSERT_EQ(GetAllSnapshotsForTest(dbi, &oldest_ww, kMaxSequenceNumber,
+                                   &oldest_snapshot),
+            std::vector<SequenceNumber>({seq_b, seq_c}));
+  ASSERT_EQ(oldest_snapshot, seq_b);
+  ASSERT_EQ(oldest_ww, kMaxSequenceNumber);
+  db_->ReleaseSnapshot(s3);
+  db_->ReleaseSnapshot(s4);
+  ASSERT_EQ(list.OldestOr([dbi]() { return dbi->GetLastPublishedSequence(); },
+                          &release_count),
+            seq_c);
+  ASSERT_EQ(release_count, 4);
+  db_->ReleaseSnapshot(s5);
+
+  ASSERT_TRUE(list.empty());
+  ASSERT_EQ(list.count(), 0);
+  ASSERT_EQ(list.OldestOr([dbi]() { return dbi->GetLastPublishedSequence(); },
+                          &release_count),
+            dbi->GetLastPublishedSequence());
+  ASSERT_EQ(release_count, 5);
+  ASSERT_EQ(list.OldestOr([]() { return SequenceNumber{42}; }, nullptr), 42);
+  ASSERT_EQ(list.GetOldestSnapshotSequence(), 0);
+  ASSERT_EQ(list.GetOldestSnapshotTime(), 0);
+  ASSERT_TRUE(GetAllSnapshotsForTest(dbi, &oldest_ww, kMaxSequenceNumber,
+                                     &oldest_snapshot)
+                  .empty());
+  ASSERT_EQ(oldest_snapshot, dbi->GetLastPublishedSequence());
+  ASSERT_EQ(oldest_ww, kMaxSequenceNumber);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(DBTest2, OldestSnapshotTimeUsesMinimumShardHeadTime) {
+  // With equal sequence numbers in different shards, report the minimum wall
+  // clock among the shard heads. This remains approximate when the clock moves.
+  env_->SetMockSleep();
+  Options options = CurrentOptions();
+  options.env = env_;
+  Reopen(options);
+  ASSERT_OK(Put("k", "v"));
+  uint32_t next_shard = 3;
+  SyncPoint::GetInstance()->SetCallBack(
+      "ShardedSnapshotList::New:Shard",
+      [&](void* arg) { *static_cast<uint32_t*>(arg) = next_shard; });
+  SyncPoint::GetInstance()->EnableProcessing();
+  const Snapshot* a = db_->GetSnapshot();
+  env_->MockSleepForSeconds(100);
+  next_shard = 1;
+  const Snapshot* b = db_->GetSnapshot();
+  env_->MockSleepForSeconds(-200);
+  next_shard = 0;
+  const Snapshot* c = db_->GetSnapshot();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_EQ(a->GetSequenceNumber(), b->GetSequenceNumber());
+  ASSERT_EQ(a->GetSequenceNumber(), c->GetSequenceNumber());
+  ASSERT_GT(b->GetUnixTime(), a->GetUnixTime());
+  ASSERT_LT(c->GetUnixTime(), a->GetUnixTime());
+
+  uint64_t value = 0;
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kOldestSnapshotTime, &value));
+  ASSERT_EQ(value, static_cast<uint64_t>(c->GetUnixTime()));
+  db_->ReleaseSnapshot(c);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kOldestSnapshotTime, &value));
+  ASSERT_EQ(value, static_cast<uint64_t>(a->GetUnixTime()));
+  db_->ReleaseSnapshot(a);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kOldestSnapshotTime, &value));
+  ASSERT_EQ(value, static_cast<uint64_t>(b->GetUnixTime()));
+  db_->ReleaseSnapshot(b);
+}
+
+TEST_F(DBTest2, ExactOldestScanAfterGetAllShardRace) {
+  ASSERT_OK(Put("k", "v1"));
+  DBImpl* dbi = dbfull();
+  uint32_t next_shard = 0;
+  const Snapshot* missed_snapshot = nullptr;
+  const Snapshot* observed_snapshot = nullptr;
+  SyncPoint::GetInstance()->SetCallBack(
+      "ShardedSnapshotList::New:Shard",
+      [&](void* arg) { *static_cast<uint32_t*>(arg) = next_shard; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "ShardedSnapshotList::GetAll:AfterShard", [&](void* arg) {
+        const uint32_t shard = *static_cast<uint32_t*>(arg);
+        if (shard != 0 || missed_snapshot != nullptr) {
+          return;
+        }
+        ASSERT_OK(Put("k", "v2"));
+        next_shard = 0;
+        missed_snapshot = db_->GetSnapshot();
+        ASSERT_OK(Put("k", "v3"));
+        next_shard = 1;
+        observed_snapshot = db_->GetSnapshot();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  SequenceNumber oldest_ww = 0;
+  std::vector<SequenceNumber> snapshots =
+      dbi->snapshots().GetAll(&oldest_ww, kMaxSequenceNumber);
+  const SequenceNumber oldest_snapshot = dbi->snapshots().OldestOr(
+      [dbi]() { return dbi->GetLastPublishedSequence(); }, nullptr);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_NE(missed_snapshot, nullptr);
+  ASSERT_NE(observed_snapshot, nullptr);
+  ASSERT_EQ(snapshots, std::vector<SequenceNumber>(
+                           {observed_snapshot->GetSequenceNumber()}));
+  ASSERT_EQ(oldest_snapshot, missed_snapshot->GetSequenceNumber());
+
+  db_->ReleaseSnapshot(missed_snapshot);
+  db_->ReleaseSnapshot(observed_snapshot);
+}
+
+TEST_F(DBTest2, TimestampedSnapshotReadsSequenceWithShardLocked) {
+  // Pause after shard selection but before locking it, then create a regular
+  // snapshot in that shard. The timestamped snapshot must read its sequence
+  // only after acquiring the shard lock, so it can append without scanning
+  // backwards while holding the DB mutex.
+  auto* dbi = dbfull();
+  ASSERT_OK(Put("k", "v1"));
+  const SequenceNumber ts_seq = dbi->GetLatestSequenceNumber();
+  const Snapshot* regular = nullptr;
+  bool in_callback = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "ShardedSnapshotList::New:Shard", [&](void* arg) {
+        *static_cast<uint32_t*>(arg) = 0;
+        if (regular == nullptr && !in_callback) {
+          in_callback = true;
+          ASSERT_OK(Put("k", "v2"));
+          regular = db_->GetSnapshot();
+          in_callback = false;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  auto ret = dbi->CreateTimestampedSnapshot(kMaxSequenceNumber, /*ts=*/1);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_OK(ret.first);
+  ASSERT_NE(regular, nullptr);
+  ASSERT_EQ(regular->GetSequenceNumber(), ts_seq + 1);
+  ASSERT_EQ(ret.second->GetSequenceNumber(), regular->GetSequenceNumber());
+
+  const ShardedSnapshotList& list = dbi->snapshots();
+  ASSERT_EQ(list.GetOldestSnapshotSequence(), static_cast<int64_t>(ts_seq + 1));
+  ASSERT_EQ(list.OldestOr([dbi]() { return dbi->GetLastPublishedSequence(); },
+                          nullptr),
+            ts_seq + 1);
+  SequenceNumber oldest_ww = 0;
+  SequenceNumber oldest_snapshot = 0;
+  ASSERT_TRUE(GetAllSnapshotsForTest(dbi, &oldest_ww, ts_seq, &oldest_snapshot)
+                  .empty());
+  ASSERT_EQ(oldest_snapshot, ts_seq + 1);
+  ASSERT_EQ(oldest_ww, kMaxSequenceNumber);
+  ASSERT_EQ(GetAllSnapshotsForTest(dbi, &oldest_ww, kMaxSequenceNumber,
+                                   &oldest_snapshot),
+            std::vector<SequenceNumber>({ts_seq + 1}));
+  ASSERT_EQ(oldest_ww, ts_seq + 1);
+
+  db_->ReleaseSnapshot(regular);
+  size_t remaining = 0;
+  ret.second.reset();
+  dbi->ReleaseTimestampedSnapshotsOlderThan(/*ts=*/2, &remaining);
+  ASSERT_EQ(remaining, 0);
+  ASSERT_TRUE(list.empty());
+}
+
+TEST_F(DBTest2, ExplicitTimestampedSnapshotPublishesSequenceUnderShardLock) {
+  auto* dbi = dbfull();
+  ASSERT_OK(Put("k", "v"));
+  const SequenceNumber snapshot_seq = dbi->GetLatestSequenceNumber() + 1;
+
+  port::Mutex mu;
+  port::CondVar cv(&mu);
+  bool reader_started = false;
+  bool reader_at_shard = false;
+  const Snapshot* regular = nullptr;
+  port::Thread reader;
+  SyncPoint::GetInstance()->SetCallBack("ShardedSnapshotList::New:Shard",
+                                        [&](void* arg) {
+                                          *static_cast<uint32_t*>(arg) = 0;
+                                          if (reader_started) {
+                                            MutexLock l(&mu);
+                                            reader_at_shard = true;
+                                            cv.SignalAll();
+                                          }
+                                        });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::CreateTimestampedSnapshot:BeforeSequencePublish", [&](void*) {
+        reader_started = true;
+        reader = port::Thread([&]() { regular = db_->GetSnapshot(); });
+        MutexLock l(&mu);
+        while (!reader_at_shard) {
+          cv.Wait();
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  auto ret = dbi->CreateTimestampedSnapshot(snapshot_seq, /*ts=*/1);
+  reader.join();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(ret.first);
+  ASSERT_NE(regular, nullptr);
+  ASSERT_EQ(ret.second->GetSequenceNumber(), snapshot_seq);
+  ASSERT_EQ(regular->GetSequenceNumber(), snapshot_seq);
+  SequenceNumber oldest_ww = 0;
+  SequenceNumber oldest_snapshot = 0;
+  ASSERT_EQ(GetAllSnapshotsForTest(dbi, &oldest_ww, kMaxSequenceNumber,
+                                   &oldest_snapshot),
+            std::vector<SequenceNumber>({snapshot_seq}));
+  ASSERT_EQ(oldest_snapshot, snapshot_seq);
+  ASSERT_EQ(oldest_ww, snapshot_seq);
+
+  db_->ReleaseSnapshot(regular);
+  size_t remaining = 0;
+  ret.second.reset();
+  dbi->ReleaseTimestampedSnapshotsOlderThan(/*ts=*/2, &remaining);
+  ASSERT_EQ(remaining, 0);
+}
+
+TEST_F(DBTest2, SnapshotCreatedDuringIngestion) {
+  // Ingestion with snapshot_consistency checks in Run() whether any snapshot
+  // exists. Snapshot creation must wait while Run() executes, as it did when
+  // it took the DB mutex.
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Flush());
+
+  SstFileWriter sst_file_writer{EnvOptions(), options};
+  const std::string external_file = dbname_ + "/ingest_snapshot.sst";
+  ASSERT_OK(sst_file_writer.Open(external_file));
+  ASSERT_OK(sst_file_writer.Put("z", "vz"));
+  ASSERT_OK(sst_file_writer.Finish());
+
+  port::Mutex mu;
+  port::CondVar cv(&mu);
+  bool reader_waiting = false;
+  bool reader_done = false;
+  const Snapshot* snapshot = nullptr;
+  port::Thread reader;
+  SyncPoint::GetInstance()->SetCallBack("ShardedSnapshotList::New:Wait",
+                                        [&](void*) {
+                                          MutexLock l(&mu);
+                                          reader_waiting = true;
+                                          cv.SignalAll();
+                                        });
+  SyncPoint::GetInstance()->SetCallBack(
+      "ExternalSstFileIngestionJob::Run", [&](void*) {
+        reader = port::Thread([&]() {
+          snapshot = db_->GetSnapshot();
+          MutexLock l(&mu);
+          reader_done = true;
+          cv.SignalAll();
+        });
+        // Still inside Run(): the reader must be waiting, not done.
+        MutexLock l(&mu);
+        while (!reader_waiting && !reader_done) {
+          cv.Wait();
+        }
+        ASSERT_TRUE(reader_waiting);
+        ASSERT_FALSE(reader_done);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  IngestExternalFileOptions ifo;
+  ifo.snapshot_consistency = true;
+  ASSERT_OK(db_->IngestExternalFile({external_file}, ifo));
+  reader.join();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_NE(snapshot, nullptr);
+  db_->ReleaseSnapshot(snapshot);
+}
+
+TEST_F(DBTest2, SnapshotDuringIngestionManifestWrite) {
+  // Snapshot creation just before LogAndApply must still serialize on the DB
+  // mutex. Once LogAndApply releases it for the MANIFEST write, both that
+  // reader and a caller on the ingesting thread must be able to create a
+  // snapshot without waiting for ingestion to finish.
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Flush());
+
+  SstFileWriter sst_file_writer{EnvOptions(), options};
+  const std::string external_file = dbname_ + "/ingest_manifest.sst";
+  ASSERT_OK(sst_file_writer.Open(external_file));
+  ASSERT_OK(sst_file_writer.Put("z", "vz"));
+  ASSERT_OK(sst_file_writer.Finish());
+
+  port::Mutex mu;
+  port::CondVar cv(&mu);
+  bool reader_retrying = false;
+  bool reader_done = false;
+  bool manifest_armed = false;
+  const Snapshot* reader_snapshot = nullptr;
+  const Snapshot* manifest_snapshot = nullptr;
+  port::Thread reader;
+  SyncPoint::GetInstance()->SetCallBack("ShardedSnapshotList::New:Wait",
+                                        [&](void*) {
+                                          MutexLock l(&mu);
+                                          reader_retrying = true;
+                                          cv.SignalAll();
+                                        });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::IngestExternalFiles:BeforeLogAndApply", [&](void*) {
+        manifest_armed = true;
+        reader = port::Thread([&]() {
+          reader_snapshot = db_->GetSnapshot();
+          MutexLock l(&mu);
+          reader_done = true;
+          cv.SignalAll();
+        });
+        MutexLock l(&mu);
+        while (!reader_retrying && !reader_done) {
+          cv.Wait();
+        }
+        ASSERT_TRUE(reader_retrying);
+        ASSERT_FALSE(reader_done);
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest", [&](void*) {
+        if (manifest_armed) {
+          manifest_armed = false;
+          {
+            MutexLock l(&mu);
+            while (!reader_done) {
+              cv.Wait();
+            }
+          }
+          manifest_snapshot = db_->GetSnapshot();
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(
+      db_->IngestExternalFile({external_file}, IngestExternalFileOptions()));
+  reader.join();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_NE(reader_snapshot, nullptr);
+  ASSERT_NE(manifest_snapshot, nullptr);
+  db_->ReleaseSnapshot(reader_snapshot);
+  db_->ReleaseSnapshot(manifest_snapshot);
+}
+
+TEST_F(DBTest2, SnapshotSupportTransitionIsLinearizable) {
+  Options options = CurrentOptions();
+  options.allow_concurrent_memtable_write = false;
+  DestroyAndReopen(options);
+
+  port::Mutex mu;
+  port::CondVar cv(&mu);
+  bool getter_paused = false;
+  bool resume_getter = false;
+  const Snapshot* snapshot = nullptr;
+  SyncPoint::GetInstance()->SetCallBack("ShardedSnapshotList::New:Shard",
+                                        [&](void*) {
+                                          MutexLock l(&mu);
+                                          getter_paused = true;
+                                          cv.SignalAll();
+                                          while (!resume_getter) {
+                                            cv.Wait();
+                                          }
+                                        });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  port::Thread getter([&]() { snapshot = db_->GetSnapshot(); });
+  {
+    MutexLock l(&mu);
+    while (!getter_paused) {
+      cv.Wait();
+    }
+  }
+
+  ColumnFamilyOptions cf_options(options);
+  cf_options.inplace_update_support = true;
+  ColumnFamilyHandle* handle = nullptr;
+  Status create_status =
+      db_->CreateColumnFamily(cf_options, "in_place", &handle);
+  {
+    MutexLock l(&mu);
+    resume_getter = true;
+    cv.SignalAll();
+  }
+  getter.join();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(create_status);
+  ASSERT_EQ(snapshot, nullptr);
+  delete handle;
+}
+
+TEST_F(DBTest2, SnapshotCreatedDuringSnapshotContextInit) {
+  // A compaction holds the DB mutex while it picks input files and reads the
+  // snapshot list. A snapshot created in that window (now possible, since
+  // GetSnapshot() does not take the DB mutex) is either included in the
+  // compaction's snapshot list, or has a sequence number no smaller than any
+  // key in the compaction input. Either way, it must keep seeing the values
+  // that were current when it was created.
+  // NonTrivial: before the compaction reads the snapshot list.
+  // BeforeInit: after the compaction reads the snapshot list.
+  for (const char* sync_point : {"DBImpl::BackgroundCompaction:NonTrivial",
+                                 "DBImpl::InitSnapshotContext:BeforeInit"}) {
+    SCOPED_TRACE(sync_point);
+    Options options = CurrentOptions();
+    options.disable_auto_compactions = true;
+    DestroyAndReopen(options);
+
+    ASSERT_OK(Put("a", "a1"));
+    ASSERT_OK(Put("b", "b1"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(Put("a", "a2"));
+    ASSERT_OK(Delete("b"));
+    ASSERT_OK(Flush());
+
+    const Snapshot* snapshot = nullptr;
+    SyncPoint::GetInstance()->SetCallBack(sync_point, [&](void*) {
+      if (snapshot == nullptr) {
+        snapshot = db_->GetSnapshot();
+      }
+    });
+    SyncPoint::GetInstance()->EnableProcessing();
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    ASSERT_NE(snapshot, nullptr);
+
+    ASSERT_OK(Put("a", "a3"));
+    ASSERT_OK(Put("b", "b3"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+    ReadOptions ro;
+    ro.snapshot = snapshot;
+    std::string value;
+    ASSERT_OK(db_->Get(ro, "a", &value));
+    ASSERT_EQ(value, "a2");
+    ASSERT_TRUE(db_->Get(ro, "b", &value).IsNotFound());
+    db_->ReleaseSnapshot(snapshot);
+  }
+}
+
+TEST_F(DBTest2, ConcurrentSnapshotsWithFlushAndCompaction) {
+  // Snapshot create/release from many threads while a writer flushes and
+  // compacts. Each snapshot must see a stable value. Mainly for TSAN.
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.level0_file_num_compaction_trigger = 2;
+  Reopen(options);
+  ASSERT_OK(Put("k", "0"));
+
+  constexpr int kNumReaders = 8;
+  constexpr int kReadsPerReader = 200;
+  constexpr int kWrites = 100;
+  std::atomic<bool> writer_done{false};
+
+  std::vector<port::Thread> threads;
+  threads.emplace_back([&]() {
+    for (int i = 1; i <= kWrites; ++i) {
+      ASSERT_OK(Put("k", std::to_string(i)));
+      if (i % 10 == 0) {
+        ASSERT_OK(Flush());
+      }
+      if (i % 30 == 0) {
+        ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+      }
+    }
+    writer_done.store(true);
+  });
+  for (int t = 0; t < kNumReaders; ++t) {
+    threads.emplace_back([&]() {
+      for (int i = 0; i < kReadsPerReader || !writer_done.load(); ++i) {
+        const Snapshot* snapshot = db_->GetSnapshot();
+        ASSERT_NE(snapshot, nullptr);
+        ReadOptions ro;
+        ro.snapshot = snapshot;
+        std::string v1;
+        std::string v2;
+        ASSERT_OK(db_->Get(ro, "k", &v1));
+        ASSERT_OK(db_->Get(ro, "k", &v2));
+        ASSERT_EQ(v1, v2);
+        db_->ReleaseSnapshot(snapshot);
+      }
+    });
+  }
+  for (auto& t : threads) {
+    t.join();
+  }
+  uint64_t num_snapshots = 0;
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kNumSnapshots, &num_snapshots));
+  ASSERT_EQ(num_snapshots, 0);
 }
 
 class PinL0IndexAndFilterBlocksTest
