@@ -2,6 +2,7 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -11,6 +12,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/snapshot.h"
+#include "rocksdb/sst_file_writer.h"
 #include "rocksdb/utilities/debug.h"
 #include "util/random.h"
 #include "utilities/merge_operators.h"
@@ -62,6 +64,55 @@ class DBMergeOperatorTest : public DBTestBase {
     return value.ToString();
   }
 };
+
+TEST_F(DBMergeOperatorTest, MergePreservesSnapshotAfterIngestion) {
+  for (bool delete_range : {false, true}) {
+    for (SequenceNumber snapshot_seq : {SequenceNumber{0}, SequenceNumber{1}}) {
+      SCOPED_TRACE(delete_range);
+      SCOPED_TRACE(snapshot_seq);
+      Options options = CurrentOptions();
+      options.merge_operator = MergeOperators::CreateStringAppendOperator();
+      DestroyAndReopen(options);
+      {
+        SstFileWriter writer(EnvOptions(), options);
+        const std::string path = dbname_ + "_external.sst";
+        ASSERT_OK(writer.Open(path));
+        ASSERT_OK(writer.Put("k1", "base"));
+        ASSERT_OK(writer.Put("k2", "base"));
+        ASSERT_OK(writer.Finish());
+        ASSERT_OK(db_->IngestExternalFile({path}, IngestExternalFileOptions()));
+      }
+      if (snapshot_seq != 0) {
+        ASSERT_OK(Put("other", "value"));
+      }
+      const Snapshot* snapshot = db_->GetSnapshot();
+      EXPECT_EQ(snapshot_seq, snapshot->GetSequenceNumber());
+      if (delete_range) {
+        ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                                   "k0", "k9"));
+      }
+      ASSERT_OK(Merge("k1", "operand"));
+      const std::function<void()> check_latest = [&] {
+        EXPECT_EQ(delete_range ? "operand" : "base,operand", Get("k1"));
+        EXPECT_EQ(delete_range ? "NOT_FOUND" : "base", Get("k2"));
+      };
+      check_latest();
+      ASSERT_OK(Flush());
+      CompactRangeOptions compact;
+      compact.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+      ASSERT_OK(db_->CompactRange(compact, nullptr, nullptr));
+      check_latest();
+      EXPECT_EQ("base", Get("k1", snapshot));
+      EXPECT_EQ("base", Get("k2", snapshot));
+
+      db_->ReleaseSnapshot(snapshot);
+      ASSERT_OK(db_->CompactRange(compact, nullptr, nullptr));
+      check_latest();
+      Reopen(options);
+      check_latest();
+    }
+  }
+}
 
 TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
   class LimitedStringAppendMergeOp : public StringAppendTESTOperator {

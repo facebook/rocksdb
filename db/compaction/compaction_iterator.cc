@@ -847,7 +847,8 @@ void CompactionIterator::NextFromInput() {
     SequenceNumber last_sequence = current_user_key_sequence_;
     current_user_key_sequence_ = ikey_.sequence;
     SequenceNumber last_snapshot = current_user_key_snapshot_;
-    SequenceNumber prev_snapshot = 0;  // 0 means no previous snapshot
+    // A snapshot at sequence number zero must remain distinguishable from none.
+    SequenceNumber prev_snapshot = kMaxSequenceNumber;
     current_user_key_snapshot_ =
         visible_at_tip_
             ? earliest_snapshot_
@@ -983,7 +984,7 @@ void CompactionIterator::NextFromInput() {
           ++iter_stats_.num_record_drop_obsolete;
           assert(bottommost_level_);
           AdvanceInputIter();
-        } else if (prev_snapshot == 0 ||
+        } else if (prev_snapshot == kMaxSequenceNumber ||
                    DefinitelyNotInSnapshot(next_ikey.sequence, prev_snapshot)) {
           // Check whether the next key belongs to the same snapshot as the
           // SingleDelete.
@@ -1219,7 +1220,8 @@ void CompactionIterator::NextFromInput() {
              (ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
                   .ok()) &&
              cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key) &&
-             (prev_snapshot == 0 || input_.IsDeleteRangeSentinelKey() ||
+             (prev_snapshot == kMaxSequenceNumber ||
+              input_.IsDeleteRangeSentinelKey() ||
               DefinitelyNotInSnapshot(next_ikey.sequence, prev_snapshot))) {
         AdvanceInputIter();
       }
@@ -1978,7 +1980,7 @@ inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
       std::lower_bound(snapshots_->begin(), snapshots_->end(), in);
   assert(prev_snapshot != nullptr);
   if (snapshots_iter == snapshots_->begin()) {
-    *prev_snapshot = 0;
+    *prev_snapshot = kMaxSequenceNumber;
   } else {
     *prev_snapshot = *std::prev(snapshots_iter);
     if (*prev_snapshot >= in) {
