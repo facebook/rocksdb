@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/block_based_table_iterator.h"
 
+#include <algorithm>
+
 #include "monitoring/perf_context_imp.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -1042,6 +1044,16 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   StopWatch sw(table_->get_rep()->ioptions.clock, table_->GetStatistics(),
                MULTISCAN_PREPARE_MICROS);
 
+  const bool rolling_prefetch =
+      multiscan_opts->rolling_prefetch && multiscan_opts->use_async_io &&
+      !multiscan_opts->reverse &&
+      multiscan_opts->rolling_prefetch_window_size > 0;
+  const uint64_t rolling_prefetch_window_size =
+      multiscan_opts->max_prefetch_size > 0
+          ? std::min(multiscan_opts->rolling_prefetch_window_size,
+                     multiscan_opts->max_prefetch_size)
+          : multiscan_opts->rolling_prefetch_window_size;
+
   if (!index_iter_->status().ok()) {
     multi_scan_status_ = index_iter_->status();
     RecordTick(table_->GetStatistics(), MULTISCAN_PREPARE_ERRORS);
@@ -1071,7 +1083,7 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   // Calculate prefetch range (enforces max_prefetch_size)
   size_t prefetch_start_idx = 0;
   size_t prefetch_max_idx = scan_block_handles.size();
-  if (multiscan_opts->max_prefetch_size > 0) {
+  if (multiscan_opts->max_prefetch_size > 0 && !rolling_prefetch) {
     uint64_t total_size = 0;
     if (multiscan_opts->reverse) {
       for (size_t i = scan_block_handles.size(); i > 0; --i) {
@@ -1108,6 +1120,14 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   job->block_handles = std::move(blocks_to_prefetch);
   job->job_options.io_coalesce_threshold =
       multiscan_opts->io_coalesce_threshold;
+  if (rolling_prefetch) {
+    job->job_options.rolling_prefetch_window_size =
+        rolling_prefetch_window_size;
+    job->job_options.rolling_prefetch_max_batch_size =
+        multiscan_opts->max_prefetch_size > 0
+            ? multiscan_opts->max_prefetch_size
+            : rolling_prefetch_window_size;
+  }
   job->job_options.read_options = read_options_;
   job->job_options.read_options.async_io = multiscan_opts->use_async_io;
   // CollectBlockHandles walks sorted scan ranges through the table index, whose
