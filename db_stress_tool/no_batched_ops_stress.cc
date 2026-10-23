@@ -346,6 +346,14 @@ class NonBatchedOpsStressTest : public StressTest {
                               "Secondary failed to catch up to the primary");
           }
 
+          ManagedSnapshot secondary_snapshot(secondary_db_.get());
+          if (secondary_snapshot.snapshot() == nullptr) {
+            VerificationAbort(shared, "Secondary failed to acquire a snapshot");
+            continue;
+          }
+          ReadOptions secondary_options = options;
+          secondary_options.snapshot = secondary_snapshot.snapshot();
+
           for (int64_t i = start; i < end; ++i) {
             if (thread->shared->HasVerificationFailedYet()) {
               break;
@@ -362,8 +370,8 @@ class NonBatchedOpsStressTest : public StressTest {
                   FaultInjectionIOType::kMetadataRead);
             }
 
-            s = DbStressGet(secondary_db_.get(), options, secondary_cfhs_[cf],
-                            key, &from_db);
+            s = DbStressGet(secondary_db_.get(), secondary_options,
+                            secondary_cfhs_[cf], key, &from_db);
 
             // Also exercise the lazy wide-column read path on the secondary
             // (self-checks lazy vs eager on the secondary, read at latest). A
@@ -385,7 +393,7 @@ class NonBatchedOpsStressTest : public StressTest {
                    static_cast<size_t>(i - start) <
                        pre_read_expected_values.size());
             VerifyValueRange(
-                static_cast<int>(cf), i, options, shared, from_db,
+                static_cast<int>(cf), i, secondary_options, shared, from_db,
                 /* msg_prefix */ "Secondary get verification, manifest: " +
                     std::to_string(manifest_num),
                 s, pre_read_expected_values[i - start]);

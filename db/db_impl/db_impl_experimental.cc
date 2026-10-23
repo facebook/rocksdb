@@ -153,7 +153,8 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
                                     &mutex_, directories_.GetDbDir());
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(
-          cfd, job_context.superversion_contexts.data());
+          cfd, job_context.superversion_contexts.data(),
+          /*defer_snapshot_refresh=*/false);
     }
   }  // lock released here
   LogFlush(immutable_db_options_.info_log);

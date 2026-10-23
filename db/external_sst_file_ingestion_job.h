@@ -220,7 +220,7 @@ class ExternalSstFileIngestionJob {
       VersionSet* versions, ColumnFamilyData* cfd,
       const ImmutableDBOptions& db_options,
       const MutableDBOptions& mutable_db_options, const EnvOptions& env_options,
-      SnapshotList* db_snapshots,
+      const ShardedSnapshotList* db_snapshots,
       const IngestExternalFileOptions& ingestion_options,
       Directories* directories, EventLogger* event_logger,
       const std::shared_ptr<IOTracer>& io_tracer)
@@ -468,7 +468,7 @@ class ExternalSstFileIngestionJob {
   const ImmutableDBOptions& db_options_;
   const MutableDBOptions& mutable_db_options_;
   const EnvOptions& env_options_;
-  SnapshotList* db_snapshots_;
+  const ShardedSnapshotList* db_snapshots_;
   autovector<IngestedFileInfo> files_to_ingest_;
   std::vector<FileBatchInfo> file_batches_to_ingest_;
   const IngestExternalFileOptions ingestion_options_;

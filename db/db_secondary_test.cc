@@ -881,6 +881,156 @@ TEST_F(DBSecondaryTest, OpenAsSecondary) {
   verify_db_func("new_foo_value", "new_bar_value");
 }
 
+TEST_F(DBSecondaryTest, WaitForCompactAfterSnapshotRelease) {
+  Options options;
+  options.env = env_;
+  options.level0_file_num_compaction_trigger = 100;
+  Reopen(options);
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key2", "value2"));
+  ASSERT_OK(Flush());
+
+  options.max_open_files = -1;
+  OpenSecondary(options);
+  const Snapshot* snapshot = db_secondary_->GetSnapshot();
+  ASSERT_NE(snapshot, nullptr);
+  db_secondary_->ReleaseSnapshot(snapshot);
+
+  WaitForCompactOptions wait_options;
+  wait_options.timeout = std::chrono::seconds(1);
+  ASSERT_OK(db_secondary_->WaitForCompact(wait_options));
+}
+
+TEST_F(DBSecondaryTest, GetSnapshotReadsClockBeforeLockingDBMutex) {
+  class ReentrantSnapshotClock : public SystemClockWrapper {
+   public:
+    explicit ReentrantSnapshotClock(const std::shared_ptr<SystemClock>& target)
+        : SystemClockWrapper(target) {}
+
+    void SetDB(DB* db) { db_ = db; }
+    bool nested_snapshot_created() const { return nested_snapshot_created_; }
+    const char* Name() const override { return "ReentrantSnapshotClock"; }
+
+    Status GetCurrentTime(int64_t* unix_time) override {
+      if (db_ != nullptr && !reentered_) {
+        reentered_ = true;
+        const Snapshot* snapshot = db_->GetSnapshot();
+        if (snapshot != nullptr) {
+          db_->ReleaseSnapshot(snapshot);
+          nested_snapshot_created_ = true;
+        }
+      }
+      return SystemClockWrapper::GetCurrentTime(unix_time);
+    }
+
+   private:
+    DB* db_ = nullptr;
+    bool reentered_ = false;
+    bool nested_snapshot_created_ = false;
+  };
+
+  Options options;
+  options.env = env_;
+  Reopen(options);
+
+  auto clock = std::make_shared<ReentrantSnapshotClock>(env_->GetSystemClock());
+  CompositeEnvWrapper secondary_env(env_, clock);
+  options.env = &secondary_env;
+  options.max_open_files = -1;
+  OpenSecondary(options);
+
+  clock->SetDB(db_secondary_.get());
+  const Snapshot* snapshot = db_secondary_->GetSnapshot();
+  ASSERT_NE(snapshot, nullptr);
+  ASSERT_TRUE(clock->nested_snapshot_created());
+  db_secondary_->ReleaseSnapshot(snapshot);
+  CloseSecondary();
+}
+
+TEST_F(DBSecondaryTest, GetSnapshotWaitsForCatchUpViewInstallation) {
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  Reopen(options);
+  ASSERT_OK(Put("key", "old"));
+  ASSERT_OK(Flush());
+
+  options.max_open_files = -1;
+  OpenSecondary(options);
+
+  WriteOptions write_options;
+  write_options.disableWAL = true;
+  ASSERT_OK(db_->Put(write_options, "key", "new"));
+  ASSERT_OK(Flush());
+
+  std::mutex state_mutex;
+  std::condition_variable state_cv;
+  bool catch_up_paused = false;
+  bool allow_catch_up = false;
+  bool snapshot_at_mutex_boundary = false;
+  bool snapshot_created = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::FindAndRecoverLogFiles:Begin", [&](void* /*arg*/) {
+        std::unique_lock<std::mutex> lock(state_mutex);
+        catch_up_paused = true;
+        state_cv.notify_all();
+        state_cv.wait(lock, [&] { return allow_catch_up; });
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::GetSnapshot:BeforeMutexLock", [&](void* /*arg*/) {
+        std::lock_guard<std::mutex> lock(state_mutex);
+        snapshot_at_mutex_boundary = true;
+        state_cv.notify_all();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_point([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  Status catch_up_status;
+  port::Thread catch_up_thread(
+      [&] { catch_up_status = db_secondary_->TryCatchUpWithPrimary(); });
+  {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    state_cv.wait(lock, [&] { return catch_up_paused; });
+  }
+
+  const Snapshot* snapshot = nullptr;
+  port::Thread snapshot_thread([&] {
+    snapshot = db_secondary_->GetSnapshot();
+    {
+      std::lock_guard<std::mutex> lock(state_mutex);
+      snapshot_created = true;
+      state_cv.notify_all();
+    }
+  });
+
+  {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    state_cv.wait(lock, [&] { return snapshot_at_mutex_boundary; });
+    ASSERT_FALSE(snapshot_created);
+    allow_catch_up = true;
+    state_cv.notify_all();
+  }
+
+  catch_up_thread.join();
+  snapshot_thread.join();
+  ASSERT_OK(catch_up_status);
+  ASSERT_NE(nullptr, snapshot);
+
+  ReadOptions read_options;
+  read_options.snapshot = snapshot;
+  std::vector<std::string> values;
+  const std::vector<Status> statuses =
+      db_secondary_->MultiGet(read_options, std::vector<Slice>{"key"}, &values);
+  ASSERT_EQ(1U, statuses.size());
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ("new", values[0]);
+  db_secondary_->ReleaseSnapshot(snapshot);
+}
+
 TEST_F(DBSecondaryTest, OpenFilesAsync) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
