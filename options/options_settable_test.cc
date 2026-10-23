@@ -401,6 +401,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       {offsetof(struct DBOptions, daily_offpeak_time_utc), sizeof(std::string)},
       {offsetof(struct DBOptions, calculate_sst_write_lifetime_hint_set),
        sizeof(CompactionStyleSet)},
+      // Has strings and a shared_ptr; covered by auto_tune_test.
+      {offsetof(struct DBOptions, auto_tune), sizeof(AutoTuneOptions)},
   };
 
   char* options_ptr = new char[sizeof(DBOptions)];

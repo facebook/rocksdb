@@ -1919,6 +1919,16 @@ unsigned char rocksdb_trace_options_get_preserve_write_order(
   return opt->rep.preserve_write_order;
 }
 
+void rocksdb_trace_options_set_include_read_write_options(
+    rocksdb_trace_options_t* opt, unsigned char v) {
+  opt->rep.include_read_write_options = v;
+}
+
+unsigned char rocksdb_trace_options_get_include_read_write_options(
+    rocksdb_trace_options_t* opt) {
+  return opt->rep.include_read_write_options;
+}
+
 /* BlockCacheTraceOptions */
 
 void rocksdb_block_cache_trace_options_set_sampling_frequency(

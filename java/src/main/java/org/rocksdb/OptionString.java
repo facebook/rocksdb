@@ -208,20 +208,56 @@ public class OptionString {
       return new Entry(key, value);
     }
 
+    // The text inside balanced braces, with backslash escapes removed.
+    private String parseBracedText() {
+      next();
+      final StringBuilder text = new StringBuilder();
+      int depth = 1;
+      while (true) {
+        final char c = next();
+        if (c == escapeChar) {
+          final char escaped = next();
+          text.append(escaped == 'n' ? '\n' : escaped == 'r' ? '\r' : escaped);
+          continue;
+        }
+        if (c == complexValueBegin) {
+          ++depth;
+        } else if (c == complexValueEnd) {
+          --depth;
+          if (depth == 0) {
+            return text.toString();
+          }
+        }
+        text.append(c);
+      }
+    }
+
     private Value parseValue() {
       skipWhite();
       if (isChar(complexValueBegin)) {
-        next();
-        skipWhite();
-        final Value value = Value.fromComplex(parseComplex());
-        skipWhite();
-        if (isChar(complexValueEnd)) {
+        final String rest = sb.toString();
+        try {
           next();
           skipWhite();
-        } else {
-          exception("Expected } ending complex value");
+          final Value value = Value.fromComplex(parseComplex());
+          skipWhite();
+          if (isChar(complexValueEnd)) {
+            next();
+            skipWhite();
+          } else {
+            exception("Expected } ending complex value");
+          }
+          return value;
+        } catch (final Parser.Exception e) {
+          // Not key=value pairs, e.g. free-form text such as
+          // auto_tune={intent={...JSON...}}: keep the braced text as one value.
+          sb.setLength(0);
+          sb.append(rest);
+          final List<String> text = new ArrayList<>(1);
+          text.add(parseBracedText());
+          skipWhite();
+          return Value.fromList(text);
         }
-        return value;
       } else if (isValueChar()) {
         return Value.fromList(parseList());
       } else if (isChar(kvPairSeparator)) {
@@ -239,7 +275,8 @@ public class OptionString {
       final List<Entry> entries = new ArrayList<>();
 
       skipWhite();
-      if (hasNext()) {
+      // An empty complex value: {}
+      if (hasNext() && !isChar(complexValueEnd)) {
         entries.add(parseOption());
         skipWhite();
         while (isChar(kvPairSeparator)) {

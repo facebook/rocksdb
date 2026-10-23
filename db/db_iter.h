@@ -709,6 +709,8 @@ class DBIter final : public Iterator {
   MergeContext merge_context_;
   LocalStatistics local_stats_;
   PinnedIteratorsManager pinned_iters_mgr_;
+  // The read options a traced seek records (Tracer::IteratorSeek()).
+  TracedReadOptions trace_read_options_;
   DBImpl* trace_db_;
   uint32_t trace_cf_id_;
   bool has_trace_state_;

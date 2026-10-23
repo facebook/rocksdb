@@ -100,6 +100,7 @@
 #include "rocksdb/stats_history.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
+#include "rocksdb/utilities/auto_tune.h"
 #include "rocksdb/version.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/block_based/block.h"
@@ -127,6 +128,7 @@
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/udt_util.h"
+#include "utilities/auto_tune/auto_tune_internal.h"
 #include "utilities/trace/replayer_impl.h"
 
 #if USE_COROUTINES
@@ -301,6 +303,11 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   periodic_task_functions_.emplace(
       PeriodicTaskType::kTriggerCompaction,
       [this]() { this->TriggerPeriodicCompaction(); });
+  periodic_task_functions_.emplace(PeriodicTaskType::kAutoTune, [this]() {
+    if (auto_tune_driver_ != nullptr) {
+      auto_tune_driver_->Trigger();
+    }
+  });
 
   versions_.reset(new VersionSet(
       dbname_, &immutable_db_options_, mutable_db_options_, file_options_,
@@ -805,6 +812,8 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
                  "Shutdown: canceling all background work");
   Status s = CancelPeriodicTaskScheduler();
   s.PermitUncheckedError();
+  // After the periodic tasks, so nothing triggers a stopped driver.
+  StopAutoTune();
 
   InstrumentedMutexLock l(&mutex_);
   // Blob direct-write relies on clean shutdown flushes to register live blob
@@ -1537,6 +1546,92 @@ Status DBImpl::StartPeriodicTaskScheduler() {
   return s;
 }
 
+void DBImpl::StartAutoTune() {
+  // DB::Open(): nothing else runs yet, so auto_tune_mutex_ is not taken.
+  StartAutoTuneLocked(mutable_db_options_.auto_tune);
+}
+
+void DBImpl::StartAutoTuneLocked(const AutoTuneOptions& options) {
+  if (options.mode == AutoTuneMode::kOff) {
+    return;
+  }
+  AutoTuneColumnFamilyResolver resolver =
+      [this](const std::string& name,
+             std::unique_ptr<ColumnFamilyHandle>* holder,
+             ColumnFamilyHandle** handle) -> Status {
+    uint32_t id = 0;
+    {
+      InstrumentedMutexLock l(&mutex_);
+      ColumnFamilyData* cfd =
+          versions_->GetColumnFamilySet()->GetColumnFamily(name);
+      if (cfd == nullptr || cfd->IsDropped()) {
+        return Status::NotFound("column family " + name);
+      }
+      id = cfd->GetID();
+    }
+    *holder = GetColumnFamilyHandleUnlocked(id);
+    if (*holder == nullptr) {
+      return Status::NotFound("column family " + name);
+    }
+    *handle = holder->get();
+    return Status::OK();
+  };
+  Status s = auto_tune::StartDriver(this, options, std::move(resolver),
+                                    /*self_scheduled=*/false, &auto_tune_state_,
+                                    &auto_tune_driver_);
+  if (s.ok()) {
+    s = periodic_task_scheduler_.Register(
+        PeriodicTaskType::kAutoTune,
+        periodic_task_functions_.at(PeriodicTaskType::kAutoTune),
+        options.trace_period_sec, /*run_immediately=*/false);
+  }
+  if (!s.ok()) {
+    StopAutoTuneDriverLocked();
+    ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                    "[auto_tune] not started, running without auto-tuning: %s",
+                    s.ToString().c_str());
+    return;
+  }
+  auto_tune_running_.store(true, std::memory_order_release);
+}
+
+void DBImpl::StopAutoTuneDriverLocked() {
+  if (auto_tune_driver_ != nullptr) {
+    auto_tune_driver_->Stop();
+    auto_tune_driver_.reset();
+  }
+  auto_tune_running_.store(false, std::memory_order_release);
+}
+
+void DBImpl::RestartAutoTune() {
+  std::lock_guard<std::mutex> lock(auto_tune_mutex_);
+  if (auto_tune_stopped_) {
+    return;
+  }
+  // The latest setting, so that concurrent SetDBOptions() calls end with the
+  // last one installed.
+  AutoTuneOptions options;
+  {
+    InstrumentedMutexLock l(&options_mutex_);
+    options = mutable_db_options_.auto_tune;
+  }
+  // Waits for a run in progress, so nothing triggers the driver being
+  // replaced.
+  periodic_task_scheduler_.Unregister(PeriodicTaskType::kAutoTune)
+      .PermitUncheckedError();
+  StopAutoTuneDriverLocked();
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "[auto_tune] restarting with mode %d",
+                 static_cast<int>(options.mode));
+  StartAutoTuneLocked(options);
+}
+
+void DBImpl::StopAutoTune() {
+  std::lock_guard<std::mutex> lock(auto_tune_mutex_);
+  auto_tune_stopped_ = true;
+  StopAutoTuneDriverLocked();
+}
+
 Status DBImpl::RegisterRecordSeqnoTimeWorker() {
   options_mutex_.AssertHeld();
 
@@ -2075,6 +2170,18 @@ Status DBImpl::SetOptions(
 
 Status DBImpl::SetDBOptions(
     const std::unordered_map<std::string, std::string>& options_map) {
+  bool restart_auto_tune = false;
+  Status s = SetDBOptionsImpl(options_map, &restart_auto_tune);
+  // After the options are installed and options_mutex_ is released.
+  if (restart_auto_tune) {
+    RestartAutoTune();
+  }
+  return s;
+}
+
+Status DBImpl::SetDBOptionsImpl(
+    const std::unordered_map<std::string, std::string>& options_map,
+    bool* restart_auto_tune) {
   if (options_map.empty()) {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "SetDBOptions(), empty input.");
@@ -2099,7 +2206,26 @@ Status DBImpl::SetDBOptions(
       new_options.bytes_per_sync = 1024 * 1024;
     }
 
-    if (MutableDBOptionsAreEqual(mutable_db_options_, new_options)) {
+    // The same auto_tune setting keeps the running tuner object, and retries
+    // a driver that could not start; a new one is checked here and starts
+    // once installed.
+    bool auto_tune_changed = false;
+    if (AutoTuneOptionsAreEqual(mutable_db_options_.auto_tune,
+                                new_options.auto_tune)) {
+      new_options.auto_tune = mutable_db_options_.auto_tune;
+      *restart_auto_tune = s.ok() && options_map.count("auto_tune") > 0 &&
+                           new_options.auto_tune.mode != AutoTuneMode::kOff &&
+                           !auto_tune_running_.load(std::memory_order_acquire);
+    } else {
+      auto_tune_changed = true;
+      if (s.ok() && new_options.auto_tune.mode != AutoTuneMode::kOff) {
+        s = AutoTuneDriver::ValidateOptions(new_options.auto_tune);
+      }
+    }
+
+    // MutableDBOptionsAreEqual() does not compare the tuner.
+    if (!auto_tune_changed &&
+        MutableDBOptionsAreEqual(mutable_db_options_, new_options)) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "SetDBOptions(), input option value is not changed, "
                      "skipping updating.");
@@ -2213,6 +2339,7 @@ Status DBImpl::SetDBOptions(
       mutable_db_options_ = new_options;
       mutex_hold_log_threshold_us_.store(
           new_options.mutex_hold_log_threshold_us, std::memory_order_relaxed);
+      *restart_auto_tune = *restart_auto_tune || auto_tune_changed;
       file_options_for_compaction_ = FileOptions(new_db_options);
       file_options_for_compaction_ = fs_->OptimizeForCompactionTableWrite(
           file_options_for_compaction_, immutable_db_options_);
@@ -4209,7 +4336,8 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
       // TODO: maybe handle the tracing status?
-      tracer_->MultiGet(num_keys, column_family, keys).PermitUncheckedError();
+      tracer_->MultiGet(num_keys, column_family, keys, read_options)
+          .PermitUncheckedError();
     }
   }
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
@@ -6755,6 +6883,12 @@ Status DestroyDB(const std::string& dbname, const Options& options,
         // DeleteDir(dbname) below would otherwise fail to remove the DB.
         // Ignore failures: leftovers here must not fail DestroyDB.
         DestroyDir(env, SessionTmpDir(dbname)).PermitUncheckedError();
+      } else if (fname == kAutoTuneDirName ||
+                 fname == AutoTuneDirName(options.auto_tune.tuning_dir)) {
+        // Auto-tuning workload profiles inside the DB directory belong to the
+        // DB. The default name is deleted even when auto-tuning is off now,
+        // since an earlier open may have written workload profiles there.
+        DestroyDir(env, AutoTuneDir(dbname, fname)).PermitUncheckedError();
       }
     }
     paths_to_delete.insert(dbname);
@@ -8521,6 +8655,7 @@ Status DBImpl::StartTrace(const TraceOptions& trace_options,
   InstrumentedMutexLock lock(&trace_mutex_);
   tracer_.reset(new Tracer(immutable_db_options_.clock, trace_options,
                            std::move(trace_writer)));
+  ++trace_id_;
   return Status::OK();
 }
 
@@ -8533,6 +8668,29 @@ Status DBImpl::EndTrace() {
   } else {
     s = Status::IOError("No trace file to close");
   }
+  return s;
+}
+
+Status DBImpl::StartTraceIfIdle(const TraceOptions& trace_options,
+                                std::unique_ptr<TraceWriter>&& trace_writer,
+                                uint64_t* trace_id) {
+  InstrumentedMutexLock lock(&trace_mutex_);
+  if (tracer_ != nullptr) {
+    return Status::Busy("another trace is in progress");
+  }
+  tracer_.reset(new Tracer(immutable_db_options_.clock, trace_options,
+                           std::move(trace_writer)));
+  *trace_id = ++trace_id_;
+  return Status::OK();
+}
+
+Status DBImpl::EndTraceIfOwner(uint64_t trace_id) {
+  InstrumentedMutexLock lock(&trace_mutex_);
+  if (tracer_ == nullptr || trace_id != trace_id_) {
+    return Status::Busy("the trace was ended or replaced by another caller");
+  }
+  Status s = tracer_->Close();
+  tracer_.reset();
   return s;
 }
 
@@ -8574,12 +8732,14 @@ Status DBImpl::EndBlockCacheTrace() {
 
 Status DBImpl::TraceIteratorSeek(const uint32_t& cf_id, const Slice& key,
                                  const Slice& lower_bound,
-                                 const Slice upper_bound) {
+                                 const Slice upper_bound,
+                                 const TracedReadOptions& read_options) {
   Status s;
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
-      s = tracer_->IteratorSeek(cf_id, key, lower_bound, upper_bound);
+      s = tracer_->IteratorSeek(cf_id, key, lower_bound, upper_bound,
+                                read_options);
     }
   }
   return s;
@@ -8587,12 +8747,14 @@ Status DBImpl::TraceIteratorSeek(const uint32_t& cf_id, const Slice& key,
 
 Status DBImpl::TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
                                         const Slice& lower_bound,
-                                        const Slice upper_bound) {
+                                        const Slice upper_bound,
+                                        const TracedReadOptions& read_options) {
   Status s;
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
-      s = tracer_->IteratorSeekForPrev(cf_id, key, lower_bound, upper_bound);
+      s = tracer_->IteratorSeekForPrev(cf_id, key, lower_bound, upper_bound,
+                                       read_options);
     }
   }
   return s;

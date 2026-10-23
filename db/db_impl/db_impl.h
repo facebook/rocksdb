@@ -17,6 +17,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <string>
@@ -85,6 +86,10 @@ namespace ROCKSDB_NAMESPACE {
 
 class Arena;
 class ArenaWrappedDBIter;
+class AutoTuneDriver;
+namespace auto_tune {
+struct DriverState;
+}  // namespace auto_tune
 class Cleanable;
 class FileIngestionHandleImpl;
 class SameFileBlobReader;
@@ -765,6 +770,16 @@ class DBImpl : public DB
   using DB::EndTrace;
   Status EndTrace() override;
 
+  // StartTrace() that returns Busy instead of replacing a trace in progress.
+  // Sets `*trace_id` for EndTraceIfOwner().
+  Status StartTraceIfIdle(const TraceOptions& options,
+                          std::unique_ptr<TraceWriter>&& trace_writer,
+                          uint64_t* trace_id);
+
+  // EndTrace() for the trace StartTraceIfIdle() started. If StartTrace() has
+  // replaced it since, that trace is left running and Busy is returned.
+  Status EndTraceIfOwner(uint64_t trace_id);
+
   using DB::NewDefaultReplayer;
   Status NewDefaultReplayer(const std::vector<ColumnFamilyHandle*>& handles,
                             std::unique_ptr<TraceReader>&& reader,
@@ -986,10 +1001,12 @@ class DBImpl : public DB
                                  bool* is_blob_index);
 
   Status TraceIteratorSeek(const uint32_t& cf_id, const Slice& key,
-                           const Slice& lower_bound, const Slice upper_bound);
+                           const Slice& lower_bound, const Slice upper_bound,
+                           const TracedReadOptions& read_options);
   Status TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
                                   const Slice& lower_bound,
-                                  const Slice upper_bound);
+                                  const Slice upper_bound,
+                                  const TracedReadOptions& read_options);
 
   // Similar to GetSnapshot(), but also lets the db know that this snapshot
   // will be used for transaction write-conflict checking.  The DB can then
@@ -1691,6 +1708,8 @@ class DBImpl : public DB
   std::shared_ptr<SlowMutexLoggingContext> slow_mutex_logging_;
   RecoveredTransactionMap recovered_transactions_;
   std::unique_ptr<Tracer> tracer_;
+  // Incremented for every trace started. Protected by trace_mutex_.
+  uint64_t trace_id_ = 0;
   InstrumentedMutex trace_mutex_;
   BlockCacheTracer block_cache_tracer_;
 
@@ -3152,6 +3171,40 @@ class DBImpl : public DB
   // Schedule background tasks
   Status StartPeriodicTaskScheduler();
 
+  // Starts the auto-tuning driver and its periodic task when
+  // DBOptions::auto_tune is not off. Called by DB::Open(), before the DB is
+  // used concurrently. If it cannot start, it logs why and the DB runs
+  // without auto-tuning.
+  void StartAutoTune();
+
+  // Replaces the auto-tuning driver after SetDBOptions() changed
+  // DBOptions::auto_tune: the old driver stops (a window in progress ends)
+  // and one with the current setting starts, unless it is off. The tuner is
+  // the one in the setting: the same object unless the new value named one.
+  // With the same tuner object, the new driver continues a watch in progress
+  // and does not act again on a recommendation already handled.
+  // Must be called without options_mutex_ and mutex_ held: the old driver's
+  // thread may be waiting for them.
+  void RestartAutoTune();
+
+  // Stops the auto-tuning driver, if any, for good; it must not run past
+  // shutdown.
+  void StopAutoTune();
+
+  // Starts a driver with `options` and registers its periodic task, or logs
+  // why it cannot. auto_tune_mutex_ is held, or nothing runs concurrently.
+  void StartAutoTuneLocked(const AutoTuneOptions& options);
+
+  // Stops and drops the driver. auto_tune_mutex_ is held, or nothing runs
+  // concurrently; its periodic task is no longer registered.
+  void StopAutoTuneDriverLocked();
+
+  // SetDBOptions() without restarting the auto-tuning driver; sets
+  // `*restart_auto_tune` when it must be restarted.
+  Status SetDBOptionsImpl(
+      const std::unordered_map<std::string, std::string>& options_map,
+      bool* restart_auto_tune);
+
   // Compute the repeat period for the kTriggerCompaction task, which ensures
   // compactions not dependent on writes (flushes) are eventually triggered when
   // there are no writes (flushes). NOT thread safe; only called during DB open
@@ -4052,6 +4105,22 @@ class DBImpl : public DB
 
   // It contains the implementations for each periodic task.
   std::map<PeriodicTaskType, const PeriodicTaskFunc> periodic_task_functions_;
+
+  // Runs auto-tuning windows when DBOptions::auto_tune is not off. Set by
+  // StartAutoTune() during DB::Open() and replaced by RestartAutoTune();
+  // StopAutoTune() stops it for good.
+  std::unique_ptr<AutoTuneDriver> auto_tune_driver_;
+  // The recommendations acted on, a watch in progress and the last apply,
+  // kept across driver restarts while the tuner object stays the same.
+  std::shared_ptr<auto_tune::DriverState> auto_tune_state_;
+  // Serializes RestartAutoTune() and StopAutoTune(), and guards
+  // auto_tune_driver_ and auto_tune_state_ after DB::Open().
+  std::mutex auto_tune_mutex_;
+  // Set by StopAutoTune(): no driver starts once shutdown began.
+  bool auto_tune_stopped_ = false;
+  // Whether a driver runs. SetDBOptions() reads it to retry a setting that
+  // could not start.
+  std::atomic<bool> auto_tune_running_{false};
 
   // When set, we use a separate queue for writes that don't write to memtable.
   // In 2PC these are the writes at Prepare phase.

@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "rocksdb/advanced_options.h"
+#include "rocksdb/auto_tune.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/customizable.h"
@@ -2028,6 +2029,23 @@ struct DBOptions {
   // latency on remote storage systems.
   bool fast_sst_open = false;
 
+  // EXPERIMENTAL
+  // Auto-tuning: trace short windows of live traffic, hand them to a tuner,
+  // and report or apply the options it recommends after checks RocksDB owns.
+  // Off by default. See rocksdb/auto_tune.h. Can be changed with
+  // SetDBOptions("auto_tune={...}"): a new setting stops the running driver
+  // (a window in progress ends) and starts one with the new setting;
+  // mode=kOff stops it; the same setting changes nothing. A value that leaves
+  // out `tuner` keeps the tuner object (and whatever it holds), and with it a
+  // watch in progress and the recommendations already acted on; one with
+  // `tuner=...` makes a new tuner. SetDBOptions() rejects a setting that fails
+  // AutoTuneDriver::ValidateOptions(). Read-only and secondary instances do
+  // not run it. A setting that cannot start (for example, an allowed option
+  // the DB does not have) fails neither DB::Open() nor SetDBOptions(): the
+  // reason is logged and the DB runs without auto-tuning until a later
+  // SetDBOptions() with auto_tune.
+  AutoTuneOptions auto_tune;
+
   // End EXPERIMENTAL
 };
 
@@ -3270,6 +3288,24 @@ struct TraceOptions {
   // Default: false. This means write records in the trace may be in an order
   // different from the WAL's order.
   bool preserve_write_order = false;
+  // When true, each query record also holds the options of its call, and
+  // replay uses them instead of default options:
+  // - writes: WriteOptions::sync, disableWAL, no_slowdown and
+  //   rate_limiter_priority;
+  // - Get, MultiGet and iterator seeks: ReadOptions::verify_checksums,
+  //   fill_cache, ignore_range_deletions, async_io, optimize_multiget_for_io,
+  //   tailing, total_order_seek, auto_prefix_mode, prefix_same_as_start,
+  //   pin_data, adaptive_readahead, background_purge_on_iterator_cleanup,
+  //   auto_readahead_size, allow_unprepared_value, read_tier,
+  //   rate_limiter_priority, readahead_size, max_skippable_internal_keys and
+  //   value_size_soft_limit.
+  // Other fields (snapshots, timestamps, deadlines, callbacks and other
+  // pointers) are not recorded. See WriteQueryTraceRecord::GetWriteOptions()
+  // and GetQueryTraceRecord::GetReadOptions().
+  //
+  // Off by default because older RocksDB versions do not know these record
+  // fields: their release builds ignore them, their debug builds assert.
+  bool include_read_write_options = false;
 };
 
 // ImportColumnFamilyOptions is used by ImportColumnFamily()
