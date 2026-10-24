@@ -368,7 +368,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       // eligible for GC, then stop right here.
       hit_the_next_user_key = true;
       break;
-    } else if (stop_before > 0 && ikey.sequence <= stop_before &&
+    } else if (stop_before != kMaxSequenceNumber &&
+               ikey.sequence <= stop_before &&
                LIKELY(snapshot_checker_ == nullptr ||
                       snapshot_checker_->CheckInSnapshot(ikey.sequence,
                                                          stop_before) !=

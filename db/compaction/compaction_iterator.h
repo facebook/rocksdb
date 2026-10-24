@@ -427,6 +427,8 @@ class CompactionIterator {
   // earliest snapshot that this sequence number is visible in.
   // The snapshots themselves are arranged in ascending order of
   // sequence numbers.
+  // Sets prev_snapshot to the preceding snapshot, or kMaxSequenceNumber
+  // if there is none. Sequence number zero is a valid snapshot.
   // Employ a sequential search because the total number of
   // snapshots are typically small.
   inline SequenceNumber findEarliestVisibleSnapshot(

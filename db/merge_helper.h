@@ -146,7 +146,7 @@ class MergeHelper {
   //       (OUT) points to the first entry not included in the merge process
   // range_del_agg: (IN) filters merge operands covered by range tombstones.
   // stop_before: (IN) a sequence number that merge should not cross.
-  //                   0 means no restriction
+  //                   kMaxSequenceNumber means no restriction
   // at_bottom:   (IN) true if the iterator covers the bottem level, which means
   //                   we could reach the start of the history of this user key.
   // allow_data_in_errors: (IN) if true, data details will be displayed in

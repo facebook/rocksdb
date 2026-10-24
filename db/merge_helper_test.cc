@@ -69,7 +69,7 @@ TEST_F(MergeHelperTest, MergeAtBottomSuccess) {
   AddKeyVal("a", 10, kTypeMerge, test::EncodeInt(3U));
   AddKeyVal("b", 10, kTypeMerge, test::EncodeInt(4U));  // <- iter_ after merge
 
-  ASSERT_TRUE(Run(0, true).ok());
+  ASSERT_TRUE(Run(kMaxSequenceNumber, true).ok());
   ASSERT_EQ(ks_[2], iter_->key());
   ASSERT_EQ(test::KeyStr("a", 20, kTypeValue), merge_helper_->keys()[0]);
   ASSERT_EQ(test::EncodeInt(4U), merge_helper_->values()[0]);
@@ -86,7 +86,7 @@ TEST_F(MergeHelperTest, MergeValue) {
   AddKeyVal("a", 20, kTypeValue, test::EncodeInt(4U));  // <- iter_ after merge
   AddKeyVal("a", 10, kTypeMerge, test::EncodeInt(1U));
 
-  ASSERT_TRUE(Run(0, false).ok());
+  ASSERT_TRUE(Run(kMaxSequenceNumber, false).ok());
   ASSERT_EQ(ks_[3], iter_->key());
   ASSERT_EQ(test::KeyStr("a", 40, kTypeValue), merge_helper_->keys()[0]);
   ASSERT_EQ(test::EncodeInt(8U), merge_helper_->values()[0]);
@@ -110,6 +110,19 @@ TEST_F(MergeHelperTest, SnapshotBeforeValue) {
   ASSERT_EQ(test::EncodeInt(4U), merge_helper_->values()[0]);
   ASSERT_EQ(1U, merge_helper_->keys().size());
   ASSERT_EQ(1U, merge_helper_->values().size());
+}
+
+// Sequence number zero is a valid snapshot boundary after external ingestion.
+TEST_F(MergeHelperTest, SnapshotAtZero) {
+  merge_op_ = MergeOperators::CreateUInt64AddOperator();
+  AddKeyVal("a", 1, kTypeMerge, test::EncodeInt(3U));
+  AddKeyVal("a", 0, kTypeValue, test::EncodeInt(4U));
+
+  ASSERT_TRUE(Run(0, true).IsMergeInProgress());
+  ASSERT_EQ(ks_[1], iter_->key());
+  ASSERT_EQ(test::KeyStr("a", 1, kTypeMerge), merge_helper_->keys()[0]);
+  ASSERT_EQ(test::EncodeInt(3U), merge_helper_->values()[0]);
+  ASSERT_EQ(1U, merge_helper_->keys().size());
 }
 
 // MergeHelper preserves the operand stack for merge operators that
@@ -338,7 +351,7 @@ TEST_F(MergeHelperTest, LargePartialMergeResultRejected) {
   AddKeyVal("b", 10, kTypeMerge, "x");  // different key to stop iteration
 
   // at_bottom=false forces PartialMergeMulti path (not FullMerge)
-  ASSERT_TRUE(Run(0, false).IsCorruption());
+  ASSERT_TRUE(Run(kMaxSequenceNumber, false).IsCorruption());
 
   // Control: just under 4GB should be accepted
   ks_.clear();
@@ -348,7 +361,7 @@ TEST_F(MergeHelperTest, LargePartialMergeResultRejected) {
   AddKeyVal("a", 10, kTypeMerge, op2);
   AddKeyVal("b", 10, kTypeMerge, "x");
 
-  Status s = Run(0, false);
+  Status s = Run(kMaxSequenceNumber, false);
   ASSERT_TRUE(s.IsMergeInProgress()) << s.ToString();
   ASSERT_EQ(1U, merge_helper_->keys().size());
   ASSERT_EQ(size_t{std::numeric_limits<uint32_t>::max()},
