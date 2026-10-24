@@ -1596,6 +1596,37 @@ TEST_F(DBSecondaryTest, SecondaryCloseFiles) {
   ASSERT_TRUE(s.IsNotSupported());
 }
 
+// A secondary replays and tails the primary's indexed WAL, whatever its own
+// partition_wal_usage.
+TEST_F(DBSecondaryTest, CatchUpReadsIndexedWAL) {
+  for (const PartitionWALUsage secondary_usage :
+       {PartitionWALUsage::kPartitionByColumnFamily,
+        PartitionWALUsage::kNone}) {
+    SCOPED_TRACE(static_cast<int>(secondary_usage));
+    Options options = CurrentOptions();
+    options.env = env_;
+    options.partition_wal_usage = PartitionWALUsage::kPartitionByColumnFamily;
+    DestroyAndReopen(options);
+    for (int i = 0; i < 5; ++i) {
+      ASSERT_OK(Put("key" + std::to_string(i), "value" + std::to_string(i)));
+    }
+    Options secondary_options = options;
+    secondary_options.max_open_files = -1;
+    secondary_options.partition_wal_usage = secondary_usage;
+    OpenSecondary(secondary_options);
+    for (int i = 5; i < 10; ++i) {
+      ASSERT_OK(Put("key" + std::to_string(i), "value" + std::to_string(i)));
+    }
+    ASSERT_GT(test::CountIndexedWALFiles(env_, dbname_), 0);
+    ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+    for (int i = 0; i < 10; ++i) {
+      VerifySecondaryValue("key" + std::to_string(i),
+                           "value" + std::to_string(i));
+    }
+    CloseSecondary();
+  }
+}
+
 TEST_F(DBSecondaryTest, OpenAsSecondaryWALTailing) {
   Options options;
   options.env = env_;
