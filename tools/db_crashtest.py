@@ -44,6 +44,12 @@ _IGNORED_CACHELIB_INFO_STDERR_RE = re.compile(
     r"(?:Allocator|BlockCache|Device|Driver|EnginePair|LruPolicy|NavySetup|"
     r"RegionManager|RejectRandomAP|SlabAllocator|SparseMapIndex)\.cpp:\d+\] .*$"
 )
+# ASan emits this support diagnostic when coroutine runtimes use swapcontext.
+_IGNORED_ASAN_SWAPCONTEXT_STDERR_RE = re.compile(
+    r"^==\d+==WARNING: ASan doesn't fully support makecontext/swapcontext "
+    r"functions and may produce false positives in some cases!$",
+    re.MULTILINE,
+)
 _NO_SPACE_SUBSTRINGS = (
     "no space left on device",
     "out of disk space",
@@ -1850,9 +1856,6 @@ def finalize_and_sanitize(src_params):
             dest_params["bottommost_compression_type"] = random.choice(
                 ["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
             )
-    # If periodic_compaction_seconds is not set, daily_offpeak_time_utc doesn't do anything
-    if dest_params.get("periodic_compaction_seconds") == 0:
-        dest_params["daily_offpeak_time_utc"] = ""
     # `use_put_entity_one_in` cannot be enabled/disabled across runs, modify
     # `use_timed_put_one_in` option so that they make sense together.
     if dest_params.get("use_put_entity_one_in") == 1:
@@ -2034,6 +2037,29 @@ def finalize_and_sanitize(src_params):
         dest_params["readahead_size"] = 4096
         dest_params["cache_size"] = 65536
         dest_params["use_write_buffer_manager"] = 0
+
+    # Open fault recovery waits for compaction to quiesce; periodic compactions
+    # can keep scheduling new work indefinitely.
+    if not dest_params.get("use_txn", 0) and any(
+        dest_params.get(flag, 0) > 0
+        for flag in (
+            "sync_fault_injection",
+            "open_metadata_read_fault_one_in",
+            "open_metadata_write_fault_one_in",
+            "open_read_fault_one_in",
+            "open_write_fault_one_in",
+        )
+    ):
+        dest_params["periodic_compaction_seconds"] = 0
+    if dest_params.get("periodic_compaction_seconds") == 0:
+        dest_params["daily_offpeak_time_utc"] = ""
+
+    if dest_params.get("verification_only", 0):
+        dest_params["read_fault_one_in"] = 0
+        dest_params["metadata_read_fault_one_in"] = 0
+        dest_params["metadata_write_fault_one_in"] = 0
+        if not dest_params.get("file_scope_wal_write_faults", 0):
+            dest_params["write_fault_one_in"] = 0
 
     # `db_stress` rejects either verification knob when `skip_verifydb` is set.
     # Must stay last: sanitization above can turn a verification knob back on
@@ -2586,6 +2612,7 @@ def sanitize_known_stderr(stdout, stderr, hit_timeout, finalized_params):
         ignore_sigterm_stderr
         or ignore_io_uring_init_stderr
         or ignore_cachelib_info_stderr
+        or _IGNORED_ASAN_SWAPCONTEXT_STDERR_RE.search(stderr)
     ):
         return stdout, stderr
 
@@ -2602,7 +2629,7 @@ def sanitize_known_stderr(stdout, stderr, hit_timeout, finalized_params):
         ) or (
             ignore_cachelib_info_stderr
             and _IGNORED_CACHELIB_INFO_STDERR_RE.fullmatch(stripped_line)
-        ):
+        ) or _IGNORED_ASAN_SWAPCONTEXT_STDERR_RE.fullmatch(stripped_line):
             ignored_lines.append(line)
         else:
             kept_lines.append(line)
@@ -2789,7 +2816,7 @@ def blackbox_crash_main(args, unknown_args):
 
         time.sleep(1)  # time to stabilize before the next run
 
-    # We should run the test one more time with VerifyOnly setup and no-timeout
+    # Final VerifyOnly must complete before its verification deadline.
     # Only do this if the tests are not failed for total-duration
     print("Running final time for verification")
     cmd_params.update({"verification_only": 1})
@@ -2804,6 +2831,12 @@ def blackbox_crash_main(args, unknown_args):
 
     # For the final run
     print_run_output_and_exit_on_error(args, finalized_params, outs, errs)
+    if hit_timeout or retcode != 0:
+        print(
+            "TEST FAILED. Final verification timed_out=%s, exitcode=%d\n"
+            % (hit_timeout, retcode)
+        )
+        sys.exit(1)
 
     # we need to clean up after ourselves -- only do this on test success
     cleanup_after_success(cmd_params["db"], num_dbs)
