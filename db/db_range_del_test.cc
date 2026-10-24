@@ -113,7 +113,9 @@ TEST_F(DBRangeDelTest, CompactionOutputFilesExactlyFilled) {
   // regression test for exactly filled compaction output files. Previously
   // another file would be generated containing all range deletions, which
   // could invalidate the non-overlapping file boundary invariant.
-  const int kNumPerFile = 4, kNumFiles = 2, kFileBytes = 9 << 10;
+  const int kNumPerFile = 4;
+  const int kNumFiles = 2;
+  const int kFileBytes = 9 << 10;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.level0_file_num_compaction_trigger = kNumFiles;
@@ -159,7 +161,9 @@ TEST_F(DBRangeDelTest, MaxCompactionBytesCutsOutputFiles) {
   // Ensures range deletion spanning multiple compaction output files that are
   // cut by max_compaction_bytes will have non-overlapping key-ranges.
   // https://github.com/facebook/rocksdb/issues/1778
-  const int kNumFiles = 2, kNumPerFile = 1 << 8, kBytesPerVal = 1 << 12;
+  const int kNumFiles = 2;
+  const int kNumPerFile = 1 << 8;
+  const int kBytesPerVal = 1 << 12;
   Options opts = CurrentOptions();
   opts.comparator = test::Uint64Comparator();
   opts.disable_auto_compactions = true;
@@ -297,7 +301,9 @@ TEST_F(DBRangeDelTest, CompactRangeDelsSameStartKey) {
 }
 
 TEST_F(DBRangeDelTest, FlushRemovesCoveredKeys) {
-  const int kNum = 300, kRangeBegin = 50, kRangeEnd = 250;
+  const int kNum = 300;
+  const int kRangeBegin = 50;
+  const int kRangeEnd = 250;
   Options opts = CurrentOptions();
   opts.comparator = test::Uint64Comparator();
   DestroyAndReopen(opts);
@@ -332,7 +338,8 @@ TEST_F(DBRangeDelTest, FlushRemovesCoveredKeys) {
 }
 
 TEST_F(DBRangeDelTest, CompactionRemovesCoveredKeys) {
-  const int kNumPerFile = 100, kNumFiles = 4;
+  const int kNumPerFile = 100;
+  const int kNumFiles = 4;
   Options opts = CurrentOptions();
   opts.comparator = test::Uint64Comparator();
   opts.disable_auto_compactions = true;
@@ -388,7 +395,9 @@ TEST_F(DBRangeDelTest, CompactionRemovesCoveredKeys) {
 }
 
 TEST_F(DBRangeDelTest, ValidLevelSubcompactionBoundaries) {
-  const int kNumPerFile = 100, kNumFiles = 4, kFileBytes = 100 << 10;
+  const int kNumPerFile = 100;
+  const int kNumFiles = 4;
+  const int kFileBytes = 100 << 10;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.level0_file_num_compaction_trigger = kNumFiles;
@@ -446,7 +455,9 @@ TEST_F(DBRangeDelTest, ValidLevelSubcompactionBoundaries) {
 }
 
 TEST_F(DBRangeDelTest, ValidUniversalSubcompactionBoundaries) {
-  const int kNumPerFile = 100, kFilesPerLevel = 4, kNumLevels = 4;
+  const int kNumPerFile = 100;
+  const int kFilesPerLevel = 4;
+  const int kNumLevels = 4;
   Options options = CurrentOptions();
   options.compaction_options_universal.min_merge_width = kFilesPerLevel;
   options.compaction_options_universal.max_merge_width = kFilesPerLevel;
@@ -513,7 +524,8 @@ TEST_F(DBRangeDelTest, ValidUniversalSubcompactionBoundaries) {
 }
 
 TEST_F(DBRangeDelTest, CompactionRemovesCoveredMergeOperands) {
-  const int kNumPerFile = 3, kNumFiles = 3;
+  const int kNumPerFile = 3;
+  const int kNumFiles = 3;
   Options opts = CurrentOptions();
   opts.disable_auto_compactions = true;
   opts.memtable_factory.reset(test::NewSpecialSkipListFactory(2 * kNumPerFile));
@@ -542,7 +554,8 @@ TEST_F(DBRangeDelTest, CompactionRemovesCoveredMergeOperands) {
 
   ReadOptions read_opts;
   read_opts.ignore_range_deletions = true;
-  std::string expected, actual;
+  std::string expected;
+  std::string actual;
   ASSERT_OK(db_->Get(read_opts, "key", &actual));
   PutFixed64(&expected, 45);  // 1+2+...+9
   ASSERT_EQ(expected, actual);
@@ -576,7 +589,8 @@ TEST_F(DBRangeDelTest, PutDeleteRangeMergeFlush) {
   ASSERT_OK(db_->Flush(FlushOptions()));
 
   ReadOptions read_opts;
-  std::string expected, actual;
+  std::string expected;
+  std::string actual;
   ASSERT_OK(db_->Get(read_opts, "key", &actual));
   PutFixed64(&expected, 1);
   ASSERT_EQ(expected, actual);
@@ -633,7 +647,10 @@ TEST_F(DBRangeDelTest, TableEvictedDuringScan) {
   // aggregator. So, subsequent calls to Next() must be able to use these
   // deletions to decide whether a key is covered. This will work as long as
   // the aggregator properly references the range deletion block.
-  const int kNum = 25, kRangeBegin = 0, kRangeEnd = 7, kNumRanges = 5;
+  const int kNum = 25;
+  const int kRangeBegin = 0;
+  const int kRangeEnd = 7;
+  const int kNumRanges = 5;
   Options opts = CurrentOptions();
   opts.comparator = test::Uint64Comparator();
   opts.level0_file_num_compaction_trigger = 4;
@@ -769,7 +786,8 @@ TEST_F(DBRangeDelTest, GetCoveredMergeOperandFromMemtable) {
   }
 
   ReadOptions read_opts;
-  std::string expected, actual;
+  std::string expected;
+  std::string actual;
   ASSERT_OK(db_->Get(read_opts, "key", &actual));
   PutFixed64(&expected, 30);  // 6+7+8+9
   ASSERT_EQ(expected, actual);
@@ -811,7 +829,10 @@ TEST_F(DBRangeDelTest, GetIgnoresRangeDeletions) {
 }
 
 TEST_F(DBRangeDelTest, IteratorRemovesCoveredKeys) {
-  const int kNum = 200, kRangeBegin = 50, kRangeEnd = 150, kNumPerFile = 25;
+  const int kNum = 200;
+  const int kRangeBegin = 50;
+  const int kRangeEnd = 150;
+  const int kNumPerFile = 25;
   Options opts = CurrentOptions();
   opts.comparator = test::Uint64Comparator();
   opts.memtable_factory.reset(test::NewSpecialSkipListFactory(kNumPerFile));
@@ -847,7 +868,10 @@ TEST_F(DBRangeDelTest, IteratorRemovesCoveredKeys) {
 }
 
 TEST_F(DBRangeDelTest, IteratorOverUserSnapshot) {
-  const int kNum = 200, kRangeBegin = 50, kRangeEnd = 150, kNumPerFile = 25;
+  const int kNum = 200;
+  const int kRangeBegin = 50;
+  const int kRangeEnd = 150;
+  const int kNumPerFile = 25;
   Options opts = CurrentOptions();
   opts.comparator = test::Uint64Comparator();
   opts.memtable_factory.reset(test::NewSpecialSkipListFactory(kNumPerFile));
@@ -947,7 +971,8 @@ TEST_F(DBRangeDelTest, TailingIteratorRangeTombstoneUnsupported) {
 #endif  // !ROCKSDB_UBSAN_RUN
 
 TEST_F(DBRangeDelTest, SubcompactionHasEmptyDedicatedRangeDelFile) {
-  const int kNumFiles = 2, kNumKeysPerFile = 4;
+  const int kNumFiles = 2;
+  const int kNumKeysPerFile = 4;
   Options options = CurrentOptions();
   options.compression = kNoCompression;
   options.disable_auto_compactions = true;
@@ -1028,7 +1053,8 @@ TEST_F(DBRangeDelTest, CompactionTreatsSplitInputLevelDeletionAtomically) {
   // tombstones are now truncated to sstable boundaries which removed the need
   // for that behavior (which could lead to excessively large
   // compactions).
-  const int kNumFilesPerLevel = 4, kValueBytes = 4 << 10;
+  const int kNumFilesPerLevel = 4;
+  const int kValueBytes = 4 << 10;
   Options options = CurrentOptions();
   options.compression = kNoCompression;
   options.level0_file_num_compaction_trigger = kNumFilesPerLevel;
@@ -1078,8 +1104,10 @@ TEST_F(DBRangeDelTest, CompactionTreatsSplitInputLevelDeletionAtomically) {
           CompactionOptions(), {meta.levels[1].files[0].name}, 2 /* level */));
       ASSERT_EQ(0, NumTableFilesAtLevel(1));
     } else if (i == 1) {
-      auto begin_str = Key(0), end_str = Key(1);
-      Slice begin = begin_str, end = end_str;
+      auto begin_str = Key(0);
+      auto end_str = Key(1);
+      Slice begin = begin_str;
+      Slice end = end_str;
       ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &begin, &end));
       ASSERT_EQ(3, NumTableFilesAtLevel(1));
     } else if (i == 2) {
@@ -1098,7 +1126,8 @@ TEST_F(DBRangeDelTest, RangeTombstoneEndKeyAsSstableUpperBound) {
   // Test the handling of the range-tombstone end-key as the
   // upper-bound for an sstable.
 
-  const int kNumFilesPerLevel = 2, kValueBytes = 4 << 10;
+  const int kNumFilesPerLevel = 2;
+  const int kValueBytes = 4 << 10;
   Options options = CurrentOptions();
   options.compression = kNoCompression;
   options.level0_file_num_compaction_trigger = kNumFilesPerLevel;
@@ -1798,7 +1827,8 @@ TEST_F(DBRangeDelTest, OversizeCompactionGapBetweenPointKeyAndTombstone) {
   // When compacting L0 into L1, it should split into 3 files:
   // compaction output should cut before key 5 and key 8 to
   // limit future compaction size.
-  const int kNumPerFile = 4, kNumFiles = 2;
+  const int kNumPerFile = 4;
+  const int kNumFiles = 2;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.target_file_size_base = 9 * 1024;
@@ -1835,7 +1865,8 @@ TEST_F(DBRangeDelTest, OversizeCompactionGapBetweenTombstone) {
   // max_compaction_bytes is less than the size of L2_0.
   // When compacting L0 into L1, the two range tombstones should be
   // split into two files.
-  const int kNumPerFile = 4, kNumFiles = 2;
+  const int kNumPerFile = 4;
+  const int kNumFiles = 2;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.target_file_size_base = 9 * 1024;
@@ -1902,7 +1933,8 @@ TEST_F(DBRangeDelTest, OversizeCompactionPointKeyWithinRangetombstone) {
 }
 
 TEST_F(DBRangeDelTest, OverlappedTombstones) {
-  const int kNumPerFile = 4, kNumFiles = 2;
+  const int kNumPerFile = 4;
+  const int kNumFiles = 2;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.target_file_size_base = 9 * 1024;
@@ -1942,7 +1974,8 @@ TEST_F(DBRangeDelTest, OverlappedTombstones) {
 }
 
 TEST_F(DBRangeDelTest, OverlappedKeys) {
-  const int kNumPerFile = 4, kNumFiles = 2;
+  const int kNumPerFile = 4;
+  const int kNumFiles = 2;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.target_file_size_base = 9 * 1024;

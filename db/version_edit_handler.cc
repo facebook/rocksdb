@@ -934,8 +934,14 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit(
         if (negative_edge) {
           builder->RedoLastApply();
         }
-        if (s.IsCorruption()) {
-          // This point in time cannot be recovered; skip it and continue.
+        if (s.IsCorruption() ||
+            (s.IsPathNotFound() && no_error_if_files_missing_)) {
+          // This point in time cannot be recovered; skip it and continue. A
+          // PathNotFound is a file the primary compacted away before this
+          // handler opened it, which open_files_async makes reachable during a
+          // secondary's catch-up by leaving recovery-time files unpinned until
+          // the background opener reaches them. Treat it as missing rather than
+          // latching the error, the same tolerance LoadTables() applies.
           s = Status::OK();
         }
         builder->CommitLastApply();

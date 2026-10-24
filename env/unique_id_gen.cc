@@ -178,7 +178,8 @@ void SemiStructuredUniqueIdGen::GenerateNext(uint64_t* upper, uint64_t* lower) {
 void UnpredictableUniqueIdGen::Reset() {
   for (size_t i = 0; i < pool_.size(); i += 2) {
     assert(i + 1 < pool_.size());
-    uint64_t a, b;
+    uint64_t a;
+    uint64_t b;
     GenerateRawUniqueId(&a, &b);
     pool_[i] = a;
     pool_[i + 1] = b;

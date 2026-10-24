@@ -61,7 +61,8 @@ TEST_F(DBEtc3Test, AutoTuneManifestSize) {
   // auto-tuning phases continue to test the unrelaxed background threshold
   // even though CF manipulation itself is foreground. Phase-specific foreground
   // checks disable that piggy-backed background write.
-  uint64_t prev_manifest_num = 0, cur_manifest_num = 0;
+  uint64_t prev_manifest_num = 0;
+  uint64_t cur_manifest_num = 0;
   std::deque<ColumnFamilyHandle*> handles;
   int counter = 5;
   auto UpdateManifestNumsFrom = [&](uint64_t before_manifest_num) {

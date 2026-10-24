@@ -307,7 +307,8 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
   }
 
   if (db_options.daily_offpeak_time_utc != "") {
-    int start_time, end_time;
+    int start_time;
+    int end_time;
     if (!TryParseTimeRangeString(db_options.daily_offpeak_time_utc, start_time,
                                  end_time)) {
       return Status::InvalidArgument(
@@ -2023,12 +2024,12 @@ Status DBImpl::MaybeFlushFinalMemtableOrRestoreActiveLogFiles(
   if (status.ok()) {
     if (data_seen && !flushed) {
       status = RestoreAliveLogFiles(wal_numbers);
-    } else if (!wal_numbers.empty()) {  // If there's no data in the WAL, or we
-                                        // flushed all the data, still
+    } else if (!wal_numbers.empty() && !read_only &&
+               fs_->IsPreallocationSupported()) {
+      // If there's no data in the WAL, or we flushed all the data, still
       // truncate the log file. If the process goes into a crash loop before
       // the file is deleted, the preallocated space will never get freed.
-      const bool truncate = !read_only;
-      GetLogSizeAndMaybeTruncate(wal_numbers.back(), truncate, nullptr)
+      GetLogSizeAndMaybeTruncate(wal_numbers.back(), /*truncate=*/true, nullptr)
           .PermitUncheckedError();
     }
   }
@@ -2104,6 +2105,7 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
   wal_empty_ = false;
   uint64_t min_wal_with_unflushed_data =
       versions_->MinLogNumberWithUnflushedData();
+  const bool preallocation_supported = fs_->IsPreallocationSupported();
   for (auto wal_number : wal_numbers) {
     if (!allow_2pc() && wal_number < min_wal_with_unflushed_data) {
       // In non-2pc mode, the WAL files not backing unflushed data are not
@@ -2114,8 +2116,10 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
     // preallocated space are not needed anymore. It is likely only the last
     // log has such preallocated space, so we only truncate for the last log.
     WalFileNumberSize log;
-    s = GetLogSizeAndMaybeTruncate(
-        wal_number, /*truncate=*/(wal_number == wal_numbers.back()), &log);
+    s = GetLogSizeAndMaybeTruncate(wal_number,
+                                   /*truncate=*/preallocation_supported &&
+                                       (wal_number == wal_numbers.back()),
+                                   &log);
     if (!s.ok()) {
       break;
     }
@@ -2190,8 +2194,9 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       mutex_.Unlock();
 
       SequenceNumber earliest_write_conflict_snapshot;
-      std::vector<SequenceNumber> snapshot_seqs =
-          snapshots_.GetAll(&earliest_write_conflict_snapshot);
+      std::vector<SequenceNumber> snapshot_seqs;
+      LoadSnapshots(&snapshot_seqs, &earliest_write_conflict_snapshot,
+                    kMaxSequenceNumber, /*snapshot_release_count=*/nullptr);
       SequenceNumber earliest_snapshot =
           (snapshot_seqs.empty() ? kMaxSequenceNumber : snapshot_seqs.at(0));
       auto snapshot_checker = snapshot_checker_.get();
@@ -2761,7 +2766,10 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 
   impl->wal_in_db_path_ = impl->immutable_db_options_.IsWalDirSameAsDBPath();
   RecoveryContext recovery_ctx;
-  impl->options_mutex_.Lock();
+  DeferredInstrumentedMutexLock options_lock(
+      &impl->options_mutex_,
+      impl->stats_ != nullptr &&
+          impl->immutable_db_options_.info_log != nullptr);
   impl->mutex_.Lock();
 
   // Handles create_if_missing, error_if_exists
@@ -2812,7 +2820,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       if (recovered_seq != kMaxSequenceNumber) {
         WriteBatch empty_batch;
         WriteBatchInternal::SetSequence(&empty_batch, recovered_seq);
-        uint64_t wal_used, log_size;
+        uint64_t wal_used;
+        uint64_t log_size;
         log::Writer* log_writer = impl->logs_.back().writer;
         WalFileNumberSize& wal_file_number_size = impl->alive_wal_files_.back();
 
@@ -3062,7 +3071,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok()) {
     s = impl->RegisterRecordSeqnoTimeWorker();
   }
-  impl->options_mutex_.Unlock();
+  options_lock.Unlock();
   if (cleanup_obsolete_options_files) {
     Status obsolete_options_status =
         impl->DeleteObsoleteOptionsFiles(/*schedule_only=*/s.ok());

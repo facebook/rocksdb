@@ -29,7 +29,8 @@ static void TestEncodeDecode(const VersionEdit& edit) {
   // enable all other test cases continue to verify this invariant, while the
   // special case is separately covered in test
   // `EncodeDecodeNewFile4HandleFileBoundary`.
-  std::string encoded, encoded2;
+  std::string encoded;
+  std::string encoded2;
   edit.EncodeTo(&encoded, 0 /* ts_sz */);
   VersionEdit parsed;
   Status s = parsed.DecodeFrom(encoded);
@@ -128,7 +129,8 @@ TEST_F(VersionEditTest, EncodeDecodeNewFile4) {
   edit.SetLastSequence(kBig + 1000);
   TestEncodeDecode(edit);
 
-  std::string encoded, encoded2;
+  std::string encoded;
+  std::string encoded2;
   edit.EncodeTo(&encoded, 0 /* ts_sz */);
   VersionEdit parsed;
   Status s = parsed.DecodeFrom(encoded);

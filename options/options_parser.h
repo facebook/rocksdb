@@ -48,7 +48,7 @@ Status PersistRocksDBOptions(const WriteOptions& write_options,
 class RocksDBOptionsParser {
  public:
   explicit RocksDBOptionsParser();
-  ~RocksDBOptionsParser() {}
+  ~RocksDBOptionsParser() = default;
   void Reset();
 
   // `file_readahead_size` is used for readahead for the option file.

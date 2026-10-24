@@ -171,6 +171,8 @@ class Env : public Customizable {
   // No copying allowed
   Env(const Env&) = delete;
   void operator=(const Env&) = delete;
+  Env(Env&&) = delete;
+  void operator=(Env&&) = delete;
 
   ~Env() override;
 
@@ -1046,6 +1048,8 @@ class WritableFile {
   // No copying allowed
   WritableFile(const WritableFile&) = delete;
   void operator=(const WritableFile&) = delete;
+  WritableFile(WritableFile&&) = delete;
+  void operator=(WritableFile&&) = delete;
 
   // For cases when Close() hasn't been called, many derived classes of
   // WritableFile will need to call Close() non-virtually in their destructor,
@@ -1281,6 +1285,8 @@ class RandomRWFile {
   // No copying allowed
   RandomRWFile(const RandomRWFile&) = delete;
   RandomRWFile& operator=(const RandomRWFile&) = delete;
+  RandomRWFile(RandomRWFile&&) = delete;
+  RandomRWFile& operator=(RandomRWFile&&) = delete;
 
   // For cases when Close() hasn't been called, many derived classes of
   // RandomRWFile will need to call Close() non-virtually in their destructor,
@@ -1340,6 +1346,8 @@ class MemoryMappedFileBuffer {
   // movable if desired, however, since
   MemoryMappedFileBuffer(const MemoryMappedFileBuffer&) = delete;
   MemoryMappedFileBuffer& operator=(const MemoryMappedFileBuffer&) = delete;
+  MemoryMappedFileBuffer(MemoryMappedFileBuffer&&) = delete;
+  MemoryMappedFileBuffer& operator=(MemoryMappedFileBuffer&&) = delete;
 
   void* GetBase() const { return base_; }
   size_t GetLen() const { return length_; }
@@ -1355,7 +1363,7 @@ class Directory {
  public:
   // Many derived classes of Directory will need to call Close() in their
   // destructor, when not called already, to ensure resources are released.
-  virtual ~Directory() {}
+  virtual ~Directory() = default;
   // Fsync directory. Can be called concurrently from multiple threads.
   virtual Status Fsync() = 0;
   // Calling Close() before destroying a Directory is recommended to surface
@@ -1399,6 +1407,8 @@ class Logger {
   // No copying allowed
   Logger(const Logger&) = delete;
   void operator=(const Logger&) = delete;
+  Logger(Logger&&) = delete;
+  void operator=(Logger&&) = delete;
 
   virtual ~Logger();
 
@@ -1464,11 +1474,13 @@ class FileLock {
   // No copying allowed
   FileLock(const FileLock&) = delete;
   void operator=(const FileLock&) = delete;
+  FileLock(FileLock&&) = delete;
+  void operator=(FileLock&&) = delete;
 };
 
 class DynamicLibrary {
  public:
-  virtual ~DynamicLibrary() {}
+  virtual ~DynamicLibrary() = default;
 
   // Returns the name of the dynamic library.
   virtual const char* Name() const = 0;

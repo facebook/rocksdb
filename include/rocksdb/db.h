@@ -157,7 +157,7 @@ struct MultiGetOutputMetadata {
 
 class ColumnFamilyHandle {
  public:
-  virtual ~ColumnFamilyHandle() {}
+  virtual ~ColumnFamilyHandle() = default;
   // Returns the name of the column family associated with the current handle.
   virtual const std::string& GetName() const = 0;
   // Returns the ID of the column family associated with the current handle.
@@ -522,6 +522,8 @@ class DB {
   // No copying allowed
   DB(const DB&) = delete;
   void operator=(const DB&) = delete;
+  DB(DB&&) = delete;
+  void operator=(DB&&) = delete;
 
   virtual ~DB();
 
@@ -1748,8 +1750,10 @@ class DB {
     //      database.
     static const std::string kNumSnapshots;
 
-    //  "rocksdb.oldest-snapshot-time" - returns number representing unix
-    //      timestamp of oldest unreleased snapshot.
+    //  "rocksdb.oldest-snapshot-time" - returns number representing the
+    //      approximate Unix timestamp of the oldest unreleased snapshot. The
+    //      result can be approximate when snapshot creation is concurrent or
+    //      the wall clock moves backward.
     static const std::string kOldestSnapshotTime;
 
     //  "rocksdb.oldest-snapshot-sequence" - returns number representing

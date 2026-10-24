@@ -904,6 +904,10 @@ enum StatsLevel : uint8_t {
   // mutex lock.
   kExceptTimeForMutex,
   // Collect all stats, including measuring duration of mutex operations.
+  // Also enables sampled INFO logs for selected DB-wide mutex holds exceeding
+  // a positive DBOptions::mutex_hold_log_threshold_us (disabled by default).
+  // These describe completed ownership intervals, not waiter latency or
+  // comprehensive tracing; an info logger is required.
   // If getting time is expensive on the platform to run, it can
   // reduce scalability to more threads, especially for writes.
   kAll,
@@ -924,7 +928,7 @@ enum StatsLevel : uint8_t {
 // including data loss, unreported corruption, deadlocks, and more.
 class Statistics : public Customizable {
  public:
-  ~Statistics() override {}
+  ~Statistics() override = default;
   static const char* Type() { return "Statistics"; }
   static Status CreateFromString(const ConfigOptions& opts,
                                  const std::string& value,

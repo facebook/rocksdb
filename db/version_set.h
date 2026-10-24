@@ -157,6 +157,8 @@ class VersionStorageInfo {
   // No copying allowed
   VersionStorageInfo(const VersionStorageInfo&) = delete;
   void operator=(const VersionStorageInfo&) = delete;
+  VersionStorageInfo(VersionStorageInfo&&) = delete;
+  void operator=(VersionStorageInfo&&) = delete;
   ~VersionStorageInfo();
 
   void Reserve(int level, size_t size) { files_[level].reserve(size); }
@@ -243,9 +245,9 @@ class VersionStorageInfo {
   //
   // Among bottommost files (assumes they've already been computed), marks the
   // ones that have keys that would be eliminated if recompacted, according to
-  // the seqnum of the oldest existing snapshot. Must be called every time
-  // oldest snapshot changes as that is when bottom-level files can become
-  // eligible for compaction.
+  // the seqnum of the oldest existing snapshot. It is recomputed when a new
+  // Version is installed and when deferred snapshot maintenance observes that
+  // the oldest snapshot crossed the next eligibility threshold.
   //
   // For columns with User Defined Timestamps (UDT), also checks that the
   // file's largest timestamp is below full_history_ts_low before marking,
@@ -690,6 +692,10 @@ class VersionStorageInfo {
     return bottommost_files_mark_threshold_;
   }
 
+  SequenceNumber oldest_snapshot_seqnum() const {
+    return oldest_snapshot_seqnum_;
+  }
+
   SequenceNumber standalone_range_tombstone_files_mark_threshold() const {
     return standalone_range_tombstone_files_mark_threshold_;
   }
@@ -804,9 +810,9 @@ class VersionStorageInfo {
 
   autovector<std::pair<int, FileMetaData*>> read_triggered_compaction_files_;
 
-  // Threshold for needing to mark another bottommost file. Maintain it so we
-  // can quickly check when releasing a snapshot whether more bottommost files
-  // became eligible for compaction. It's defined as the min of the max nonzero
+  // Threshold for needing to mark another bottommost file. Deferred snapshot
+  // maintenance uses it to avoid recomputing marks until the oldest snapshot
+  // can make another file eligible. It's defined as the min of the max nonzero
   // seqnums of unmarked bottommost files.
   SequenceNumber bottommost_files_mark_threshold_ = kMaxSequenceNumber;
 
@@ -931,6 +937,9 @@ struct ObsoleteFileInfo {
 
     return *this;
   }
+
+  ~ObsoleteFileInfo() = default;
+
   void DeleteMetadata() {
     if (file_metadata_cache_res_mgr) {
       Status s = file_metadata_cache_res_mgr->UpdateCacheReservation(
@@ -1276,7 +1285,6 @@ class Version {
   // used for debugging and logging purposes only.
   uint64_t version_number_;
   std::shared_ptr<IOTracer> io_tracer_;
-  bool use_async_io_;
 
   Version(ColumnFamilyData* cfd, VersionSet* vset, const FileOptions& file_opt,
           const MutableCFOptions& mutable_cf_options,
@@ -1290,6 +1298,8 @@ class Version {
   // No copying allowed
   Version(const Version&) = delete;
   void operator=(const Version&) = delete;
+  Version(Version&&) = delete;
+  void operator=(Version&&) = delete;
 };
 
 class BaseReferencedVersionBuilder;
@@ -1334,6 +1344,8 @@ class VersionSet {
   // No copying allowed
   VersionSet(const VersionSet&) = delete;
   void operator=(const VersionSet&) = delete;
+  VersionSet(VersionSet&&) = delete;
+  void operator=(VersionSet&&) = delete;
 
   virtual ~VersionSet();
 
@@ -1474,6 +1486,10 @@ class VersionSet {
   static Status GetOptionsFileManifestState(
       const std::string& dbname, FileSystem* fs,
       OptionsFileManifestState* manifest_state);
+  static Status GetOptionsFileManifestState(
+      const std::string& dbname, FileSystem* fs,
+      OptionsFileManifestState* manifest_state, uint64_t* next_file_number,
+      uint64_t* last_valid_manifest_record_end);
 
   // Resolves OPTIONS files against recovered MANIFEST state. A legacy file
   // (tracking absent or false) supersedes an older committed file. Tracked
@@ -2219,8 +2235,10 @@ class ReactiveVersionSet : public VersionSet {
   }
 
   // No copy allowed
-  ReactiveVersionSet(const ReactiveVersionSet&);
-  ReactiveVersionSet& operator=(const ReactiveVersionSet&);
+  ReactiveVersionSet(const ReactiveVersionSet&) = delete;
+  ReactiveVersionSet& operator=(const ReactiveVersionSet&) = delete;
+  ReactiveVersionSet(ReactiveVersionSet&&) = delete;
+  ReactiveVersionSet& operator=(ReactiveVersionSet&&) = delete;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

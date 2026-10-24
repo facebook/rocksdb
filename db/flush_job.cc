@@ -717,19 +717,26 @@ bool FlushJob::MemPurgeDecider(double threshold) {
   // Payload and useful_payload (in bytes).
   // The useful payload ratio of a given MemTable
   // is estimated to be useful_payload/payload.
-  uint64_t payload = 0, useful_payload = 0, entry_size = 0;
+  uint64_t payload = 0;
+  uint64_t useful_payload = 0;
+  uint64_t entry_size = 0;
 
   // Local variables used repetitively inside the for-loop
   // when iterating over the sampled entries.
-  Slice key_slice, value_slice;
+  Slice key_slice;
+  Slice value_slice;
   ParsedInternalKey res;
   SnapshotImpl min_snapshot;
   std::string vget;
-  Status mget_s, parse_s;
+  Status mget_s;
+  Status parse_s;
   MergeContext merge_context;
-  SequenceNumber max_covering_tombstone_seq = 0, sqno = 0,
-                 min_seqno_snapshot = 0;
-  bool get_res, can_be_useful_payload, not_in_next_mems;
+  SequenceNumber max_covering_tombstone_seq = 0;
+  SequenceNumber sqno = 0;
+  SequenceNumber min_seqno_snapshot = 0;
+  bool get_res;
+  bool can_be_useful_payload;
+  bool not_in_next_mems;
 
   // If estimated_useful_payload is > threshold,
   // then flush to storage, else MemPurge.
@@ -924,7 +931,8 @@ Status FlushJob::WriteLevel0Table() {
     ro.total_order_seek = true;
     ro.io_activity = Env::IOActivity::kFlush;
     Arena arena;
-    uint64_t total_num_input_entries = 0, total_num_deletes = 0;
+    uint64_t total_num_input_entries = 0;
+    uint64_t total_num_deletes = 0;
     uint64_t total_data_size = 0;
     size_t total_memory_usage = 0;
     uint64_t total_num_range_deletes = 0;

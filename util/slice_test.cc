@@ -596,7 +596,8 @@ TEST(BitFieldsTest, BitFields) {
     ASSERT_EQ(state, relaxed.LoadRelaxed());
 
     auto transform1 = Field2::ClearTransform() + Field3::ClearTransform();
-    MyState before, after;
+    MyState before;
+    MyState after;
     relaxed.ApplyRelaxed(transform1, &before, &after);
     ASSERT_EQ(before, state);
     ASSERT_NE(after, state);
@@ -685,7 +686,8 @@ TEST(BitFieldsTest, BitFields) {
     ASSERT_EQ(state, acqrel.Load());
 
     auto transform1 = Field2::ClearTransform() + Field3::ClearTransform();
-    MyState before, after;
+    MyState before;
+    MyState after;
     acqrel.Apply(transform1, &before, &after);
     ASSERT_EQ(before, state);
     ASSERT_NE(after, state);

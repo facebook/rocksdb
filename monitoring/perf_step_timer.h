@@ -26,6 +26,12 @@ class PerfStepTimer {
         metric_(metric),
         statistics_(statistics) {}
 
+  // No copying allowed
+  PerfStepTimer(const PerfStepTimer&) = delete;
+  PerfStepTimer& operator=(const PerfStepTimer&) = delete;
+  PerfStepTimer(PerfStepTimer&&) = delete;
+  PerfStepTimer& operator=(PerfStepTimer&&) = delete;
+
   ~PerfStepTimer() { Stop(); }
 
   void Start() {

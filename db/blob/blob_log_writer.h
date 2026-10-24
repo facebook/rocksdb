@@ -37,6 +37,8 @@ class BlobLogWriter {
   // No copying allowed
   BlobLogWriter(const BlobLogWriter&) = delete;
   BlobLogWriter& operator=(const BlobLogWriter&) = delete;
+  BlobLogWriter(BlobLogWriter&&) = delete;
+  BlobLogWriter& operator=(BlobLogWriter&&) = delete;
 
   ~BlobLogWriter();
 

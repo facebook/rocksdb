@@ -722,6 +722,8 @@ class FilePickerMultiGet {
         user_comparator_(other.user_comparator_),
         internal_comparator_(other.internal_comparator_),
         hit_file_(other.hit_file_) {}
+  FilePickerMultiGet& operator=(FilePickerMultiGet&&) = delete;
+  ~FilePickerMultiGet() = default;
 
  private:
   unsigned int num_levels_;
@@ -1210,6 +1212,12 @@ class LevelIterator final : public InternalIterator {
       *range_tombstone_iter_ptr_ = &range_tombstone_iter_;
     }
   }
+
+  // No copying allowed
+  LevelIterator(const LevelIterator&) = delete;
+  LevelIterator& operator=(const LevelIterator&) = delete;
+  LevelIterator(LevelIterator&&) = delete;
+  LevelIterator& operator=(LevelIterator&&) = delete;
 
   ~LevelIterator() override {
     delete file_iter_.Set(nullptr);
@@ -2276,7 +2284,8 @@ void Version::GetColumnFamilyMetaData(
   int last_level =
       (options.level >= 0) ? options.level + 1 : cfd_->NumberLevels();
 
-  InternalKey ikey_start, ikey_end;
+  InternalKey ikey_start;
+  InternalKey ikey_end;
   const InternalKey* begin = nullptr;
   const InternalKey* end = nullptr;
 
@@ -2786,13 +2795,7 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       max_file_size_for_l0_meta_pin_(
           MaxFileSizeForL0MetaPin(mutable_cf_options_)),
       version_number_(version_number),
-      io_tracer_(io_tracer),
-      use_async_io_(false) {
-  if (CheckFSFeatureSupport(env_->GetFileSystem().get(),
-                            FSSupportedOps::kAsyncIO)) {
-    use_async_io_ = true;
-  }
-}
+      io_tracer_(io_tracer) {}
 
 Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
                         const BlobIndex& blob_index,
@@ -4698,7 +4701,8 @@ void VersionStorageInfo::GetOverlappingInputs(
     *next_smallest = nullptr;
   }
 
-  Slice user_begin, user_end;
+  Slice user_begin;
+  Slice user_end;
   if (begin != nullptr) {
     user_begin = begin->user_key();
   }
@@ -5449,6 +5453,11 @@ struct VersionSet::ManifestWriter {
         edit_list(e),
         manifest_write_callback(manifest_wcb),
         max_file_opening_threads(_max_file_opening_threads) {}
+  // No copying allowed
+  ManifestWriter(const ManifestWriter&) = delete;
+  ManifestWriter& operator=(const ManifestWriter&) = delete;
+  ManifestWriter(ManifestWriter&&) = delete;
+  ManifestWriter& operator=(ManifestWriter&&) = delete;
   ~ManifestWriter() { status.PermitUncheckedError(); }
 
   bool IsAllVersionIndependentEdits() const {
@@ -7388,9 +7397,24 @@ Status VersionSet::ListColumnFamiliesFromManifest(
 Status VersionSet::GetOptionsFileManifestState(
     const std::string& dbname, FileSystem* fs,
     OptionsFileManifestState* manifest_state) {
+  return GetOptionsFileManifestState(
+      dbname, fs, manifest_state, /*next_file_number=*/nullptr,
+      /*last_valid_manifest_record_end=*/nullptr);
+}
+
+Status VersionSet::GetOptionsFileManifestState(
+    const std::string& dbname, FileSystem* fs,
+    OptionsFileManifestState* manifest_state, uint64_t* next_file_number,
+    uint64_t* last_valid_manifest_record_end) {
   assert(fs != nullptr);
   assert(manifest_state != nullptr);
   *manifest_state = OptionsFileManifestState();
+  if (next_file_number != nullptr) {
+    *next_file_number = 0;
+  }
+  if (last_valid_manifest_record_end != nullptr) {
+    *last_valid_manifest_record_end = 0;
+  }
 
   constexpr int kMaxAttempts = 2;
   for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
@@ -7431,10 +7455,15 @@ Status VersionSet::GetOptionsFileManifestState(
     // written as a kColumnFamilyAdd record.
     found_manifest_state.column_family_names.emplace(0,
                                                      kDefaultColumnFamilyName);
+    uint64_t found_next_file_number = 0;
+    uint64_t found_last_valid_record_end = 0;
     auto apply_edit = [&](const VersionEdit& edit) {
       found_manifest_state.ApplyColumnFamilyEdit(edit);
       if (edit.HasCommittedOptionsFileNumber()) {
         found_manifest_state.ApplyCommit(edit.GetCommittedOptionsFileNumber());
+      }
+      if (edit.HasNextFile()) {
+        found_next_file_number = edit.GetNextFile();
       }
     };
 
@@ -7455,11 +7484,13 @@ Status VersionSet::GetOptionsFileManifestState(
         if (!atomic_group.IsFull()) {
           continue;
         }
+        found_last_valid_record_end = reader.LastRecordEnd();
         for (const auto& grouped_edit : atomic_group.replay_buffer()) {
           apply_edit(grouped_edit);
         }
         atomic_group.Clear();
       } else {
+        found_last_valid_record_end = reader.LastRecordEnd();
         apply_edit(edit);
       }
     }
@@ -7468,6 +7499,12 @@ Status VersionSet::GetOptionsFileManifestState(
     }
 
     *manifest_state = found_manifest_state;
+    if (next_file_number != nullptr) {
+      *next_file_number = found_next_file_number;
+    }
+    if (last_valid_manifest_record_end != nullptr) {
+      *last_valid_manifest_record_end = found_last_valid_record_end;
+    }
     return Status::OK();
   }
 
@@ -7578,10 +7615,6 @@ Status VersionSet::ResolveOptionsFileNumber(
     }
     if (it->first < manifest_state.committed_options_file_number) {
       break;
-    }
-    if (it == highest) {
-      rejected_tracked_file_numbers.push_back(it->first);
-      continue;
     }
     bool tracked = false;
     Status marker_status = is_tracked(it->second, &tracked);

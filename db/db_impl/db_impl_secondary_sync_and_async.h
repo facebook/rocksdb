@@ -83,7 +83,7 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplSecondary::GetImpl)
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
-      tracer_->Get(get_impl_options.column_family, key);
+      tracer_->Get(get_impl_options.column_family, key, read_options);
     }
   }
 

@@ -436,7 +436,8 @@ bool SerializeIntVector(const std::vector<int>& vec, std::string* value) {
 }
 
 int ParseTimeStringToSeconds(const std::string& value) {
-  int hours, minutes;
+  int hours;
+  int minutes;
   char colon;
 
   std::istringstream stream(value);

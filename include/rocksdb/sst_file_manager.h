@@ -25,7 +25,7 @@ class Logger;
 // result of NewSstFileManager. Any derived classes must be RocksDB internal.
 class SstFileManager {
  public:
-  virtual ~SstFileManager() {}
+  virtual ~SstFileManager() = default;
 
   // Update the maximum allowed space that should be used by RocksDB, if
   // the total size of the SST and blob files exceeds max_allowed_space, writes

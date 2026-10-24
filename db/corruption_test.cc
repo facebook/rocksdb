@@ -143,7 +143,8 @@ class CorruptionTest : public testing::Test {
   }
 
   void Build(int n, int start, int flush_every) {
-    std::string key_space, value_space;
+    std::string key_space;
+    std::string value_space;
     WriteBatch batch;
     for (int i = 0; i < n; i++) {
       if (flush_every != 0 && i != 0 && i % flush_every == 0) {
@@ -773,7 +774,8 @@ TEST_F(CorruptionTest, CompactionInputErrorParanoid) {
 
   // Write must eventually fail because of corrupted table
   Status s;
-  std::string tmp1, tmp2;
+  std::string tmp1;
+  std::string tmp2;
   bool failed = false;
   for (int i = 0; i < 10000; i++) {
     s = db_->Put(WriteOptions(), Key(i, &tmp1), Value(i, &tmp2));
@@ -792,7 +794,8 @@ TEST_F(CorruptionTest, UnrelatedKeys) {
   Corrupt(kTableFile, 100, 1);
   ASSERT_NOK(db_->VerifyChecksum());
 
-  std::string tmp1, tmp2;
+  std::string tmp1;
+  std::string tmp2;
   ASSERT_OK(db_->Put(WriteOptions(), Key(1000, &tmp1), Value(1000, &tmp2)));
   std::string v;
   ASSERT_OK(db_->Get(ReadOptions(), Key(1000, &tmp1), &v));
@@ -940,7 +943,8 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeFirst) {
     db_.reset();
     ASSERT_OK(DestroyDB(dbname_, options));
     ASSERT_OK(DB::Open(options, dbname_, &db_));
-    std::string start, end;
+    std::string start;
+    std::string end;
     assert(db_ != nullptr);  // suppress false clang-analyze report
     ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
                                Key(3, &start), Key(7, &end)));
@@ -976,7 +980,8 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRange) {
     ASSERT_OK(DB::Open(options, dbname_, &db_));
     assert(db_ != nullptr);  // suppress false clang-analyze report
     Build(10, 0, 0);
-    std::string start, end;
+    std::string start;
+    std::string end;
     ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
                                Key(5, &start), Key(15, &end)));
     auto snap = db_->GetSnapshot();
@@ -1012,7 +1017,8 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeLast) {
     ASSERT_OK(DestroyDB(dbname_, options));
     ASSERT_OK(DB::Open(options, dbname_, &db_));
     assert(db_ != nullptr);  // suppress false clang-analyze report
-    std::string start, end;
+    std::string start;
+    std::string end;
     Build(10);
     ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
                                Key(3, &start), Key(7, &end)));

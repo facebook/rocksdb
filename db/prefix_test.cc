@@ -131,7 +131,8 @@ class TestKeyComparator : public Comparator {
   }
 
   bool operator()(const TestKey& a, const TestKey& b) const {
-    std::string sa, sb;
+    std::string sa;
+    std::string sb;
     return Compare(TestKeyToSlice(sa, a), TestKeyToSlice(sb, b)) < 0;
   }
 
@@ -698,7 +699,8 @@ TEST_F(PrefixTest, PrefixSeekModePrev) {
     auto db = OpenDb();
     WriteOptions write_options;
     ReadOptions read_options;
-    std::map<TestKey, std::string, TestKeyComparator> entry_maps[3], whole_map;
+    std::map<TestKey, std::string, TestKeyComparator> entry_maps[3];
+    std::map<TestKey, std::string, TestKeyComparator> whole_map;
     for (uint64_t i = 0; i < 10; i++) {
       int div = i % 3 + 1;
       for (uint64_t j = 0; j < 10; j++) {

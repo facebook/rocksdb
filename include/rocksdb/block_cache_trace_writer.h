@@ -126,7 +126,7 @@ struct BlockCacheTraceWriterOptions {
 // with a BlockCacheTraceRecord.
 class BlockCacheTraceWriter {
  public:
-  virtual ~BlockCacheTraceWriter() {}
+  virtual ~BlockCacheTraceWriter() = default;
 
   // Pass Slice references to avoid copy.
   virtual Status WriteBlockAccess(const BlockCacheTraceRecord& record,

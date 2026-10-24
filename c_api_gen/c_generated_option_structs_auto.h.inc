@@ -708,6 +708,14 @@ extern ROCKSDB_LIBRARY_API void rocksdb_trace_options_set_preserve_write_order(
 extern ROCKSDB_LIBRARY_API unsigned char
 rocksdb_trace_options_get_preserve_write_order(rocksdb_trace_options_t* opt);
 
+extern ROCKSDB_LIBRARY_API void
+rocksdb_trace_options_set_include_read_write_options(
+    rocksdb_trace_options_t* opt, unsigned char v);
+
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_trace_options_get_include_read_write_options(
+    rocksdb_trace_options_t* opt);
+
 /* BlockCacheTraceOptions */
 
 extern ROCKSDB_LIBRARY_API void
@@ -1128,22 +1136,6 @@ rocksdb_block_based_options_set_use_delta_encoding(
 
 extern ROCKSDB_LIBRARY_API unsigned char
 rocksdb_block_based_options_get_use_delta_encoding(
-    rocksdb_block_based_table_options_t* opt);
-
-extern ROCKSDB_LIBRARY_API void
-rocksdb_block_based_options_set_use_udi_as_primary_index(
-    rocksdb_block_based_table_options_t* opt, unsigned char v);
-
-extern ROCKSDB_LIBRARY_API unsigned char
-rocksdb_block_based_options_get_use_udi_as_primary_index(
-    rocksdb_block_based_table_options_t* opt);
-
-extern ROCKSDB_LIBRARY_API void
-rocksdb_block_based_options_set_fail_if_no_udi_on_open(
-    rocksdb_block_based_table_options_t* opt, unsigned char v);
-
-extern ROCKSDB_LIBRARY_API unsigned char
-rocksdb_block_based_options_get_fail_if_no_udi_on_open(
     rocksdb_block_based_table_options_t* opt);
 
 extern ROCKSDB_LIBRARY_API void

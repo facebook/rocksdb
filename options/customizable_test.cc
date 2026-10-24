@@ -394,7 +394,8 @@ TEST_F(CustomizableTest, AreEquivalentOptionsTest) {
 
 // Tests that we can initialize a customizable from its options
 TEST_F(CustomizableTest, ConfigureStandaloneCustomTest) {
-  std::unique_ptr<TestCustomizable> base, copy;
+  std::unique_ptr<TestCustomizable> base;
+  std::unique_ptr<TestCustomizable> copy;
   const auto& registry = config_options_.registry;
   ASSERT_OK(registry->NewUniqueObject<TestCustomizable>("A", &base));
   ASSERT_OK(registry->NewUniqueObject<TestCustomizable>("A", &copy));
@@ -906,14 +907,17 @@ class VectorConfigurable : public SimpleConfigurable {
 }  // namespace
 
 TEST_F(CustomizableTest, VectorConfigTest) {
-  VectorConfigurable orig, copy;
-  std::shared_ptr<TestCustomizable> c1, c2;
+  VectorConfigurable orig;
+  VectorConfigurable copy;
+  std::shared_ptr<TestCustomizable> c1;
+  std::shared_ptr<TestCustomizable> c2;
   ASSERT_OK(TestCustomizable::CreateFromString(config_options_, "A", &c1));
   ASSERT_OK(TestCustomizable::CreateFromString(config_options_, "B", &c2));
   orig.cv.push_back(c1);
   orig.cv.push_back(c2);
   ASSERT_OK(orig.ConfigureFromString(config_options_, "unique=A2"));
-  std::string opt_str, mismatch;
+  std::string opt_str;
+  std::string mismatch;
   ASSERT_OK(orig.GetOptionString(config_options_, &opt_str));
   ASSERT_OK(copy.ConfigureFromString(config_options_, opt_str));
   ASSERT_TRUE(orig.AreEquivalent(config_options_, &copy, &mismatch));
@@ -922,13 +926,15 @@ TEST_F(CustomizableTest, VectorConfigTest) {
 TEST_F(CustomizableTest, NoNameTest) {
   // If Customizables are created without names, they are not
   // part of the serialization (since they cannot be recreated)
-  VectorConfigurable orig, copy;
+  VectorConfigurable orig;
+  VectorConfigurable copy;
   auto sopts = orig.GetOptions<SimpleOptions>();
   auto copts = copy.GetOptions<SimpleOptions>();
   sopts->cu.reset(new ACustomizable(""));
   orig.cv.push_back(std::make_shared<ACustomizable>(""));
   orig.cv.push_back(std::make_shared<ACustomizable>("A_1"));
-  std::string opt_str, mismatch;
+  std::string opt_str;
+  std::string mismatch;
   ASSERT_OK(orig.GetOptionString(config_options_, &opt_str));
   ASSERT_OK(copy.ConfigureFromString(config_options_, opt_str));
   ASSERT_EQ(copy.cv.size(), 1U);
@@ -1019,7 +1025,8 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
     }
     const char* Name() const override { return "MutableCustomizable"; }
   };
-  MutableCustomizable mc, mc2;
+  MutableCustomizable mc;
+  MutableCustomizable mc2;
   std::string mismatch;
   std::string opt_str;
 
@@ -1089,7 +1096,8 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
 }
 
 TEST_F(CustomizableTest, CustomManagedObjects) {
-  std::shared_ptr<TestCustomizable> object1, object2;
+  std::shared_ptr<TestCustomizable> object1;
+  std::shared_ptr<TestCustomizable> object2;
   ASSERT_OK(LoadManagedObject<TestCustomizable>(
       config_options_, "id=A_1;int=1;bool=true", &object1));
   ASSERT_NE(object1, nullptr);
@@ -1141,7 +1149,10 @@ TEST_F(CustomizableTest, CreateManagedObjects) {
             return guard->get();
           });
 
-  std::shared_ptr<ManagedCustomizable> mc1, mc2, mc3, obj;
+  std::shared_ptr<ManagedCustomizable> mc1;
+  std::shared_ptr<ManagedCustomizable> mc2;
+  std::shared_ptr<ManagedCustomizable> mc3;
+  std::shared_ptr<ManagedCustomizable> obj;
   // Create a "deadbeef" customizable
   std::string deadbeef =
       std::string(ManagedCustomizable::kClassName()) + "@0xdeadbeef#0001";

@@ -53,6 +53,7 @@ struct SuperVersionContext {
   // No copies
   SuperVersionContext(const SuperVersionContext& other) = delete;
   void operator=(const SuperVersionContext& other) = delete;
+  void operator=(SuperVersionContext&& other) = delete;
 
   void NewSuperVersion() {
     new_superversion = std::unique_ptr<SuperVersion>(new SuperVersion());
@@ -279,6 +280,12 @@ struct JobContext {
 
   // Delete the default constructor
   JobContext() = delete;
+
+  // No copying allowed
+  JobContext(const JobContext&) = delete;
+  JobContext& operator=(const JobContext&) = delete;
+  JobContext(JobContext&&) = delete;
+  JobContext& operator=(JobContext&&) = delete;
 
   // For non-empty JobContext Clean() has to be called at least once before
   // before destruction (see asserts in ~JobContext()). Should be called with

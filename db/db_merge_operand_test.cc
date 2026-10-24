@@ -582,7 +582,8 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBaseDeletionInImmMem) {
     merge_operands_info.expected_max_number_of_operands =
         static_cast<int>(values.size());
 
-    std::string key = "k1", from_db;
+    std::string key = "k1";
+    std::string from_db;
     int number_of_operands = 0;
     ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
                                     key, values.data(), &merge_operands_info,

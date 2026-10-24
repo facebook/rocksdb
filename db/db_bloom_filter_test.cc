@@ -917,14 +917,15 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(
         std::make_tuple(kAutoBloom,
                         FilterPartitioning::kCoupledPartitionedFilter,
-                        kLatestBbtFormatVersion),
+                        BlockBasedTableOptions::kLatestSupportedFormatVersion),
         std::make_tuple(kAutoBloom,
                         FilterPartitioning::kDecoupledPartitionedFilter,
-                        kLatestBbtFormatVersion),
+                        BlockBasedTableOptions::kLatestSupportedFormatVersion),
         std::make_tuple(kAutoBloom, FilterPartitioning::kUnpartitionedFilter,
-                        kLatestBbtFormatVersion),
-        std::make_tuple(kAutoRibbon, FilterPartitioning::kUnpartitionedFilter,
-                        kLatestBbtFormatVersion)));
+                        BlockBasedTableOptions::kLatestSupportedFormatVersion),
+        std::make_tuple(
+            kAutoRibbon, FilterPartitioning::kUnpartitionedFilter,
+            BlockBasedTableOptions::kLatestSupportedFormatVersion)));
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {

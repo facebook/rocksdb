@@ -221,6 +221,12 @@ Status DBImpl::CreateOptionsFileForSubsetCheckpoint(
     return Status::OK();
   }
 
+  // The snapshot's CF options are shallow copies that share live pointer
+  // sub-options (e.g. RibbonFilterPolicy, whose bloom_before_level is mutated
+  // in place by SetOptions). Hold options_mutex_, as WriteOptionsFile does, so
+  // SetOptions cannot change them between writing the file and verifying it.
+  InstrumentedMutexLock ol(&options_mutex_);
+
   const std::string options_path =
       OptionsFileName(checkpoint_dir, options_snapshot.options_file_number);
   return PersistRocksDBOptions(
@@ -473,6 +479,11 @@ Status DBImpl::GetLiveFilesStorageInfoImpl(
   // Ensure consistency with manifest for track_and_verify_wals_in_manifest
   const uint64_t max_log_num = cur_wal_number_;
 
+  if (options_number != 0) {
+    // A concurrent SetOptions() may otherwise delete this OPTIONS file before
+    // its size is read below, even when the caller has not disabled deletions.
+    DisableFileDeletionsWithLock().PermitUncheckedError();
+  }
   mutex_.Unlock();
 
   uint64_t options_size = 0;
@@ -483,6 +494,13 @@ Status DBImpl::GetLiveFilesStorageInfoImpl(
     TEST_SYNC_POINT("DBImpl::GetLiveFilesStorageInfo:BeforeOptionsFileSize");
     Status options_s = GetEnv()->GetFileSize(
         OptionsFileName(GetName(), options_number), &options_size);
+    {
+      // Not EnableFileDeletions(): read-only DB implementations override it to
+      // return NotSupported without undoing DisableFileDeletionsWithLock().
+      InstrumentedMutexLock l(&mutex_);
+      assert(disable_delete_obsolete_files_ > 0);
+      --disable_delete_obsolete_files_;
+    }
     if (!options_s.ok()) {
       return options_s;
     }

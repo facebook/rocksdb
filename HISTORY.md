@@ -1,6 +1,42 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 11.13.0 (10/21/2026)
+### New Features
+* Added `FileSystem::IsPreallocationSupported()`. A `FileSystem` that never preallocates file space can return false so that DB open skips reopening and truncating the last WAL file.
+
+### Public API Changes
+* Added the experimental `DBOptions::track_options_file_number_in_manifest`
+rollout option (with C and Java bindings). The option is persisted in each
+OPTIONS file. When enabled, RocksDB durably creates an OPTIONS file and then
+commits its file number in MANIFEST. Column-family create/drop commits the
+configuration snapshot and membership in one MANIFEST record. A newer tracked
+OPTIONS file without a commit is ignored after a crash, while a newer OPTIONS
+file written with tracking disabled retains the legacy highest-numbered-file
+behavior. Batched column-family changes publish one snapshot; after partial
+success it can be a safe superset that persisted-options APIs filter against
+live MANIFEST membership. Ordinary `DB::Open` continues to use caller-supplied
+options and does not depend on the operational snapshot.
+* Added `EncodeEntry()`, `PackSequenceAndType()`, and `UnPackSequenceAndType()` in `rocksdb/utilities/types_util.h` to construct internal keys and pack or unpack their sequence numbers and entry types. `kInternalKeyFooterSize` exposes the footer size in bytes.
+* Added `ldb update_manifest --rebind_options_file --options_file=OPTIONS-<number>` for offline repair of a committed MANIFEST OPTIONS file number. Operators must select a trusted snapshot that has MANIFEST tracking enabled and provide any external DB/CF allocation roots that are not serialized in OPTIONS.
+
+### Behavior Changes
+* With `max_bgerror_resume_count <= 0` (auto resume disabled), a retryable or file-scoped IO error during compaction or flush is now a hard background error that stops writes until `DB::Resume()` is called. Previously, compaction errors were silently retried, and flush errors with a healthy WAL were soft errors that let writes continue while flushes were stopped.
+
+### Bug Fixes
+* Fixed two more `SstFileManager` trash accounting leaks: retrying a failed trash deletion immediately (for example with rate limiting disabled) after the file had disappeared, and a trash file that was deleted but whose directory sync then failed. In both cases the file's size stayed in the total trash size and tracked size until restart.
+* Fixed `SstFileManager` trash accounting leaking the size of a queued trash file that disappeared before deletion (for example because its directory was renamed). The leaked bytes stayed in the total trash size until restart, which could push every later deletion past `max_trash_db_ratio` and make it immediate instead of rate limited.
+* Fixed `MultiGet` with `ReadOptions::async_io` returning `NotSupported` when io_uring initialization or an asynchronous read submission fails. It now checks async I/O support on the reading thread and falls back to synchronous reads when needed.
+* Fixed subset checkpoints so their newest OPTIONS file lists only the column
+families retained by the checkpoint. This applies with both legacy
+highest-numbered OPTIONS selection and MANIFEST-tracked OPTIONS selection, and
+prevents `LoadLatestOptions` from recreating column families that the subset
+checkpoint intentionally dropped from its copied MANIFEST.
+
+### Performance Improvements
+* Perf context counters and timers no longer call the thread-local init function of `perf_context` on every update. With `kEnableCount`, a counter update costs about 60% less.
+
+
 ## 11.12.0 (10/07/2026)
 ### New Features
 * Added `FullExternalTableFactory` and related full-mode external table APIs that preserve RocksDB internal keys, enabling external tables to support nonzero sequence numbers, point and single deletions, merge operands, blob indexes, wide-column entities, snapshots, live DB writes, and multi-level compactions.

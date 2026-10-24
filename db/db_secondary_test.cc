@@ -268,7 +268,9 @@ void DBSecondaryTestBase::CheckFileTypeCounts(const std::string& dir,
   std::vector<std::string> filenames;
   ASSERT_OK(env_->GetChildren(dir, &filenames));
 
-  int log_cnt = 0, sst_cnt = 0, manifest_cnt = 0;
+  int log_cnt = 0;
+  int sst_cnt = 0;
+  int manifest_cnt = 0;
   for (const auto& file : filenames) {
     uint64_t number;
     FileType type;
@@ -417,7 +419,8 @@ TEST_F(DBSecondaryTest, SimpleInternalCompaction) {
       OpenAndCompactOptions(), cfh, input, &result));
 
   ASSERT_EQ(result.output_files.size(), 1);
-  InternalKey smallest, largest;
+  InternalKey smallest;
+  InternalKey largest;
   smallest.DecodeFrom(result.output_files[0].smallest_internal_key);
   largest.DecodeFrom(result.output_files[0].largest_internal_key);
   ASSERT_EQ(smallest.user_key().ToString(), "bar");
@@ -878,6 +881,156 @@ TEST_F(DBSecondaryTest, OpenAsSecondary) {
   verify_db_func("new_foo_value", "new_bar_value");
 }
 
+TEST_F(DBSecondaryTest, WaitForCompactAfterSnapshotRelease) {
+  Options options;
+  options.env = env_;
+  options.level0_file_num_compaction_trigger = 100;
+  Reopen(options);
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key2", "value2"));
+  ASSERT_OK(Flush());
+
+  options.max_open_files = -1;
+  OpenSecondary(options);
+  const Snapshot* snapshot = db_secondary_->GetSnapshot();
+  ASSERT_NE(snapshot, nullptr);
+  db_secondary_->ReleaseSnapshot(snapshot);
+
+  WaitForCompactOptions wait_options;
+  wait_options.timeout = std::chrono::seconds(1);
+  ASSERT_OK(db_secondary_->WaitForCompact(wait_options));
+}
+
+TEST_F(DBSecondaryTest, GetSnapshotReadsClockBeforeLockingDBMutex) {
+  class ReentrantSnapshotClock : public SystemClockWrapper {
+   public:
+    explicit ReentrantSnapshotClock(const std::shared_ptr<SystemClock>& target)
+        : SystemClockWrapper(target) {}
+
+    void SetDB(DB* db) { db_ = db; }
+    bool nested_snapshot_created() const { return nested_snapshot_created_; }
+    const char* Name() const override { return "ReentrantSnapshotClock"; }
+
+    Status GetCurrentTime(int64_t* unix_time) override {
+      if (db_ != nullptr && !reentered_) {
+        reentered_ = true;
+        const Snapshot* snapshot = db_->GetSnapshot();
+        if (snapshot != nullptr) {
+          db_->ReleaseSnapshot(snapshot);
+          nested_snapshot_created_ = true;
+        }
+      }
+      return SystemClockWrapper::GetCurrentTime(unix_time);
+    }
+
+   private:
+    DB* db_ = nullptr;
+    bool reentered_ = false;
+    bool nested_snapshot_created_ = false;
+  };
+
+  Options options;
+  options.env = env_;
+  Reopen(options);
+
+  auto clock = std::make_shared<ReentrantSnapshotClock>(env_->GetSystemClock());
+  CompositeEnvWrapper secondary_env(env_, clock);
+  options.env = &secondary_env;
+  options.max_open_files = -1;
+  OpenSecondary(options);
+
+  clock->SetDB(db_secondary_.get());
+  const Snapshot* snapshot = db_secondary_->GetSnapshot();
+  ASSERT_NE(snapshot, nullptr);
+  ASSERT_TRUE(clock->nested_snapshot_created());
+  db_secondary_->ReleaseSnapshot(snapshot);
+  CloseSecondary();
+}
+
+TEST_F(DBSecondaryTest, GetSnapshotWaitsForCatchUpViewInstallation) {
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  Reopen(options);
+  ASSERT_OK(Put("key", "old"));
+  ASSERT_OK(Flush());
+
+  options.max_open_files = -1;
+  OpenSecondary(options);
+
+  WriteOptions write_options;
+  write_options.disableWAL = true;
+  ASSERT_OK(db_->Put(write_options, "key", "new"));
+  ASSERT_OK(Flush());
+
+  std::mutex state_mutex;
+  std::condition_variable state_cv;
+  bool catch_up_paused = false;
+  bool allow_catch_up = false;
+  bool snapshot_at_mutex_boundary = false;
+  bool snapshot_created = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::FindAndRecoverLogFiles:Begin", [&](void* /*arg*/) {
+        std::unique_lock<std::mutex> lock(state_mutex);
+        catch_up_paused = true;
+        state_cv.notify_all();
+        state_cv.wait(lock, [&] { return allow_catch_up; });
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::GetSnapshot:BeforeMutexLock", [&](void* /*arg*/) {
+        std::lock_guard<std::mutex> lock(state_mutex);
+        snapshot_at_mutex_boundary = true;
+        state_cv.notify_all();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_point([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  Status catch_up_status;
+  port::Thread catch_up_thread(
+      [&] { catch_up_status = db_secondary_->TryCatchUpWithPrimary(); });
+  {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    state_cv.wait(lock, [&] { return catch_up_paused; });
+  }
+
+  const Snapshot* snapshot = nullptr;
+  port::Thread snapshot_thread([&] {
+    snapshot = db_secondary_->GetSnapshot();
+    {
+      std::lock_guard<std::mutex> lock(state_mutex);
+      snapshot_created = true;
+      state_cv.notify_all();
+    }
+  });
+
+  {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    state_cv.wait(lock, [&] { return snapshot_at_mutex_boundary; });
+    ASSERT_FALSE(snapshot_created);
+    allow_catch_up = true;
+    state_cv.notify_all();
+  }
+
+  catch_up_thread.join();
+  snapshot_thread.join();
+  ASSERT_OK(catch_up_status);
+  ASSERT_NE(nullptr, snapshot);
+
+  ReadOptions read_options;
+  read_options.snapshot = snapshot;
+  std::vector<std::string> values;
+  const std::vector<Status> statuses =
+      db_secondary_->MultiGet(read_options, std::vector<Slice>{"key"}, &values);
+  ASSERT_EQ(1U, statuses.size());
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ("new", values[0]);
+  db_secondary_->ReleaseSnapshot(snapshot);
+}
+
 TEST_F(DBSecondaryTest, OpenFilesAsync) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -928,6 +1081,63 @@ TEST_F(DBSecondaryTest, OpenFilesAsync) {
   ASSERT_GT(TestGetTickerCount(secondary_options, NO_FILE_OPENS),
             initial_no_file_opens);
   VerifySecondaryValue("key", "value3");
+}
+
+TEST_F(DBSecondaryTest, OpenFilesAsyncNonDefaultCfCatchUp) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  CreateAndReopenWithCF({"cf1"}, options);
+  // One open-time table in the non-default column family.
+  ASSERT_OK(Put(1, "key", "v1"));
+  ASSERT_OK(Flush(1));
+
+  Options secondary_options = options;
+  secondary_options.max_open_files = -1;
+  secondary_options.open_files_async = true;
+  secondary_options.skip_stats_update_on_db_open = true;
+
+  // Give the HIGH pool enough threads that holding the async opener back does
+  // not block the primary's own flushes.
+  const int original_high_threads =
+      env_->GetBackgroundThreads(Env::Priority::HIGH);
+  Defer restore_high_threads([&] {
+    env_->SetBackgroundThreads(original_high_threads, Env::Priority::HIGH);
+  });
+  env_->SetBackgroundThreads(4, Env::Priority::HIGH);
+
+  // Hold the background opener back so cf1's open-time table stays unpinned
+  // through catch-up.
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBSecondaryTest::OpenFilesAsyncNonDefaultCfCatchUp:Release",
+        "DBImpl::BGWorkAsyncFileOpen::Start"},
+       {"DBImpl::BGWorkAsyncFileOpen:Done",
+        "DBSecondaryTest::OpenFilesAsyncNonDefaultCfCatchUp:Done"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_point([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  OpenSecondaryWithColumnFamilies({"cf1"}, secondary_options);
+  ASSERT_EQ(2, handles_secondary_.size());
+
+  // The primary replaces cf1's open-time table and deletes it.
+  ASSERT_OK(Put(1, "key", "v2"));
+  ASSERT_OK(Flush(1));
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, handles_[1], nullptr, nullptr));
+  ASSERT_OK(db_->FlushWAL(/*sync=*/true));
+
+  // Before the fix, catch-up re-opened cf1's compacted-away open-time table and
+  // failed with PathNotFound, latching the tailer.
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  VerifySecondaryValue(handles_secondary_[1], "key", "v2");
+
+  // Let the held-back opener drain before teardown.
+  TEST_SYNC_POINT("DBSecondaryTest::OpenFilesAsyncNonDefaultCfCatchUp:Release");
+  TEST_SYNC_POINT("DBSecondaryTest::OpenFilesAsyncNonDefaultCfCatchUp:Done");
+  CloseSecondary();
 }
 
 TEST_F(DBSecondaryTest, OpenFilesAsyncRequiresSkipStatsUpdate) {

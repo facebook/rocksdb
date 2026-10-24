@@ -218,6 +218,7 @@ DECLARE_bool(statistics);
 DECLARE_bool(sync);
 DECLARE_bool(use_fsync);
 DECLARE_uint64(stats_dump_period_sec);
+DECLARE_uint64(mutex_hold_log_threshold_us);
 DECLARE_uint64(max_compaction_trigger_wakeup_seconds);
 DECLARE_int32(periodic_compaction_phase_recovery_percent);
 DECLARE_uint64(bytes_per_sync);
@@ -534,12 +535,13 @@ enum RepFactory { kSkipList, kHashSkipList, kVectorRep };
 inline enum RepFactory StringToRepFactory(const char* ctype) {
   assert(ctype);
 
-  if (!strcasecmp(ctype, "skip_list"))
+  if (!strcasecmp(ctype, "skip_list")) {
     return kSkipList;
-  else if (!strcasecmp(ctype, "prefix_hash"))
+  } else if (!strcasecmp(ctype, "prefix_hash")) {
     return kHashSkipList;
-  else if (!strcasecmp(ctype, "vector"))
+  } else if (!strcasecmp(ctype, "vector")) {
     return kVectorRep;
+  }
 
   fprintf(stdout, "Cannot parse memreptable %s\n", ctype);
   return kSkipList;

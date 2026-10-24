@@ -288,7 +288,7 @@ class RangeDelAggregator {
  public:
   explicit RangeDelAggregator(const InternalKeyComparator* icmp)
       : icmp_(icmp) {}
-  virtual ~RangeDelAggregator() {}
+  virtual ~RangeDelAggregator() = default;
 
   virtual void AddTombstones(
       std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter,
@@ -379,7 +379,7 @@ class ReadRangeDelAggregator final : public RangeDelAggregator {
                          SequenceNumber upper_bound)
       : RangeDelAggregator(icmp),
         rep_(icmp, upper_bound, 0 /* lower_bound */) {}
-  ~ReadRangeDelAggregator() override {}
+  ~ReadRangeDelAggregator() override = default;
 
   using RangeDelAggregator::ShouldDelete;
   void AddTombstones(
@@ -431,7 +431,7 @@ class CompactionRangeDelAggregator : public RangeDelAggregator {
       }
     }
   }
-  ~CompactionRangeDelAggregator() override {}
+  ~CompactionRangeDelAggregator() override = default;
 
   void AddTombstones(
       std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter,

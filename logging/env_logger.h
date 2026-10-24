@@ -39,6 +39,11 @@ class EnvLogger : public Logger {
         file_(std::move(writable_file), fname, options, clock_),
         last_flush_micros_(0),
         flush_pending_(false) {}
+  // No copying allowed
+  EnvLogger(const EnvLogger&) = delete;
+  EnvLogger& operator=(const EnvLogger&) = delete;
+  EnvLogger(EnvLogger&&) = delete;
+  EnvLogger& operator=(EnvLogger&&) = delete;
 
   ~EnvLogger() override {
     if (!closed_) {
@@ -60,6 +65,12 @@ class EnvLogger : public Logger {
       IOSTATS_SET_DISABLE(true);
       logger.mutex_.Lock();
     }
+    // No copying allowed
+    FileOpGuard(const FileOpGuard&) = delete;
+    FileOpGuard& operator=(const FileOpGuard&) = delete;
+    FileOpGuard(FileOpGuard&&) = delete;
+    FileOpGuard& operator=(FileOpGuard&&) = delete;
+
     ~FileOpGuard() {
       logger_.mutex_.Unlock();
       IOSTATS_SET_DISABLE(false);

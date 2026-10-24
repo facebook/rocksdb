@@ -24,7 +24,7 @@ class CTRCipherStream final : public BlockAccessCipherStream {
   CTRCipherStream(const std::shared_ptr<BlockCipher>& c, const char* iv,
                   uint64_t initialCounter)
       : cipher_(c), iv_(iv, c->BlockSize()), initialCounter_(initialCounter) {}
-  ~CTRCipherStream() override {}
+  ~CTRCipherStream() override = default;
 
   size_t BlockSize() override { return cipher_->BlockSize(); }
 
@@ -54,7 +54,7 @@ class CTREncryptionProvider : public EncryptionProvider {
  public:
   explicit CTREncryptionProvider(
       const std::shared_ptr<BlockCipher>& c = nullptr);
-  ~CTREncryptionProvider() override {}
+  ~CTREncryptionProvider() override = default;
 
   static const char* kClassName() { return "CTR"; }
   const char* Name() const override { return kClassName(); }

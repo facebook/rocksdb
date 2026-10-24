@@ -44,6 +44,11 @@ void ThreadPoolImpl::PthreadCall(const char* label, int result) {
 
 struct ThreadPoolImpl::Impl {
   Impl();
+  // No copying allowed
+  Impl(const Impl&) = delete;
+  Impl& operator=(const Impl&) = delete;
+  Impl(Impl&&) = delete;
+  Impl& operator=(Impl&&) = delete;
   ~Impl();
 
   void JoinThreads(bool wait_for_jobs_to_complete);

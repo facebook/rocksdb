@@ -222,20 +222,14 @@ Status DBImpl::FlushMemTableToOutputFile(
           ? cfd->imm()->GetLatestMemTableID(false /* for_atomic_flush */)
           : std::numeric_limits<uint64_t>::max();
 
-  // If needs_to_sync_closed_wals is false, then the flush job will pick ALL
-  // existing memtables of the column family when PickMemTable() is called
-  // later. Although we won't call SyncClosedWals() in this case, we may still
-  // call the callbacks of the listeners, i.e. NotifyOnFlushBegin() which also
-  // releases and re-acquires the db mutex. In the meantime, the application
-  // can still insert into the memtables and increase the db's sequence number.
-  // The application can take a snapshot, hoping that the latest visible state
-  // to this snapshot is preserved. This is hard to guarantee since db mutex
-  // not held. This newly-created snapshot is not included in `snapshot_seqs`
-  // and the flush job is unaware of its presence. Consequently, the flush job
-  // may drop certain keys when generating the L0, causing incorrect data to be
-  // returned for snapshot read using this snapshot.
-  // To address this, we make sure NotifyOnFlushBegin() executes after memtable
-  // picking so that no new snapshot can be taken between the two functions.
+  // If needs_to_sync_closed_wals is false, the flush job picks all existing
+  // immutable memtables before NotifyOnFlushBegin() releases the DB mutex.
+  // Until that pick, the DB mutex freezes the eligible input boundary; after
+  // the pick, later writes remain outside this flush. Transaction modes that
+  // need an additional visibility boundary install a managed snapshot or a
+  // published-sequence pin in InitSnapshotContext(). Together these boundaries
+  // preserve snapshots created after the snapshot-list scan even though their
+  // creation does not require the DB mutex.
 
   FlushJob flush_job(
       dbname_, cfd, immutable_db_options_, mutable_cf_options, max_memtable_id,
@@ -417,7 +411,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
 
   if (s.ok()) {
-    InstallSuperVersionAndScheduleWork(cfd, superversion_context);
+    InstallSuperVersionAndScheduleWork(cfd, superversion_context,
+                                       /*defer_snapshot_refresh=*/false);
     if (made_progress) {
       *made_progress = true;
     }
@@ -1018,8 +1013,9 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       if (cfds[i]->IsDropped()) {
         continue;
       }
-      InstallSuperVersionAndScheduleWork(
-          cfds[i], &job_context->superversion_contexts[i]);
+      InstallSuperVersionAndScheduleWork(cfds[i],
+                                         &job_context->superversion_contexts[i],
+                                         /*defer_snapshot_refresh=*/false);
 
       const std::string& column_family_name = cfds[i]->GetName();
 
@@ -1221,7 +1217,8 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
                                 end_without_ts, "" /*trim_ts*/);
   }
 
-  std::string begin_str, end_str;
+  std::string begin_str;
+  std::string end_str;
   auto [begin, end] =
       MaybeAddTimestampsToRange(OptSlice::CopyFromPtr(begin_without_ts),
                                 OptSlice::CopyFromPtr(end_without_ts), ts_sz,
@@ -1484,7 +1481,8 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
         // at L1 (or LBase), if applicable.
         int level = first_overlapped_level;
         final_output_level = level;
-        int output_level = 0, base_level = 0;
+        int output_level = 0;
+        int base_level = 0;
         for (;;) {
           // Always allow L0 -> L1 compaction
           if (level > 0) {
@@ -1859,7 +1857,8 @@ Status DBImpl::CompactFilesImpl(
 
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(
-          c->column_family_data(), job_context->superversion_contexts.data());
+          c->column_family_data(), job_context->superversion_contexts.data(),
+          /*defer_snapshot_refresh=*/false);
 
       // Populate output file names for trivial move
       if (output_file_names != nullptr) {
@@ -1954,7 +1953,8 @@ Status DBImpl::CompactFilesImpl(
   if (status.ok()) {
     assert(compaction_job.io_status().ok());
     InstallSuperVersionAndScheduleWork(
-        c->column_family_data(), job_context->superversion_contexts.data());
+        c->column_family_data(), job_context->superversion_contexts.data(),
+        /*defer_snapshot_refresh=*/false);
   }
   // status above captures any error during compaction_job.Install, so its ok
   // not check compaction_job.io_status() explicitly if we're not calling
@@ -2307,7 +2307,8 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
     cfd->compaction_picker()->UnregisterCompaction(c.get());
     c.reset();
 
-    InstallSuperVersionAndScheduleWork(cfd, &sv_context);
+    InstallSuperVersionAndScheduleWork(cfd, &sv_context,
+                                       /*defer_snapshot_refresh=*/false);
 
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "[%s] LogAndApply: %s\n",
                     cfd->GetName().c_str(), status.ToString().data());
@@ -2446,7 +2447,8 @@ Status DBImpl::RunManualCompaction(
   assert(input_level == ColumnFamilyData::kCompactAllLevels ||
          input_level >= 0);
 
-  InternalKey begin_storage, end_storage;
+  InternalKey begin_storage;
+  InternalKey end_storage;
   CompactionArg* ca = nullptr;
 
   bool scheduled = false;
@@ -5032,7 +5034,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         });
     io_s = versions_->io_status();
     InstallSuperVersionAndScheduleWork(
-        c->column_family_data(), job_context->superversion_contexts.data());
+        c->column_family_data(), job_context->superversion_contexts.data(),
+        /*defer_snapshot_refresh=*/false);
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Deleted %d files\n",
                      c->column_family_data()->GetName().c_str(),
                      c->num_input_files(0));
@@ -5265,7 +5268,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     }
 
     InstallSuperVersionAndScheduleWork(
-        c->column_family_data(), job_context->superversion_contexts.data());
+        c->column_family_data(), job_context->superversion_contexts.data(),
+        /*defer_snapshot_refresh=*/false);
     if (status.ok() && io_s.ok()) {
       UpdateFIFOCompactionStatus(c);
     } else {
@@ -5327,7 +5331,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     status = CommitTrivialMove(*c.get(), compaction_released);
     io_s = versions_->io_status();
     InstallSuperVersionAndScheduleWork(
-        c->column_family_data(), job_context->superversion_contexts.data());
+        c->column_family_data(), job_context->superversion_contexts.data(),
+        /*defer_snapshot_refresh=*/false);
 
     VersionStorageInfo::LevelSummaryStorage tmp;
     c->column_family_data()->internal_stats()->IncBytesMoved(c->output_level(),
@@ -5455,7 +5460,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     io_s = compaction_job.io_status();
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(
-          c->column_family_data(), job_context->superversion_contexts.data());
+          c->column_family_data(), job_context->superversion_contexts.data(),
+          /*defer_snapshot_refresh=*/false);
     }
     *made_progress = true;
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:AfterCompaction",
@@ -5859,6 +5865,7 @@ void DBImpl::BuildCompactionJobInfo(
 
 void DBImpl::InstallSuperVersionAndScheduleWork(
     ColumnFamilyData* cfd, SuperVersionContext* sv_context,
+    bool defer_snapshot_refresh,
     std::optional<std::shared_ptr<SeqnoToTimeMapping>>
         new_seqno_to_time_mapping) {
   mutex_.AssertHeld();
@@ -5883,23 +5890,21 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   // is not marked for a compaction that cannot zero it out (infinite loop).
   MaybeUpdatePreserveTimeMinSeqno(cfd);
 
-  // There may be a small data race here. The snapshot tricking bottommost
-  // compaction may already be released here. But assuming there will always be
-  // newer snapshot created and released frequently, the compaction will be
-  // triggered soon anyway.
-  bottommost_files_mark_threshold_ = kMaxSequenceNumber;
-  standalone_range_deletion_files_mark_threshold_ = kMaxSequenceNumber;
-  for (auto* my_cfd : *versions_->GetColumnFamilySet()) {
-    if (!my_cfd->AllowIngestBehind()) {
-      bottommost_files_mark_threshold_ = std::min(
-          bottommost_files_mark_threshold_,
-          my_cfd->current()->storage_info()->bottommost_files_mark_threshold());
-    }
-    standalone_range_deletion_files_mark_threshold_ =
-        std::min(standalone_range_deletion_files_mark_threshold_,
-                 cfd->current()
-                     ->storage_info()
-                     ->standalone_range_tombstone_files_mark_threshold());
+  if (defer_snapshot_refresh) {
+    // Atomic multi-CF ingestion can already hold many per-CF locks. Reconcile
+    // the installed Version against the last exact observation now and defer
+    // the all-shard scan until those locks have been released.
+    ReconcileOldestSnapshotForColumnFamily(cfd,
+                                           last_processed_oldest_snapshot_);
+  } else {
+    TEST_SYNC_POINT(
+        "DBImpl::InstallSuperVersionAndScheduleWork:BeforeSnapshotRefresh");
+    uint64_t snapshot_release_count = 0;
+    const SequenceNumber oldest_snapshot =
+        snapshots_.OldestOr([this]() { return GetLastPublishedSequence(); },
+                            &snapshot_release_count);
+    UpdateOldestSnapshotAndScheduleWork(oldest_snapshot, snapshot_release_count,
+                                        cfd);
   }
 
   // Whenever we install new SuperVersion, we might need to issue new flushes or
@@ -5962,23 +5967,36 @@ void DBImpl::InitSnapshotContext(JobContext* job_context) {
     // flush/compaction job starts. Take a snapshot and it will appear
     // in snapshot_seqs and force compaction iterator to consider such
     // snapshots.
-    const Snapshot* snapshot =
-        GetSnapshotImpl(/*is_write_conflict_boundary=*/false, /*lock=*/false);
+    const Snapshot* snapshot = GetSnapshotImpl(
+        /*is_write_conflict_boundary=*/false, SnapshotLockMode::kDBMutexHeld);
     managed_snapshot.reset(new ManagedSnapshot(this, snapshot));
   }
-  SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber;
-  std::vector<SequenceNumber> snapshot_seqs =
-      snapshots_.GetAll(&earliest_write_conflict_snapshot);
-
   // The SnapshotChecker path above already adds a managed snapshot to
   // snapshot_seqs.
-  if (track_published_seq_in_snapshot_context_ && !snapshot_checker) {
+  const bool pin_published_seq =
+      track_published_seq_in_snapshot_context_ && !snapshot_checker;
+  // Read the published sequence number before loading the snapshots.
+  // GetSnapshot() does not take mutex_, so a snapshot that the load below
+  // misses reads its sequence number later and is no smaller than this pin.
+  const SequenceNumber published_seq =
+      pin_published_seq ? GetLastPublishedSequence() : 0;
+  SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber;
+  std::vector<SequenceNumber> snapshot_seqs;
+  uint64_t snapshot_release_count = 0;
+  const SequenceNumber oldest_snapshot =
+      LoadSnapshots(&snapshot_seqs, &earliest_write_conflict_snapshot,
+                    kMaxSequenceNumber, &snapshot_release_count);
+  UpdateOldestSnapshotAndScheduleWork(oldest_snapshot, snapshot_release_count,
+                                      /*installed_cfd=*/nullptr);
+
+  if (pin_published_seq) {
     // Pin the published-sequence boundary into snapshot_seqs without taking
     // a real snapshot. This prevents flush/compaction from collapsing a version
     // visible at the published boundary into a newer unpublished seqno.
-    const SequenceNumber published_seq = GetLastPublishedSequence();
-    if (snapshot_seqs.empty() || snapshot_seqs.back() < published_seq) {
-      snapshot_seqs.push_back(published_seq);
+    auto it = std::lower_bound(snapshot_seqs.begin(), snapshot_seqs.end(),
+                               published_seq);
+    if (it == snapshot_seqs.end() || *it != published_seq) {
+      snapshot_seqs.insert(it, published_seq);
     }
   }
   TEST_SYNC_POINT("DBImpl::InitSnapshotContext:BeforeInit");
@@ -6010,9 +6028,9 @@ Status DBImpl::WaitForCompact(
       return s;
     }
   }
-  TEST_SYNC_POINT("DBImpl::WaitForCompact:StartWaiting");
   const auto deadline = immutable_db_options_.clock->NowMicros() +
                         wait_for_compact_options.timeout.count();
+  TEST_SYNC_POINT("DBImpl::WaitForCompact:StartWaiting");
   for (;;) {
     // The coordinator reserves this DB before invoking its non-blocking
     // scheduling callback. Drain that DB-specific reservation without holding
@@ -6051,6 +6069,12 @@ Status DBImpl::WaitForCompact(
     if (bg_work_paused_ && wait_for_compact_options.abort_on_pause) {
       return Status::Aborted();
     }
+    uint64_t snapshot_release_count = 0;
+    const SequenceNumber oldest_snapshot =
+        snapshots_.OldestOr([this]() { return GetLastPublishedSequence(); },
+                            &snapshot_release_count);
+    UpdateOldestSnapshotAndScheduleWork(oldest_snapshot, snapshot_release_count,
+                                        /*installed_cfd=*/nullptr);
     // A WBM job can enqueue a regular flush, so wait for both to quiesce.
     if ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
          bg_flush_scheduled_ || bg_wbm_flush_scheduled_ ||

@@ -50,6 +50,7 @@
 #include "rocksdb/table_properties.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "test_util/simple_external_table_factory.h"
 #include "test_util/testutil.h"
@@ -4717,7 +4718,8 @@ Status StressTest::TestApproximateSize(
   Range range{Slice(key1_str), Slice(key2_str)};
   if (thread->rand.OneIn(3)) {
     // Call GetApproximateMemTableStats instead
-    uint64_t count, size;
+    uint64_t count;
+    uint64_t size;
     db_->GetApproximateMemTableStats(column_families_[rand_column_families[0]],
                                      range, &count, &size);
     return Status::OK();
@@ -5805,6 +5807,14 @@ void StressTest::Open(SharedState* shared, bool reopen) {
   }
   InitializeOptionsGeneral(block_cache, filter_policy_, sqfc_factory_,
                            options_);
+  // Auto compactions scheduled at the end of DB::Open() can append to the
+  // MANIFEST before VerifyManifestNotRewritten() runs, so keep them off until
+  // Reopen() has verified the MANIFEST.
+  if (reopen && manifest_verify_mode_ != MANIFEST_VERIFY_NONE &&
+      !options_.disable_auto_compactions) {
+    options_.disable_auto_compactions = true;
+    auto_compactions_paused_for_manifest_verify_ = true;
+  }
   // InitializeOptions* helpers set options_.env = raw_env (no fault injection).
   // Override with per-StressTest env that includes FaultInjectionTestFS +
   // DbStressFSWrapper for all DB I/O.
@@ -5934,6 +5944,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     std::vector<std::string> existing_column_families;
     s = DB::ListColumnFamilies(DBOptions(options_), GetDbPath(),
                                &existing_column_families);  // ignore errors
+    const bool db_exists = s.ok();
     if (!s.ok()) {
       // DB doesn't exist
       assert(existing_column_families.empty());
@@ -5972,17 +5983,22 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       }
       cf_descriptors.emplace_back(name, ColumnFamilyOptions(options_));
     }
-    while (cf_descriptors.size() < (size_t)FLAGS_column_families) {
-      std::string name = std::to_string(new_column_family_name_.load());
-      new_column_family_name_++;
-      cf_descriptors.emplace_back(name, ColumnFamilyOptions(options_));
-      column_family_names_.push_back(name);
-    }
 
     // If this is for DB reopen,  error injection may have been enabled.
     // Disable it here in case there is no open fault injection.
     if (db_fault_injection_fs_) {
       db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
+    }
+    // Verify before appending missing CFs because read-only open cannot create
+    // them.
+    DB_STRESS_ASSERT_OK_MSG(
+        VerifyOptionsFileStateBeforeOpen(cf_descriptors, db_exists),
+        "Persisted OPTIONS verification before open failed");
+    while (cf_descriptors.size() < (size_t)FLAGS_column_families) {
+      std::string name = std::to_string(new_column_family_name_.load());
+      new_column_family_name_++;
+      cf_descriptors.emplace_back(name, ColumnFamilyOptions(options_));
+      column_family_names_.push_back(name);
     }
     // TODO; test transaction DB Open with fault injection
     if (!FLAGS_use_txn) {
@@ -6191,6 +6207,112 @@ void StressTest::Open(SharedState* shared, bool reopen) {
             db_->GetLatestSequenceNumber(), shared->GetPersistedSeqno());
     port::ImmediateExit(1);
   }
+  DB_STRESS_ASSERT_OK_MSG(VerifyPersistedOptionsAfterOpen(),
+                          "Persisted OPTIONS verification after open failed");
+}
+
+Status StressTest::VerifyOptionsFileStateBeforeOpen(
+    const std::vector<ColumnFamilyDescriptor>& cf_descriptors, bool db_exists) {
+  verify_options_manifest_tracking_ =
+      options_.track_options_file_number_in_manifest;
+  if (!db_exists || FLAGS_best_efforts_recovery || FLAGS_use_blob_db) {
+    return Status::OK();
+  }
+
+  OptionsFileManifestState manifest_state;
+  Status s = VersionSet::GetOptionsFileManifestState(
+      GetDbPath(), GetDbEnv()->GetFileSystem().get(), &manifest_state);
+  if (!s.ok()) {
+    return s;
+  }
+  verify_options_manifest_tracking_ |=
+      manifest_state.has_committed_options_file_number;
+  if (!verify_options_manifest_tracking_ || FLAGS_use_txn) {
+    return Status::OK();
+  }
+
+  std::string selected_options_file;
+  s = GetLatestOptionsFileName(GetDbPath(), GetDbEnv(), &selected_options_file);
+  uint64_t expected_options_file_number = 0;
+  if (s.IsNotFound() && !manifest_state.has_committed_options_file_number) {
+    // OPTIONS files are optional. A crash can leave a recoverable DB before
+    // its first snapshot is finalized, in which case recovery selects zero.
+  } else if (!s.ok()) {
+    return s;
+  } else {
+    FileType type;
+    if (!ParseFileName(selected_options_file, &expected_options_file_number,
+                       &type) ||
+        type != kOptionsFile) {
+      return Status::Corruption("Invalid selected OPTIONS file",
+                                selected_options_file);
+    }
+  }
+
+  DBOptions read_only_options(options_);
+  read_only_options.create_if_missing = false;
+  read_only_options.create_missing_column_families = false;
+  read_only_options.compaction_service = nullptr;
+  read_only_options.listeners.clear();
+  std::vector<ColumnFamilyHandle*> handles;
+  std::unique_ptr<DB> read_only_db;
+  s = DB::OpenForReadOnly(read_only_options, GetDbPath(), cf_descriptors,
+                          &handles, &read_only_db);
+  if (!s.ok()) {
+    return s;
+  }
+  auto* db_impl = static_cast_with_check<DBImpl>(read_only_db->GetRootDB());
+  const uint64_t recovered_options_file_number =
+      db_impl->GetVersionSet()->options_file_number();
+  for (auto* handle : handles) {
+    delete handle;
+  }
+  read_only_db.reset();
+  if (recovered_options_file_number != expected_options_file_number) {
+    return Status::Corruption(
+        "Read-only recovery selected a different OPTIONS file",
+        "utility=" + std::to_string(expected_options_file_number) +
+            ", recovery=" + std::to_string(recovered_options_file_number));
+  }
+  return Status::OK();
+}
+
+Status StressTest::VerifyPersistedOptionsAfterOpen() {
+  if (!verify_options_manifest_tracking_ || FLAGS_best_efforts_recovery ||
+      FLAGS_ttl != -1 || FLAGS_use_blob_db) {
+    return Status::OK();
+  }
+
+  ConfigOptions config_options;
+  config_options.env = GetDbEnv();
+  config_options.ignore_unknown_options = true;
+  DBOptions loaded_db_options;
+  std::vector<ColumnFamilyDescriptor> loaded_cf_descriptors;
+  Status s = LoadLatestOptions(config_options, GetDbPath(), &loaded_db_options,
+                               &loaded_cf_descriptors);
+  if (!s.ok()) {
+    return s;
+  }
+  if (!FLAGS_read_only &&
+      loaded_db_options.track_options_file_number_in_manifest !=
+          options_.track_options_file_number_in_manifest) {
+    return Status::Corruption(
+        "Latest OPTIONS file has an unexpected tracking marker");
+  }
+
+  std::vector<std::string> loaded_cf_names;
+  loaded_cf_names.reserve(loaded_cf_descriptors.size());
+  for (const auto& descriptor : loaded_cf_descriptors) {
+    loaded_cf_names.push_back(descriptor.name);
+  }
+  std::sort(loaded_cf_names.begin(), loaded_cf_names.end());
+  std::vector<std::string> expected_cf_names = column_family_names_;
+  std::sort(expected_cf_names.begin(), expected_cf_names.end());
+  if (loaded_cf_names != expected_cf_names) {
+    return Status::Corruption(
+        "Latest OPTIONS file does not match live column families");
+  }
+  return Status::OK();
 }
 
 void StressTest::MaybeOpenReadOnlyOnPrimary(ThreadState* thread) {
@@ -6286,21 +6408,21 @@ void StressTest::RecordManifestStateBeforeReopen() {
   }
 
   if (reuse_manifest && optimize_manifest) {
-    bool options_manifest_tracking_active =
-        FLAGS_track_options_file_number_in_manifest;
-    if (db_ != nullptr) {
-      auto* db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
-      VersionSet* versions = db_impl->GetVersionSet();
-      assert(versions != nullptr);
-      options_manifest_tracking_active |=
-          versions->has_committed_options_file_number();
-    }
+    const bool options_manifest_tracking_active =
+        options_.track_options_file_number_in_manifest;
     // Check if ALL conditions for complete avoidance are met.
     // If so, use STRICT mode where failures are fatal.
+    // A WriteBufferManager limit enforced during recovery can force a flush
+    // even with avoid_flush_during_recovery.
+    const bool wbm_flush_possible_during_recovery =
+        options_.enforce_write_buffer_manager_during_recovery &&
+        (options_.db_write_buffer_size > 0 ||
+         options_.write_buffer_manager != nullptr);
     const bool no_manifest_writes_expected =
         FLAGS_avoid_flush_during_recovery &&  // No flush during recovery
-        !FLAGS_write_dbid_to_manifest &&      // No DB_ID write on open
-        !options_manifest_tracking_active;    // No OPTIONS MANIFEST commit
+        !wbm_flush_possible_during_recovery &&
+        !FLAGS_write_dbid_to_manifest &&    // No DB_ID write on open
+        !options_manifest_tracking_active;  // No OPTIONS MANIFEST commit
     // Note: avoid_flush_during_shutdown is NOT required for STRICT mode.
     // If avoid_flush_during_shutdown=true leaves data in WAL, but
     // avoid_flush_during_recovery=true prevents flushing it, so MANIFEST
@@ -6582,6 +6704,14 @@ void StressTest::Reopen(ThreadState* thread) {
   // Verify MANIFEST was not unnecessarily rewritten
   VerifyManifestNotRewritten();
 
+  if (auto_compactions_paused_for_manifest_verify_) {
+    auto_compactions_paused_for_manifest_verify_ = false;
+    options_.disable_auto_compactions = false;
+    Status s = db_->EnableAutoCompaction(column_families_);
+    DB_STRESS_ASSERT_OK_MSG(
+        s, "Error re-enabling auto compactions after MANIFEST verification");
+  }
+
   if (thread->shared->GetStressTest()->MightHaveUnsyncedDataLoss() &&
       IsStateTracked()) {
     Status s = thread->shared->SaveAtAndAfter(db_);
@@ -6815,7 +6945,8 @@ void InitializeOptionsFromFlags(
   if (udi_factory) {
     block_based_options.user_defined_index_factory = udi_factory;
     if (FLAGS_use_udi_as_primary_index) {
-      block_based_options.use_udi_as_primary_index = true;
+      block_based_options.index_mode =
+          BlockBasedTableOptions::IndexMode::kCustomDefault;
     }
     // Write fault injection can corrupt the UDI meta block during SST
     // creation. In primary mode all reads route through the UDI, so a
@@ -6947,6 +7078,7 @@ void InitializeOptionsFromFlags(
   options.daily_offpeak_time_utc = FLAGS_daily_offpeak_time_utc;
   options.stats_dump_period_sec =
       static_cast<unsigned int>(FLAGS_stats_dump_period_sec);
+  options.mutex_hold_log_threshold_us = FLAGS_mutex_hold_log_threshold_us;
   options.max_compaction_trigger_wakeup_seconds =
       FLAGS_max_compaction_trigger_wakeup_seconds;
   options.periodic_compaction_phase_recovery_percent =

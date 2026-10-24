@@ -105,6 +105,7 @@ class UnownedPtr {
   UnownedPtr(UnownedPtr&&) = default;
   UnownedPtr& operator=(const UnownedPtr&) = default;
   UnownedPtr& operator=(UnownedPtr&&) = default;
+  ~UnownedPtr() = default;
 
   T* get() const { return ptr_; }
   T* operator->() const { return ptr_; }

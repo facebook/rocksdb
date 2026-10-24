@@ -802,6 +802,12 @@ struct BlockBasedTable::Rep {
         user_defined_timestamps_persisted(_user_defined_timestamps_persisted),
         fs_prefetch_support(CheckFSFeatureSupport(
             _ioptions.fs.get(), FSSupportedOps::kFSPrefetch)) {}
+  // No copying allowed
+  Rep(const Rep&) = delete;
+  Rep& operator=(const Rep&) = delete;
+  Rep(Rep&&) = delete;
+  Rep& operator=(Rep&&) = delete;
+
   ~Rep() { status.PermitUncheckedError(); }
   const ImmutableOptions& ioptions;
   const EnvOptions& env_options;
@@ -815,6 +821,12 @@ struct BlockBasedTable::Rep {
 
   // Footer contains the fixed table information
   Footer footer;
+
+  // Declared before index_reader so both outlive the custom index reader.
+  CachableEntry<Block_kUserDefinedIndex> udi_block;
+  // This table's view of udi_block, passed to IndexFactory::NewReader(). The
+  // reader may retain or advance it without changing a shared cached block.
+  Slice udi_index_contents;
 
   std::unique_ptr<IndexReader> index_reader;
   std::unique_ptr<FilterBlockReader> filter;
@@ -920,8 +932,6 @@ struct BlockBasedTable::Rep {
 
   std::unique_ptr<CacheReservationManager::CacheReservationHandle>
       table_reader_cache_res_handle = nullptr;
-
-  CachableEntry<Block_kUserDefinedIndex> udi_block;
 
   SequenceNumber get_global_seqno(BlockType block_type) const {
     return (block_type == BlockType::kFilterPartitionIndex ||

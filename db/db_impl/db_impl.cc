@@ -13,9 +13,6 @@
 #include <cstdint>
 
 #include "db/db_impl/db_impl_metadata.h"
-#ifdef OS_SOLARIS
-#include <alloca.h>
-#endif
 
 #include <cinttypes>
 #include <cstdio>
@@ -89,7 +86,6 @@
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "rocksdb/lazy_wide_columns.h"
-#include "util/udt_util.h"
 #ifdef ROCKSDB_JEMALLOC
 #include "port/jemalloc_helper.h"
 #endif
@@ -205,6 +201,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       fs_(immutable_db_options_.fs, io_tracer_),
       mutable_db_options_(initial_db_options_),
       stats_(immutable_db_options_.stats),
+      mutex_hold_log_threshold_us_(
+          initial_db_options_.mutex_hold_log_threshold_us),
 #ifdef COERCE_CONTEXT_SWITCH
       mutex_(stats_, immutable_db_options_.clock, DB_MUTEX_WAIT_MICROS, &bg_cv_,
              immutable_db_options_.use_adaptive_mutex),
@@ -275,6 +273,16 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   table_cache_ = NewLRUCache(co);
   SetDbSessionId();
   assert(!db_session_id_.empty());
+
+  if (stats_ != nullptr && immutable_db_options_.info_log != nullptr) {
+    slow_mutex_logging_ = std::make_shared<SlowMutexLoggingContext>(
+        stats_, immutable_db_options_.clock, env_,
+        immutable_db_options_.info_log, GetMutexHoldLogThreshold());
+    mutex_.ConfigureSlowHoldLogging(slow_mutex_logging_, "DBImpl::mutex_");
+    wal_write_mutex_.ConfigureSlowHoldLogging(slow_mutex_logging_,
+                                              "DBImpl::wal_write_mutex_");
+    logs_with_prep_tracker_.ConfigureSlowHoldLogging(slow_mutex_logging_);
+  }
 
   if (write_buffer_manager_ != nullptr && !read_only_) {
     wbm_flush_initiator_ = std::make_unique<WBMFlushInitiator>(
@@ -365,6 +373,20 @@ Status DBImpl::ResumeImpl(DBRecoverContext context,
 
   const ReadOptions read_options(io_activity);
   const WriteOptions write_options(io_activity);
+
+  if (lock_wal_owner_thread_id_counts_.count(env_->GetThreadID()) > 0) {
+    return Status::Aborted(
+        "Likely deadlock as the same thread called LockWAL()");
+  }
+  // Recovery replaces WALs, flushes memtables, and can reserve the sequence
+  // numbers of an indeterminate WAL write. Defer it while any LockWAL() is held
+  // so the frozen DB state (latest sequence number and current WAL) promised by
+  // LockWAL() stays intact. UnlockWAL() and shutdown signal bg_cv_.
+  while (!lock_wal_owner_thread_id_counts_.empty() && !shutdown_initiated_ &&
+         !shutting_down_.load(std::memory_order_acquire)) {
+    TEST_SYNC_POINT("DBImpl::ResumeImpl:WaitForUnlockWAL");
+    bg_cv_.Wait();
+  }
 
   assert(static_cast<size_t>(unscheduled_flushes_) <= flush_queue_.size());
   // Recovery rebuilds flush requests for every column family with pending
@@ -1054,6 +1076,8 @@ Status DBImpl::CloseHelper() {
   // continuing with the shutdown
   mutex_.Lock();
   shutdown_initiated_ = true;
+  // Wake a recovery waiting in ResumeImpl() for UnlockWAL().
+  bg_cv_.SignalAll();
   error_handler_.CancelErrorRecoveryForShutDown();
   while (!error_handler_.ReadyForShutdown()) {
     bg_cv_.Wait();
@@ -1306,6 +1330,9 @@ Status DBImpl::CloseHelper() {
     sfm->Close();
   }
 
+  if (slow_mutex_logging_) {
+    slow_mutex_logging_->stopped.store(true, std::memory_order_relaxed);
+  }
   if (immutable_db_options_.info_log && own_info_log_) {
     Status s = immutable_db_options_.info_log->Close();
     if (!s.ok() && !s.IsNotSupported() && ret.ok()) {
@@ -1341,6 +1368,7 @@ DBImpl::~DBImpl() {
   // TODO: remove this.
   init_logger_creation_s_.PermitUncheckedError();
 
+  SlowMutexLoggingPause pause_logging(slow_mutex_logging_);
   InstrumentedMutexLock closing_lock_guard(&closing_mutex_);
   if (!closed_) {
     closed_ = true;
@@ -1893,7 +1921,9 @@ Status DBImpl::SetOptions(
          &cf_opts.second});
   }
 
-  InstrumentedMutexLock ol(&options_mutex_);
+  DeferredInstrumentedMutexLock ol(
+      &options_mutex_,
+      stats_ != nullptr && immutable_db_options_.info_log != nullptr);
   autovector<MutableCFOptions>
       new_options_copy;  // For logging outside of DB mutex
   Status s;
@@ -2051,7 +2081,9 @@ Status DBImpl::SetDBOptions(
     return Status::InvalidArgument("empty input");
   }
 
-  InstrumentedMutexLock ol(&options_mutex_);
+  DeferredInstrumentedMutexLock ol(
+      &options_mutex_,
+      stats_ != nullptr && immutable_db_options_.info_log != nullptr);
   MutableDBOptions new_options;
   Status s;
   Status persist_options_status = Status::OK();
@@ -2179,6 +2211,8 @@ Status DBImpl::SetDBOptions(
       wal_size_option_changed = mutable_db_options_.max_total_wal_size !=
                                 new_options.max_total_wal_size;
       mutable_db_options_ = new_options;
+      mutex_hold_log_threshold_us_.store(
+          new_options.mutex_hold_log_threshold_us, std::memory_order_relaxed);
       file_options_for_compaction_ = FileOptions(new_db_options);
       file_options_for_compaction_ = fs_->OptimizeForCompactionTableWrite(
           file_options_for_compaction_, immutable_db_options_);
@@ -4175,7 +4209,8 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
       // TODO: maybe handle the tracing status?
-      tracer_->MultiGet(num_keys, column_family, keys).PermitUncheckedError();
+      tracer_->MultiGet(num_keys, column_family, keys, read_options)
+          .PermitUncheckedError();
     }
   }
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
@@ -4518,7 +4553,9 @@ Status DBImpl::CreateColumnFamily(const ReadOptions& read_options,
                                   const std::string& column_family,
                                   ColumnFamilyHandle** handle) {
   assert(handle != nullptr);
-  InstrumentedMutexLock ol(&options_mutex_);
+  DeferredInstrumentedMutexLock ol(
+      &options_mutex_,
+      stats_ != nullptr && immutable_db_options_.info_log != nullptr);
   Status s = CreateColumnFamilyImpl(read_options, write_options, cf_options,
                                     column_family, handle);
   if (s.ok()) {
@@ -4533,7 +4570,9 @@ Status DBImpl::CreateColumnFamilies(
     const std::vector<std::string>& column_family_names,
     std::vector<ColumnFamilyHandle*>* handles) {
   assert(handles != nullptr);
-  InstrumentedMutexLock ol(&options_mutex_);
+  DeferredInstrumentedMutexLock ol(
+      &options_mutex_,
+      stats_ != nullptr && immutable_db_options_.info_log != nullptr);
   std::vector<ColumnFamilyDescriptor> column_families;
   column_families.reserve(column_family_names.size());
   for (const auto& name : column_family_names) {
@@ -4552,7 +4591,9 @@ Status DBImpl::CreateColumnFamilies(
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles) {
   assert(handles != nullptr);
-  InstrumentedMutexLock ol(&options_mutex_);
+  DeferredInstrumentedMutexLock ol(
+      &options_mutex_,
+      stats_ != nullptr && immutable_db_options_.info_log != nullptr);
   Status s = CreateColumnFamiliesImpl(read_options, write_options,
                                       column_families, handles);
   std::vector<const ColumnFamilyOptions*> cf_opts;
@@ -4740,7 +4781,13 @@ Status DBImpl::CreateColumnFamilyWithPreparedOptions(
       InstallSuperVersionForConfigChange(cfd, &sv_context);
 
       if (!cfd->mem()->IsSnapshotSupported()) {
-        is_snapshot_supported_ = false;
+        // A concurrent GetSnapshot() checks this state while holding one
+        // snapshot shard. Lock every shard for the true-to-false transition so
+        // the getter either finishes first or observes that snapshots are no
+        // longer supported.
+        snapshots_.RunWithAllShardsLocked([this]() {
+          is_snapshot_supported_.store(false, std::memory_order_relaxed);
+        });
       }
 
       cfd->set_initialized();
@@ -4766,7 +4813,9 @@ Status DBImpl::CreateColumnFamilyWithPreparedOptions(
 
 Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
   assert(column_family != nullptr);
-  InstrumentedMutexLock ol(&options_mutex_);
+  DeferredInstrumentedMutexLock ol(
+      &options_mutex_,
+      stats_ != nullptr && immutable_db_options_.info_log != nullptr);
   Status s = DropColumnFamilyImpl(column_family);
   if (s.ok()) {
     if (immutable_db_options_.track_options_file_number_in_manifest) {
@@ -4781,7 +4830,9 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
 
 Status DBImpl::DropColumnFamilies(
     const std::vector<ColumnFamilyHandle*>& column_families) {
-  InstrumentedMutexLock ol(&options_mutex_);
+  DeferredInstrumentedMutexLock ol(
+      &options_mutex_,
+      stats_ != nullptr && immutable_db_options_.info_log != nullptr);
   Status s;
   bool success_once = false;
   std::vector<ColumnFamilyHandle*> validated_column_families;
@@ -5396,10 +5447,12 @@ Status DBImpl::NewIterators(
   return Status::OK();
 }
 
-const Snapshot* DBImpl::GetSnapshot() { return GetSnapshotImpl(false); }
+const Snapshot* DBImpl::GetSnapshot() {
+  return GetSnapshotImpl(false, SnapshotLockMode::kTryWithoutDBMutex);
+}
 
 const Snapshot* DBImpl::GetSnapshotForWriteConflictBoundary() {
-  return GetSnapshotImpl(true);
+  return GetSnapshotImpl(true, SnapshotLockMode::kTryWithoutDBMutex);
 }
 
 std::pair<Status, std::shared_ptr<const Snapshot>>
@@ -5426,7 +5479,6 @@ void DBImpl::ReleaseTimestampedSnapshotsOlderThan(uint64_t ts,
   snapshots_to_release.clear();
 
   if (remaining_total_ss) {
-    InstrumentedMutexLock lock_guard(&mutex_);
     *remaining_total_ss = static_cast<size_t>(snapshots_.count());
   }
 }
@@ -5445,32 +5497,46 @@ Status DBImpl::GetTimestampedSnapshots(
 }
 
 SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
-                                      bool lock) {
+                                      SnapshotLockMode lock_mode) {
   int64_t unix_time = 0;
   immutable_db_options_.clock->GetCurrentTime(&unix_time)
       .PermitUncheckedError();  // Ignore error
-  SnapshotImpl* s = new SnapshotImpl;
-
-  if (lock) {
-    mutex_.Lock();
-  } else {
+  if (lock_mode == SnapshotLockMode::kDBMutexHeld) {
     mutex_.AssertHeld();
   }
-  // returns null if the underlying memtable does not support snapshot.
-  if (!is_snapshot_supported_) {
-    if (lock) {
-      mutex_.Unlock();
-    }
+  SnapshotImpl* s = new SnapshotImpl;
+  auto try_new = [this, s, unix_time,
+                  is_write_conflict_boundary](bool db_mutex_held) {
+    return snapshots_.TryNew(
+        s, [this]() { return GetLastPublishedSequence(); },
+        [this]() {
+          return is_snapshot_supported_.load(std::memory_order_relaxed);
+        },
+        [](SequenceNumber /*seq*/) { return true; },
+        [](SequenceNumber /*seq*/) {}, unix_time, is_write_conflict_boundary,
+        std::numeric_limits<uint64_t>::max(), db_mutex_held);
+  };
+
+  ShardedSnapshotList::NewResult result;
+  if (lock_mode == SnapshotLockMode::kAcquireDBMutex) {
+    mutex_.Lock();
+    result = try_new(/*db_mutex_held=*/true);
+    mutex_.Unlock();
+  } else {
+    result = try_new(/*db_mutex_held=*/
+                     lock_mode == SnapshotLockMode::kDBMutexHeld);
+  }
+  if (result == ShardedSnapshotList::NewResult::kRetryWithDBMutex) {
+    assert(lock_mode == SnapshotLockMode::kTryWithoutDBMutex);
+    mutex_.Lock();
+    result = try_new(/*db_mutex_held=*/true);
+    mutex_.Unlock();
+  }
+  if (result != ShardedSnapshotList::NewResult::kSuccess) {
     delete s;
     return nullptr;
   }
-  auto snapshot_seq = GetLastPublishedSequence();
-  SnapshotImpl* snapshot =
-      snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary);
-  if (lock) {
-    mutex_.Unlock();
-  }
-  return snapshot;
+  return s;
 }
 
 std::pair<Status, std::shared_ptr<const SnapshotImpl>>
@@ -5479,6 +5545,7 @@ DBImpl::CreateTimestampedSnapshotImpl(SequenceNumber snapshot_seq, uint64_t ts,
   int64_t unix_time = 0;
   immutable_db_options_.clock->GetCurrentTime(&unix_time)
       .PermitUncheckedError();  // Ignore error
+  TEST_SYNC_POINT("DBImpl::CreateTimestampedSnapshot:AfterClock");
   SnapshotImpl* s = new SnapshotImpl;
 
   const bool need_update_seq = (snapshot_seq != kMaxSequenceNumber);
@@ -5488,111 +5555,191 @@ DBImpl::CreateTimestampedSnapshotImpl(SequenceNumber snapshot_seq, uint64_t ts,
   } else {
     mutex_.AssertHeld();
   }
-  // returns null if the underlying memtable does not support snapshot.
-  if (!is_snapshot_supported_) {
+  Status status;
+  std::shared_ptr<const SnapshotImpl> ret;
+  // Select and lock the shard before reading the sequence number. Regular
+  // snapshots therefore cannot insert a newer sequence into this shard before
+  // the timestamped snapshot, so insertion remains constant time while the DB
+  // mutex is held.
+  auto result = snapshots_.TryNew(
+      s,
+      [this, snapshot_seq, need_update_seq]() {
+        // A caller outside the write thread does not provide a valid sequence.
+        return need_update_seq ? snapshot_seq : GetLastPublishedSequence();
+      },
+      [this]() {
+        return is_snapshot_supported_.load(std::memory_order_relaxed);
+      },
+      [this, &snapshot_seq, &status, &ret, ts](SequenceNumber selected_seq) {
+        snapshot_seq = selected_seq;
+        std::shared_ptr<const SnapshotImpl> latest =
+            timestamped_snapshots_.GetSnapshot(
+                std::numeric_limits<uint64_t>::max());
+        if (!latest) {
+          return true;
+        }
+
+        const uint64_t latest_snap_ts = latest->GetTimestamp();
+        const SequenceNumber latest_snap_seq = latest->GetSequenceNumber();
+        assert(latest_snap_seq <= snapshot_seq);
+        if (latest_snap_ts > ts) {
+          // A snapshot created later cannot have smaller timestamp than a
+          // previous timestamped snapshot.
+          std::ostringstream oss;
+          oss << "snapshot exists with larger timestamp " << latest_snap_ts
+              << " > " << ts;
+          status = Status::InvalidArgument(oss.str());
+          return false;
+        }
+        if (latest_snap_ts == ts) {
+          if (latest_snap_seq == snapshot_seq) {
+            // Reuse the snapshot for the same sequence and timestamp.
+            ret = latest;
+            return false;
+          }
+          // Writes occurred since the latest timestamped snapshot, but the
+          // caller requested the same timestamp.
+          assert(latest_snap_seq < snapshot_seq);
+          std::ostringstream oss;
+          oss << "Allocated seq is " << snapshot_seq
+              << ", while snapshot exists with smaller seq " << latest_snap_seq
+              << " but same timestamp " << ts;
+          status = Status::InvalidArgument(oss.str());
+          return false;
+        }
+        return true;
+      },
+      [this, need_update_seq](SequenceNumber selected_seq) {
+        if (!need_update_seq) {
+          return;
+        }
+        // Publish only after the snapshot is linked, and before releasing its
+        // shard. A regular snapshot in this shard cannot append the old
+        // published sequence behind `selected_seq`.
+        TEST_SYNC_POINT(
+            "DBImpl::CreateTimestampedSnapshot:BeforeSequencePublish");
+        if (last_seq_same_as_publish_seq_) {
+          versions_->SetLastSequence(selected_seq);
+        } else {
+          // TODO: support write-prepared/write-unprepared transactions with
+          // two write queues.
+          assert(false);
+        }
+      },
+      unix_time, /*is_write_conflict_boundary=*/true, ts,
+      /*db_mutex_held=*/true);
+
+  if (result != ShardedSnapshotList::NewResult::kSuccess) {
+    delete s;
+    if (result == ShardedSnapshotList::NewResult::kNotSupported) {
+      status = Status::NotSupported("Memtable does not support snapshot");
+    } else {
+      assert(result == ShardedSnapshotList::NewResult::kNotCreated);
+    }
     if (lock) {
       mutex_.Unlock();
     }
-    delete s;
-    return std::make_pair(
-        Status::NotSupported("Memtable does not support snapshot"), nullptr);
+    return std::make_pair(status, ret);
   }
 
-  // Caller is not write thread, thus didn't provide a valid snapshot_seq.
-  // Obtain seq from db.
-  if (!need_update_seq) {
-    snapshot_seq = GetLastPublishedSequence();
-  }
-
-  std::shared_ptr<const SnapshotImpl> latest =
-      timestamped_snapshots_.GetSnapshot(std::numeric_limits<uint64_t>::max());
-
-  // If there is already a latest timestamped snapshot, then we need to do
-  // some checks.
-  if (latest) {
-    uint64_t latest_snap_ts = latest->GetTimestamp();
-    SequenceNumber latest_snap_seq = latest->GetSequenceNumber();
-    assert(latest_snap_seq <= snapshot_seq);
-    bool needs_create_snap = true;
-    Status status;
-    std::shared_ptr<const SnapshotImpl> ret;
-    if (latest_snap_ts > ts) {
-      // A snapshot created later cannot have smaller timestamp than a
-      // previous timestamped snapshot.
-      needs_create_snap = false;
-      std::ostringstream oss;
-      oss << "snapshot exists with larger timestamp " << latest_snap_ts << " > "
-          << ts;
-      status = Status::InvalidArgument(oss.str());
-    } else if (latest_snap_ts == ts) {
-      if (latest_snap_seq == snapshot_seq) {
-        // We are requesting the same sequence number and timestamp, thus can
-        // safely reuse (share) the current latest timestamped snapshot.
-        needs_create_snap = false;
-        ret = latest;
-      } else if (latest_snap_seq < snapshot_seq) {
-        // There may have been writes to the database since the latest
-        // timestamped snapshot, yet we are still requesting the same
-        // timestamp. In this case, we cannot create the new timestamped
-        // snapshot.
-        needs_create_snap = false;
-        std::ostringstream oss;
-        oss << "Allocated seq is " << snapshot_seq
-            << ", while snapshot exists with smaller seq " << latest_snap_seq
-            << " but same timestamp " << ts;
-        status = Status::InvalidArgument(oss.str());
-      }
-    }
-    if (!needs_create_snap) {
-      if (lock) {
-        mutex_.Unlock();
-      }
-      delete s;
-      return std::make_pair(status, ret);
-    } else {
-      status.PermitUncheckedError();
-    }
-  }
-
-  SnapshotImpl* snapshot =
-      snapshots_.New(s, snapshot_seq, unix_time,
-                     /*is_write_conflict_boundary=*/true, ts);
-
-  std::shared_ptr<const SnapshotImpl> ret(
-      snapshot,
-      std::bind(&DBImpl::ReleaseSnapshot, this, std::placeholders::_1));
+  ret = std::shared_ptr<const SnapshotImpl>(
+      s, std::bind(&DBImpl::ReleaseSnapshot, this, std::placeholders::_1));
   timestamped_snapshots_.AddSnapshot(ret);
-
-  // Caller is from write thread, and we need to update database's sequence
-  // number.
-  if (need_update_seq) {
-    assert(versions_);
-    if (last_seq_same_as_publish_seq_) {
-      versions_->SetLastSequence(snapshot_seq);
-    } else {
-      // TODO: support write-prepared/write-unprepared transactions with two
-      // write queues.
-      assert(false);
-    }
-  }
 
   if (lock) {
     mutex_.Unlock();
   }
-  return std::make_pair(Status::OK(), ret);
+  return std::make_pair(status, ret);
 }
 
-namespace {
-using CfdList = autovector<ColumnFamilyData*, 2>;
-bool CfdListContains(const CfdList& list, ColumnFamilyData* cfd) {
-  for (const ColumnFamilyData* t : list) {
-    if (t == cfd) {
-      return true;
+bool DBImpl::ReconcileOldestSnapshotForColumnFamily(
+    ColumnFamilyData* cfd, SequenceNumber oldest_snapshot) {
+  mutex_.AssertHeld();
+  if (cfd->IsDropped()) {
+    return false;
+  }
+
+  VersionStorageInfo* vstorage = cfd->current()->storage_info();
+  if (oldest_snapshot <= vstorage->oldest_snapshot_seqnum()) {
+    return false;
+  }
+
+  const SequenceNumber standalone_range_deletion_threshold =
+      vstorage->standalone_range_tombstone_files_mark_threshold();
+  vstorage->UpdateOldestSnapshot(oldest_snapshot, cfd->AllowIngestBehind(),
+                                 cfd->ioptions().user_comparator,
+                                 cfd->GetFullHistoryTsLow());
+  const bool bottommost_file_ready =
+      !vstorage->BottommostFilesMarkedForCompaction().empty();
+  const bool standalone_range_deletion_ready =
+      oldest_snapshot >= standalone_range_deletion_threshold;
+  if (!bottommost_file_ready && !standalone_range_deletion_ready) {
+    return false;
+  }
+
+  EnqueuePendingCompaction(cfd);
+  return true;
+}
+
+void DBImpl::UpdateSnapshotCompactionThresholds() {
+  mutex_.AssertHeld();
+  bottommost_files_mark_threshold_ = kMaxSequenceNumber;
+  standalone_range_deletion_files_mark_threshold_ = kMaxSequenceNumber;
+  for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+    VersionStorageInfo* vstorage = cfd->current()->storage_info();
+    if (!cfd->AllowIngestBehind()) {
+      bottommost_files_mark_threshold_ =
+          std::min(bottommost_files_mark_threshold_,
+                   vstorage->bottommost_files_mark_threshold());
+    }
+    standalone_range_deletion_files_mark_threshold_ =
+        std::min(standalone_range_deletion_files_mark_threshold_,
+                 vstorage->standalone_range_tombstone_files_mark_threshold());
+  }
+}
+
+void DBImpl::UpdateOldestSnapshotAndScheduleWork(
+    SequenceNumber oldest_snapshot, uint64_t snapshot_release_count,
+    ColumnFamilyData* installed_cfd) {
+  mutex_.AssertHeld();
+  if (read_only_) {
+    return;
+  }
+
+  bool compaction_enqueued = false;
+  bool thresholds_need_refresh = false;
+  const bool snapshot_released =
+      snapshot_release_count != last_processed_snapshot_release_count_;
+  last_processed_snapshot_release_count_ = snapshot_release_count;
+  if (snapshot_released && oldest_snapshot > last_processed_oldest_snapshot_) {
+    last_processed_oldest_snapshot_ = oldest_snapshot;
+    if (oldest_snapshot > bottommost_files_mark_threshold_ ||
+        oldest_snapshot >= standalone_range_deletion_files_mark_threshold_) {
+      for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+        compaction_enqueued =
+            ReconcileOldestSnapshotForColumnFamily(cfd, oldest_snapshot) ||
+            compaction_enqueued;
+      }
+      thresholds_need_refresh = true;
     }
   }
-  return false;
+
+  if (installed_cfd != nullptr) {
+    compaction_enqueued = ReconcileOldestSnapshotForColumnFamily(
+                              installed_cfd, last_processed_oldest_snapshot_) ||
+                          compaction_enqueued;
+    thresholds_need_refresh = true;
+  }
+  if (thresholds_need_refresh) {
+    UpdateSnapshotCompactionThresholds();
+  }
+  if (compaction_enqueued) {
+    MaybeScheduleFlushOrCompaction();
+  }
 }
-}  //  namespace
 
 void DBImpl::ReleaseSnapshot(const Snapshot* s) {
   if (s == nullptr) {
@@ -5602,69 +5749,7 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     return;
   }
   const SnapshotImpl* casted_s = static_cast<const SnapshotImpl*>(s);
-  {
-    InstrumentedMutexLock l(&mutex_);
-    snapshots_.Delete(casted_s);
-    uint64_t oldest_snapshot;
-    if (snapshots_.empty()) {
-      oldest_snapshot = GetLastPublishedSequence();
-    } else {
-      oldest_snapshot = snapshots_.oldest()->number_;
-    }
-    // Avoid to go through every column family by checking a global threshold
-    // first.
-    CfdList cf_scheduled;
-    if (oldest_snapshot > bottommost_files_mark_threshold_) {
-      for (auto* cfd : *versions_->GetColumnFamilySet()) {
-        if (!cfd->AllowIngestBehind()) {
-          cfd->current()->storage_info()->UpdateOldestSnapshot(
-              oldest_snapshot, /*allow_ingest_behind=*/false,
-              cfd->ioptions().user_comparator, cfd->GetFullHistoryTsLow());
-          if (!cfd->current()
-                   ->storage_info()
-                   ->BottommostFilesMarkedForCompaction()
-                   .empty()) {
-            EnqueuePendingCompaction(cfd);
-            MaybeScheduleFlushOrCompaction();
-            cf_scheduled.push_back(cfd);
-          }
-        }
-      }
-
-      // Calculate a new threshold, skipping those CFs where compactions are
-      // scheduled. We do not do the same pass as the previous loop because
-      // mutex might be unlocked during the loop, making the result
-      // inaccurate.
-      SequenceNumber new_bottommost_files_mark_threshold = kMaxSequenceNumber;
-      for (auto* cfd : *versions_->GetColumnFamilySet()) {
-        if (CfdListContains(cf_scheduled, cfd) || cfd->AllowIngestBehind()) {
-          continue;
-        }
-        new_bottommost_files_mark_threshold = std::min(
-            new_bottommost_files_mark_threshold,
-            cfd->current()->storage_info()->bottommost_files_mark_threshold());
-      }
-      bottommost_files_mark_threshold_ = new_bottommost_files_mark_threshold;
-    }
-
-    // Avoid to go through every column family by checking a global threshold
-    // first.
-    if (oldest_snapshot >= standalone_range_deletion_files_mark_threshold_) {
-      for (auto* cfd : *versions_->GetColumnFamilySet()) {
-        if (cfd->IsDropped() || CfdListContains(cf_scheduled, cfd)) {
-          continue;
-        }
-        if (oldest_snapshot >=
-            cfd->current()
-                ->storage_info()
-                ->standalone_range_tombstone_files_mark_threshold()) {
-          EnqueuePendingCompaction(cfd);
-          MaybeScheduleFlushOrCompaction();
-          cf_scheduled.push_back(cfd);
-        }
-      }
-    }
-  }
+  snapshots_.Remove(casted_s);
   delete casted_s;
 }
 
@@ -6073,7 +6158,8 @@ void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
   size_t ts_sz = ucmp->timestamp_size();
 
   // Add timestamp if needed
-  std::string start_with_ts, limit_with_ts;
+  std::string start_with_ts;
+  std::string limit_with_ts;
   auto [start, limit] = MaybeAddTimestampsToRange(
       range.start, range.limit, ts_sz, &start_with_ts, &limit_with_ts);
   assert(start.has_value());
@@ -6135,7 +6221,8 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
 
   for (int i = 0; i < n; i++) {
     // Add timestamp if needed
-    std::string start_with_ts, limit_with_ts;
+    std::string start_with_ts;
+    std::string limit_with_ts;
     auto [start, limit] = MaybeAddTimestampsToRange(
         range[i].start, range[i].limit, ts_sz, &start_with_ts, &limit_with_ts);
     assert(start.has_value());
@@ -6268,7 +6355,10 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
           continue;
         }
         std::vector<FileMetaData*> level_files;
-        InternalKey begin_storage, end_storage, *begin_key, *end_key;
+        InternalKey begin_storage;
+        InternalKey end_storage;
+        InternalKey* begin_key;
+        InternalKey* end_key;
         if (begin == nullptr) {
           begin_key = nullptr;
         } else {
@@ -6320,7 +6410,8 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
                                     &mutex_, directories_.GetDbDir());
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(
-          cfd, job_context.superversion_contexts.data());
+          cfd, job_context.superversion_contexts.data(),
+          /*defer_snapshot_refresh=*/false);
     }
     for (auto* deleted_file : deleted_files) {
       deleted_file->being_compacted = false;
@@ -6507,7 +6598,8 @@ std::string DBImpl::GenerateDbSessionId(Env*) {
   // See SemiStructuredUniqueIdGen for its desirable properties.
   auto gen = DbSessionIdGen();
 
-  uint64_t lo, hi;
+  uint64_t lo;
+  uint64_t hi;
   gen->GenerateNext(&hi, &lo);
   if (lo == 0) {
     // Avoid emitting session ID with lo==0, so that SST unique
@@ -6564,6 +6656,7 @@ Status DB::DestroyColumnFamilyHandle(ColumnFamilyHandle* column_family) {
 DB::~DB() = default;
 
 Status DBImpl::Close() {
+  SlowMutexLoggingPause pause_logging(slow_mutex_logging_);
   InstrumentedMutexLock closing_lock_guard(&closing_mutex_);
   if (closed_) {
     return closing_status_;
@@ -7373,7 +7466,7 @@ class FileIngestionHandleImpl : public FileIngestionHandle {
   Status Abort() override;
 
   DBImpl* const db_;
-  std::vector<ExternalSstFileIngestionJob> jobs_;
+  std::vector<std::unique_ptr<ExternalSstFileIngestionJob>> jobs_;
   std::unique_ptr<std::list<uint64_t>::iterator> pending_output_elem_;
   bool fill_cache_ = true;
   // Set true once committed or aborted, so the destructor does not roll back.
@@ -7398,7 +7491,7 @@ void DBImpl::RollbackPreparedFileIngestion(FileIngestionHandleImpl* const h) {
   // pending-output protection, leaving the DB unchanged.
   const Status rollback_status = Status::Incomplete("file ingestion aborted");
   for (auto& job : h->jobs_) {
-    job.Cleanup(rollback_status);
+    job->Cleanup(rollback_status);
   }
   {
     InstrumentedMutexLock l(&mutex_);
@@ -7512,14 +7605,14 @@ Status DBImpl::PrepareFileIngestion(
     }
   }
 
-  std::vector<ExternalSstFileIngestionJob> ingestion_jobs;
+  std::vector<std::unique_ptr<ExternalSstFileIngestionJob>> ingestion_jobs;
   ingestion_jobs.reserve(num_cfs);
   for (const auto& arg : args) {
     auto* cfd = static_cast<ColumnFamilyHandleImpl*>(arg.column_family)->cfd();
-    ingestion_jobs.emplace_back(versions_.get(), cfd, immutable_db_options_,
-                                mutable_db_options_, file_options_, &snapshots_,
-                                arg.options, &directories_, &event_logger_,
-                                io_tracer_);
+    ingestion_jobs.push_back(std::make_unique<ExternalSstFileIngestionJob>(
+        versions_.get(), cfd, immutable_db_options_, mutable_db_options_,
+        file_options_, &snapshots_, arg.options, &directories_, &event_logger_,
+        io_tracer_));
   }
 
   // TODO (yanqin) maybe handle the case in which column_families have
@@ -7527,8 +7620,8 @@ Status DBImpl::PrepareFileIngestion(
   std::unique_ptr<std::list<uint64_t>::iterator> pending_output_elem;
   size_t total = 0;
   for (size_t i = 0; i != num_cfs; ++i) {
-    total += ingestion_jobs[i].NumFilesToPrepare(args[i].external_files.size(),
-                                                 args[i].atomic_replace_range);
+    total += ingestion_jobs[i]->NumFilesToPrepare(args[i].external_files.size(),
+                                                  args[i].atomic_replace_range);
   }
   uint64_t next_file_number = 0;
   Status status = ReserveFileNumbersBeforeIngestion(
@@ -7543,12 +7636,12 @@ Status DBImpl::PrepareFileIngestion(
   // TODO(yanqin) maybe make jobs run in parallel
   uint64_t start_file_number = next_file_number;
   for (size_t i = 1; i != num_cfs; ++i) {
-    start_file_number += ingestion_jobs[i - 1].NumFilesToPrepare(
+    start_file_number += ingestion_jobs[i - 1]->NumFilesToPrepare(
         args[i - 1].external_files.size(), args[i - 1].atomic_replace_range);
     SuperVersion* super_version =
-        ingestion_jobs[i].GetColumnFamilyData()->GetReferencedSuperVersion(
+        ingestion_jobs[i]->GetColumnFamilyData()->GetReferencedSuperVersion(
             this);
-    Status es = ingestion_jobs[i].Prepare(
+    Status es = ingestion_jobs[i]->Prepare(
         args[i].external_files, args[i].files_checksums,
         args[i].files_checksum_func_names, args[i].file_infos,
         args[i].atomic_replace_range, args[i].file_temperature,
@@ -7563,9 +7656,9 @@ Status DBImpl::PrepareFileIngestion(
   TEST_SYNC_POINT("DBImpl::IngestExternalFiles:BeforeLastJobPrepare:1");
   {
     SuperVersion* super_version =
-        ingestion_jobs[0].GetColumnFamilyData()->GetReferencedSuperVersion(
+        ingestion_jobs[0]->GetColumnFamilyData()->GetReferencedSuperVersion(
             this);
-    Status es = ingestion_jobs[0].Prepare(
+    Status es = ingestion_jobs[0]->Prepare(
         args[0].external_files, args[0].files_checksums,
         args[0].files_checksum_func_names, args[0].file_infos,
         args[0].atomic_replace_range, args[0].file_temperature,
@@ -7577,7 +7670,7 @@ Status DBImpl::PrepareFileIngestion(
   }
   if (!status.ok()) {
     for (size_t i = 0; i != num_cfs; ++i) {
-      ingestion_jobs[i].Cleanup(status);
+      ingestion_jobs[i]->Cleanup(status);
     }
     InstrumentedMutexLock l(&mutex_);
     ReleaseFileNumberFromPendingOutputs(pending_output_elem);
@@ -7636,13 +7729,13 @@ Status DBImpl::CommitFileIngestionHandles(
       hs.push_back(h);
       for (auto& job : h->jobs_) {
         max_file_opening_threads =
-            std::max(max_file_opening_threads, job.file_opening_threads());
-        auto [it, inserted] =
-            primary_job_for_cfd.try_emplace(job.GetColumnFamilyData(), &job);
+            std::max(max_file_opening_threads, job->file_opening_threads());
+        auto [it, inserted] = primary_job_for_cfd.try_emplace(
+            job->GetColumnFamilyData(), job.get());
         if (inserted) {
-          ingestion_jobs.push_back(&job);
+          ingestion_jobs.push_back(job.get());
         } else {
-          status = it->second->MergeForSameColumnFamily(&job);
+          status = it->second->MergeForSameColumnFamily(job.get());
           if (!status.ok()) {
             return status;
           }
@@ -7760,6 +7853,16 @@ Status DBImpl::CommitFileIngestionHandles(
         }
       }
     }
+    // Run() may decide how to assign sequence numbers based on whether any
+    // snapshot exists, and the last sequence number is published before the
+    // new SuperVersion is installed. Snapshot creation does not normally take
+    // mutex_, so make it fall back to mutex_ until the SuperVersion is
+    // installed. A snapshot can still be created while LogAndApply releases
+    // mutex_, matching the old serialization.
+    const bool snapshots_blocked = status.ok();
+    if (snapshots_blocked) {
+      snapshots_.BlockNew();
+    }
     // Run ingestion jobs.
     if (status.ok()) {
       for (size_t i = 0; i != num_jobs; ++i) {
@@ -7776,9 +7879,9 @@ Status DBImpl::CommitFileIngestionHandles(
     // value. We still hold the per-CF ingest_sst_lock as a ReadLock; any
     // concurrent conversion's TryWriteLock on the same lock fails, so no
     // converter can be reading or about to read the barrier while we
-    // update it. After we release the ReadLocks at function exit, the
-    // next conversion observes the new barrier and refuses any insert
-    // with insert_seq < assigned.
+    // update it. After we explicitly release the ReadLocks before exact
+    // snapshot maintenance, the next conversion observes the new barrier and
+    // refuses any insert with insert_seq < assigned.
     if (status.ok()) {
       for (auto* job : ingestion_jobs) {
         auto* cfd = job->GetColumnFamilyData();
@@ -7814,6 +7917,11 @@ Status DBImpl::CommitFileIngestionHandles(
         }
         assert(0 == num_entries);
       }
+      assert(snapshots_blocked);
+      TEST_SYNC_POINT("DBImpl::IngestExternalFiles:BeforeLogAndApply");
+      // LogAndApply releases mutex_ while writing the MANIFEST. GetSnapshot()
+      // can acquire it then even though snapshot creation remains blocked from
+      // the lock-free path.
       status = versions_->LogAndApply(
           cfds_to_commit, read_options, write_options, edit_lists, &mutex_,
           directories_.GetDbDir(), false /* new_descriptor_log */,
@@ -7840,6 +7948,20 @@ Status DBImpl::CommitFileIngestionHandles(
           versions_->SetLastSequence(max_assigned_seqno);
         }
       }
+      // An iterator whose Version predates the ingestion cannot see the
+      // ingested files, whatever sequence number it reads at: files can get
+      // no new seqno (seqno zero, ingest_behind, DB-generated files), and an
+      // iterator can pair an older SuperVersion with a newer sequence number.
+      // Such iterators must not convert tombstones over the ingested files.
+      // We still hold the per-CF ingest_sst_lock as a ReadLock, so no
+      // conversion runs until the barrier is in place.
+      if (status.ok()) {
+        for (auto* job : ingestion_jobs) {
+          auto* cfd = job->GetColumnFamilyData();
+          cfd->mem()->BumpIngestVersionBarrier(
+              cfd->current()->GetVersionNumber());
+        }
+      }
     }
 
     for (auto* job : ingestion_jobs) {
@@ -7850,7 +7972,8 @@ Status DBImpl::CommitFileIngestionHandles(
       for (size_t i = 0; i != num_jobs; ++i) {
         auto* cfd = ingestion_jobs[i]->GetColumnFamilyData();
         assert(!cfd->IsDropped());
-        InstallSuperVersionAndScheduleWork(cfd, &sv_ctxs[i]);
+        InstallSuperVersionAndScheduleWork(cfd, &sv_ctxs[i],
+                                           /*defer_snapshot_refresh=*/true);
 #ifndef NDEBUG
         if (0 == i && num_jobs > 1) {
           TEST_SYNC_POINT("DBImpl::IngestExternalFiles:InstallSVForFirstCF:0");
@@ -7858,7 +7981,12 @@ Status DBImpl::CommitFileIngestionHandles(
         }
 #endif  // !NDEBUG
       }
-    } else if (versions_->io_status().IsIOError()) {
+      UpdateSnapshotCompactionThresholds();
+    }
+    if (snapshots_blocked) {
+      snapshots_.UnblockNew();
+    }
+    if (!status.ok() && versions_->io_status().IsIOError()) {
       // Error while writing to MANIFEST.
       // In fact, versions_->io_status() can also be the result of renaming
       // CURRENT file. With current code, it's just difficult to tell. So just
@@ -7891,6 +8019,20 @@ Status DBImpl::CommitFileIngestionHandles(
     TEST_SYNC_POINT("DBImpl::AddFile:MutexUnlock");
   }
   // mutex_ is unlocked here
+
+  // Exact snapshot maintenance acquires every shard lock. Release the
+  // arbitrary-size set of per-CF ingestion locks first so sanitizer lock
+  // tracking and production lock hold times remain bounded.
+  ingest_read_locks.clear();
+  if (status.ok()) {
+    InstrumentedMutexLock l(&mutex_);
+    uint64_t snapshot_release_count = 0;
+    const SequenceNumber oldest_snapshot =
+        snapshots_.OldestOr([this]() { return GetLastPublishedSequence(); },
+                            &snapshot_release_count);
+    UpdateOldestSnapshotAndScheduleWork(oldest_snapshot, snapshot_release_count,
+                                        /*installed_cfd=*/nullptr);
+  }
 
   for (auto& sv_ctx : sv_ctxs) {
     sv_ctx.Clean();
@@ -8433,12 +8575,14 @@ Status DBImpl::EndBlockCacheTrace() {
 
 Status DBImpl::TraceIteratorSeek(const uint32_t& cf_id, const Slice& key,
                                  const Slice& lower_bound,
-                                 const Slice upper_bound) {
+                                 const Slice upper_bound,
+                                 const TracedReadOptions& read_options) {
   Status s;
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
-      s = tracer_->IteratorSeek(cf_id, key, lower_bound, upper_bound);
+      s = tracer_->IteratorSeek(cf_id, key, lower_bound, upper_bound,
+                                read_options);
     }
   }
   return s;
@@ -8446,12 +8590,14 @@ Status DBImpl::TraceIteratorSeek(const uint32_t& cf_id, const Slice& key,
 
 Status DBImpl::TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
                                         const Slice& lower_bound,
-                                        const Slice upper_bound) {
+                                        const Slice upper_bound,
+                                        const TracedReadOptions& read_options) {
   Status s;
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
-      s = tracer_->IteratorSeekForPrev(cf_id, key, lower_bound, upper_bound);
+      s = tracer_->IteratorSeekForPrev(cf_id, key, lower_bound, upper_bound,
+                                       read_options);
     }
   }
   return s;
@@ -8485,7 +8631,8 @@ Status DBImpl::ReserveFileNumbersBeforeIngestion(
   s = versions_->LogAndApply(cfd, read_options, write_options, &dummy_edit,
                              &mutex_, directories_.GetDbDir());
   if (s.ok()) {
-    InstallSuperVersionAndScheduleWork(cfd, &dummy_sv_ctx);
+    InstallSuperVersionAndScheduleWork(cfd, &dummy_sv_ctx,
+                                       /*defer_snapshot_refresh=*/false);
   }
   dummy_sv_ctx.Clean();
   return s;
@@ -8665,6 +8812,7 @@ void DBImpl::InstallSuperVersionForConfigChange(
     new_seqno_to_time_mapping->CopyFrom(seqno_to_time_mapping_);
   }
   InstallSuperVersionAndScheduleWork(cfd, sv_context,
+                                     /*defer_snapshot_refresh=*/false,
                                      std::move(new_seqno_to_time_mapping));
 }
 
@@ -8749,6 +8897,13 @@ void DBImpl::TriggerPeriodicCompaction() {
     InstrumentedMutexLock l(&mutex_);
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "Running the periodic task to trigger compactions.");
+
+    uint64_t snapshot_release_count = 0;
+    const SequenceNumber oldest_snapshot =
+        snapshots_.OldestOr([this]() { return GetLastPublishedSequence(); },
+                            &snapshot_release_count);
+    UpdateOldestSnapshotAndScheduleWork(oldest_snapshot, snapshot_release_count,
+                                        /*installed_cfd=*/nullptr);
 
     for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->IsDropped()) {

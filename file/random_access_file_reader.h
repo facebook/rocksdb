@@ -171,6 +171,8 @@ class RandomAccessFileReader final : public FSRandomAccessFile {
                          IODebugContext* dbg);
   RandomAccessFileReader(const RandomAccessFileReader&) = delete;
   RandomAccessFileReader& operator=(const RandomAccessFileReader&) = delete;
+  RandomAccessFileReader(RandomAccessFileReader&&) = delete;
+  RandomAccessFileReader& operator=(RandomAccessFileReader&&) = delete;
   ~RandomAccessFileReader() override = default;
 
   // In non-direct IO mode, mmap reads can return a buffer other than scratch.

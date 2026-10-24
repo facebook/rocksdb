@@ -95,8 +95,12 @@ class SequentialFileReader {
                          std::unique_ptr<SequentialFileReader>* reader,
                          IODebugContext* dbg, RateLimiter* rate_limiter);
 
+  ~SequentialFileReader() = default;
+
   SequentialFileReader(const SequentialFileReader&) = delete;
   SequentialFileReader& operator=(const SequentialFileReader&) = delete;
+  SequentialFileReader(SequentialFileReader&&) = delete;
+  SequentialFileReader& operator=(SequentialFileReader&&) = delete;
 
   // `rate_limiter_priority` is used to charge the internal rate limiter when
   // enabled. The special value `Env::IO_TOTAL` makes this operation bypass the

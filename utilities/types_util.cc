@@ -10,6 +10,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+static_assert(kInternalKeyFooterSize == kNumInternalBytes,
+              "Internal key footer size mismatch");
+
 Status GetInternalKeyForSeek(const Slice& user_key,
                              const Comparator* comparator, std::string* buf) {
   if (!comparator) {
@@ -85,4 +88,72 @@ Status ParseEntry(const Slice& internal_key, const Comparator* comparator,
   parsed_entry->type = ROCKSDB_NAMESPACE::GetEntryType(pikey.type);
   return Status::OK();
 }
+
+Status PackSequenceAndType(uint64_t seq, EntryType type, uint64_t* packed) {
+  if (seq > kMaxSequenceNumber) {
+    return Status::InvalidArgument("Sequence number exceeds the 56-bit limit.");
+  }
+
+  ValueType value_type;
+  switch (type) {
+    case kEntryPut:
+      value_type = kTypeValue;
+      break;
+    case kEntryDelete:
+      value_type = kTypeDeletion;
+      break;
+    case kEntrySingleDelete:
+      value_type = kTypeSingleDeletion;
+      break;
+    case kEntryMerge:
+      value_type = kTypeMerge;
+      break;
+    case kEntryRangeDeletion:
+      value_type = kTypeRangeDeletion;
+      break;
+    case kEntryBlobIndex:
+      value_type = kTypeBlobIndex;
+      break;
+    case kEntryDeleteWithTimestamp:
+      value_type = kTypeDeletionWithTimestamp;
+      break;
+    case kEntryWideColumnEntity:
+      value_type = kTypeWideColumnEntity;
+      break;
+    case kEntryTimedPut:
+      value_type = kTypeValuePreferredSeqno;
+      break;
+    case kEntryOther:
+      return Status::InvalidArgument("Unsupported entry type.");
+    default:
+      return Status::InvalidArgument("Unknown entry type.");
+  }
+
+  *packed = PackSequenceAndType(seq, value_type);
+  return Status::OK();
+}
+
+void UnPackSequenceAndType(uint64_t packed, uint64_t* seq, EntryType* type) {
+  ValueType value_type;
+  UnPackSequenceAndType(packed, seq, &value_type);
+  *type = GetEntryType(value_type);
+}
+
+Status EncodeEntry(const ParsedEntryInfo& entry, std::string* internal_key) {
+  uint64_t packed = 0;
+  Status status = PackSequenceAndType(entry.sequence, entry.type, &packed);
+  if (!status.ok()) {
+    return status;
+  }
+
+  internal_key->reserve(entry.user_key.size() + entry.timestamp.size() +
+                        kNumInternalBytes);
+  internal_key->assign(entry.user_key.data(), entry.user_key.size());
+  if (!entry.timestamp.empty()) {
+    internal_key->append(entry.timestamp.data(), entry.timestamp.size());
+  }
+  PutFixed64(internal_key, packed);
+  return Status::OK();
+}
+
 }  // namespace ROCKSDB_NAMESPACE

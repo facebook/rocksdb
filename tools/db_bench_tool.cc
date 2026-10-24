@@ -2060,6 +2060,10 @@ DEFINE_bool(identity_as_first_hash, false,
             "the first hash function of cuckoo table becomes an identity "
             "function. This is only valid when key is 8 bytes");
 DEFINE_bool(dump_malloc_stats, true, "Dump malloc stats in LOG ");
+DEFINE_uint64(mutex_hold_log_threshold_us,
+              ROCKSDB_NAMESPACE::Options().mutex_hold_log_threshold_us,
+              "Completed global mutex hold threshold in microseconds; 0 "
+              "disables hold logs.");
 DEFINE_uint64(stats_dump_period_sec,
               ROCKSDB_NAMESPACE::Options().stats_dump_period_sec,
               "Gap between printing stats to log in seconds");
@@ -2657,6 +2661,12 @@ class ReporterAgent {
 
     reporting_thread_ = port::Thread([&]() { SleepAndReport(); });
   }
+
+  // No copying allowed
+  ReporterAgent(const ReporterAgent&) = delete;
+  ReporterAgent& operator=(const ReporterAgent&) = delete;
+  ReporterAgent(ReporterAgent&&) = delete;
+  ReporterAgent& operator=(ReporterAgent&&) = delete;
 
   ~ReporterAgent() {
     {
@@ -3639,6 +3649,7 @@ struct SharedState {
     Duration& operator=(Duration&&) = default;
     Duration(const Duration&) = delete;
     Duration& operator=(const Duration&) = delete;
+    ~Duration() = default;
 
     int64_t GetStage() { return std::min(ops_, max_ops_ - 1) / ops_per_stage_; }
 
@@ -4395,6 +4406,12 @@ class Benchmark {
       mock_app_clock_.reset(new TimestampEmulator());
     }
   }
+
+  // No copying allowed
+  Benchmark(const Benchmark&) = delete;
+  Benchmark& operator=(const Benchmark&) = delete;
+  Benchmark(Benchmark&&) = delete;
+  Benchmark& operator=(Benchmark&&) = delete;
 
   void DeleteDBs() {
     // Caller MUST hold DbStateMutationGuard (proven by ownership flag).
@@ -5741,6 +5758,7 @@ class Benchmark {
     options.dump_malloc_stats = FLAGS_dump_malloc_stats;
     options.stats_dump_period_sec =
         static_cast<unsigned int>(FLAGS_stats_dump_period_sec);
+    options.mutex_hold_log_threshold_us = FLAGS_mutex_hold_log_threshold_us;
     options.max_compaction_trigger_wakeup_seconds =
         FLAGS_max_compaction_trigger_wakeup_seconds;
     options.periodic_compaction_phase_recovery_percent =
@@ -7028,7 +7046,9 @@ class Benchmark {
     std::unique_ptr<const char[]> end_key_guard;
     Slice end_key = AllocateKey(&end_key_guard);
     double p = 0.0;
-    uint64_t num_overwrites = 0, num_unique_keys = 0, num_selective_deletes = 0;
+    uint64_t num_overwrites = 0;
+    uint64_t num_unique_keys = 0;
+    uint64_t num_selective_deletes = 0;
     // If user set overwrite_probability flag,
     // check if value is in [0.0,1.0].
     if (FLAGS_overwrite_probability > 0.0) {
@@ -7068,7 +7088,8 @@ class Benchmark {
     // done on the first set of keys S1. The next sequence can start as soon
     // as the last disposable entry in the set S1 of this sequence is
     // inserted, if the delay is non negligible"
-    bool skip_for_loop = false, is_disposable_entry = true;
+    bool skip_for_loop = false;
+    bool is_disposable_entry = true;
     std::vector<uint64_t> disposable_entries_index(num_key_gens, 0);
     std::vector<uint64_t> persistent_ent_and_del_index(num_key_gens, 0);
     const uint64_t kNumDispAndPersEntries =
@@ -7643,7 +7664,8 @@ class Benchmark {
         level = static_cast<int>(max_level - i);
         SequenceNumber sorted_run_smallest_seqno = kMaxSequenceNumber;
         SequenceNumber sorted_run_largest_seqno = 0;
-        std::string sorted_run_smallest_key, sorted_run_largest_key;
+        std::string sorted_run_smallest_key;
+        std::string sorted_run_largest_key;
         bool first_key = true;
         for (const auto& fileMeta : sorted_runs[k][i]) {
           sorted_run_smallest_seqno =
@@ -9269,7 +9291,8 @@ class Benchmark {
       int64_t keyrange_rand = ini_rand % keyrange_rand_max_;
 
       // Calculate and select one key-range that contains the new key
-      int64_t start = 0, end = static_cast<int64_t>(keyrange_set_.size());
+      int64_t start = 0;
+      int64_t end = static_cast<int64_t>(keyrange_set_.size());
       while (start + 1 < end) {
         int64_t mid = start + (end - start) / 2;
         assert(mid >= 0 && mid < static_cast<int64_t>(keyrange_set_.size()));
@@ -9282,7 +9305,8 @@ class Benchmark {
       int64_t keyrange_id = start;
 
       // Select one key in the key-range and compose the keyID
-      int64_t key_offset = 0, key_seed;
+      int64_t key_offset = 0;
+      int64_t key_seed;
       if (key_dist_a == 0.0 || key_dist_b == 0.0) {
         key_offset = ini_rand % keyrange_size_;
       } else {
@@ -9359,7 +9383,10 @@ class Benchmark {
     auto duration = thread->shared->MakeDuration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
       DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
-      int64_t ini_rand, rand_v, key_rand, key_seed;
+      int64_t ini_rand;
+      int64_t rand_v;
+      int64_t key_rand;
+      int64_t key_seed;
       ini_rand = GetRandomKey(&thread->rand);
       rand_v = ini_rand % FLAGS_num;
       double u = static_cast<double>(rand_v) / FLAGS_num;

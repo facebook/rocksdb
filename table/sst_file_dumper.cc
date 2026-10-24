@@ -901,7 +901,8 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num_limit,
 
   OptSlice from_opt = has_from ? from_key : OptSlice{};
   OptSlice to_opt = has_to ? to_key : OptSlice{};
-  std::string from_key_buf, to_key_buf;
+  std::string from_key_buf;
+  std::string to_key_buf;
   auto [from, to] = MaybeAddTimestampsToRange(from_opt, to_opt, ts_sz,
                                               &from_key_buf, &to_key_buf);
   uint64_t i = 0;

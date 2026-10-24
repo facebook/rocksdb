@@ -206,17 +206,6 @@ struct FileDescriptor {
         smallest_seqno(_smallest_seqno),
         largest_seqno(_largest_seqno) {}
 
-  FileDescriptor(const FileDescriptor& fd) { *this = fd; }
-
-  FileDescriptor& operator=(const FileDescriptor& fd) {
-    pinned_reader = fd.pinned_reader;
-    packed_number_and_path_id = fd.packed_number_and_path_id;
-    file_size = fd.file_size;
-    smallest_seqno = fd.smallest_seqno;
-    largest_seqno = fd.largest_seqno;
-    return *this;
-  }
-
   uint64_t GetNumber() const {
     return packed_number_and_path_id & kFileNumberMask;
   }
@@ -230,11 +219,19 @@ struct FileDescriptor {
 struct FileSampledStats {
   FileSampledStats()
       : num_reads_sampled(0), num_collapsible_entry_reads_sampled(0) {}
+  ~FileSampledStats() = default;
   FileSampledStats(const FileSampledStats& other) { *this = other; }
   FileSampledStats& operator=(const FileSampledStats& other) {
     num_reads_sampled = other.num_reads_sampled.load();
     num_collapsible_entry_reads_sampled =
         other.num_collapsible_entry_reads_sampled.load();
+    return *this;
+  }
+  // std::atomic is not movable, so moving copies. Don't `= delete` these: that
+  // would delete FileMetaData's implicit move, making it copy every member.
+  FileSampledStats(FileSampledStats&& other) noexcept { *this = other; }
+  FileSampledStats& operator=(FileSampledStats&& other) noexcept {
+    *this = other;
     return *this;
   }
 

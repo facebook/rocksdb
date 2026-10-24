@@ -212,7 +212,8 @@ class WritePreparedTxnDB : public WritePreparedTxnDBBase {
     // commit cache, ii) delayed prepared, commit cache again. In this way if
     // the first query to commit cache missed the commit, the 2nd will catch it.
     bool was_empty;
-    SequenceNumber max_evicted_seq_lb, max_evicted_seq_ub;
+    SequenceNumber max_evicted_seq_lb;
+    SequenceNumber max_evicted_seq_ub;
     CommitEntry64b dont_care;
     auto indexed_seq = prep_seq % COMMIT_CACHE_SIZE;
     size_t repeats = 0;
@@ -607,6 +608,13 @@ class WritePreparedTxnDB : public WritePreparedTxnDBBase {
     friend class WritePreparedTxnDB;
 
    public:
+    PreparedHeap() = default;
+    // No copying allowed
+    PreparedHeap(const PreparedHeap&) = delete;
+    PreparedHeap& operator=(const PreparedHeap&) = delete;
+    PreparedHeap(PreparedHeap&&) = delete;
+    PreparedHeap& operator=(PreparedHeap&&) = delete;
+
     ~PreparedHeap() {
       if (!TEST_CRASH_) {
         assert(heap_.empty());
@@ -894,6 +902,14 @@ class WritePreparedTxnReadCallback : public ReadCallback {
         backed_by_snapshot_(backed_by_snapshot) {
     (void)backed_by_snapshot_;  // to silence unused private field warning
   }
+
+  // No copying allowed
+  WritePreparedTxnReadCallback(const WritePreparedTxnReadCallback&) = delete;
+  WritePreparedTxnReadCallback& operator=(const WritePreparedTxnReadCallback&) =
+      delete;
+  WritePreparedTxnReadCallback(WritePreparedTxnReadCallback&&) = delete;
+  WritePreparedTxnReadCallback& operator=(WritePreparedTxnReadCallback&&) =
+      delete;
 
   ~WritePreparedTxnReadCallback() override {
     // If it is not backed by snapshot, the caller must check validity

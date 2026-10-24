@@ -92,10 +92,12 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       num_internal_keys_skipped_(0),
       iterate_lower_bound_(read_options.iterate_lower_bound),
       iterate_upper_bound_(read_options.iterate_upper_bound),
+      trace_read_options_(read_options),
       trace_db_(db_impl),
       trace_cf_id_(cfd != nullptr ? cfd->GetID() : 0),
       has_trace_state_(db_impl != nullptr && cfd != nullptr),
       ingest_sst_lock_(cfd != nullptr ? &cfd->GetIngestSstLock() : nullptr),
+      version_number_(version != nullptr ? version->GetVersionNumber() : 0),
       timestamp_ub_(read_options.timestamp),
       timestamp_lb_(read_options.iter_start_ts),
       timestamp_size_(timestamp_ub_ ? timestamp_ub_->size() : 0),
@@ -117,13 +119,15 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                                      read_options.total_order_seek ||
                                      read_options.auto_prefix_mode),
       // Read-path range conversion assumes the scan can observe all interior
-      // live keys. table_filter can hide whole SSTs, and timestamp filtering
+      // live keys. table_filter can hide whole SSTs, read tiers other than
+      // kReadAllTier can skip SSTs or uncached blocks, and timestamp filtering
       // can hide newer UDT versions unless the read is at max timestamp with no
       // lower timestamp bound. Legacy prefix iterators without
       // prefix_same_as_start do not guarantee complete scans, so conversion
       // must stay disabled for the iterator lifetime.
       min_tombstones_for_range_conversion_(
           active_mem != nullptr && !HasTableFilter(read_options) &&
+                  read_options.read_tier == kReadAllTier &&
                   (expect_total_order_inner_iter_ || prefix_same_as_start_) &&
                   HasFullTimestampVisibility(read_options)
               ? mutable_cf_options.min_tombstones_for_range_conversion
@@ -690,6 +694,14 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
     // TODO(lth): If we reseek to sequence number greater than ikey_.sequence,
     // then it does not make sense to reseek as we would actually land further
     // away from the desired key. There is opportunity for optimization here.
+    // This could be a long-running operation due to tombstones, etc.
+    bool aborted = ROCKSDB_THREAD_YIELD_CHECK_ABORT();
+    if (UNLIKELY(aborted)) {
+      valid_ = false;
+      status_ = Status::Aborted("Query abort.");
+      return false;
+    }
+
     if (num_skipped > max_skip_ && !reseek_done) {
       is_key_seqnum_zero_ = false;
       num_skipped = 0;
@@ -734,14 +746,6 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
       RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
     } else {
       iter_.Next();
-    }
-
-    // This could be a long-running operation due to tombstones, etc.
-    bool aborted = ROCKSDB_THREAD_YIELD_CHECK_ABORT();
-    if (aborted) {
-      valid_ = false;
-      status_ = Status::Aborted("Query abort.");
-      return false;
     }
   } while (iter_.Valid());
 
@@ -790,7 +794,20 @@ bool DBIter::MergeValuesNewToOld() {
   TEST_SYNC_POINT("DBIter::MergeValuesNewToOld:PushedFirstOperand");
 
   ParsedInternalKey ikey;
-  for (iter_.Next(); iter_.Valid(); iter_.Next()) {
+  while (true) {
+    // This could be a long-running operation due to merge operands, etc.
+    bool aborted = ROCKSDB_THREAD_YIELD_CHECK_ABORT();
+    if (UNLIKELY(aborted)) {
+      valid_ = false;
+      status_ = Status::Aborted("Query abort.");
+      return false;
+    }
+
+    iter_.Next();
+    if (!iter_.Valid()) {
+      break;
+    }
+
     TEST_SYNC_POINT("DBIter::MergeValuesNewToOld:SteppedToNextOperand");
     if (!ParseKey(&ikey)) {
       return false;
@@ -1247,6 +1264,15 @@ bool DBIter::FindValueForCurrentKey(bool& found_visible) {
     }
 
     PERF_COUNTER_ADD(internal_key_skipped_count, 1);
+
+    // This could be a long-running operation due to tombstones, etc.
+    bool aborted = ROCKSDB_THREAD_YIELD_CHECK_ABORT();
+    if (UNLIKELY(aborted)) {
+      valid_ = false;
+      status_ = Status::Aborted("Query abort.");
+      return false;
+    }
+
     iter_.Prev();
     ++num_skipped;
 
@@ -1399,6 +1425,14 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       break;
     }
 
+    // This could be a long-running operation due to tombstones, etc.
+    bool aborted = ROCKSDB_THREAD_YIELD_CHECK_ABORT();
+    if (UNLIKELY(aborted)) {
+      valid_ = false;
+      status_ = Status::Aborted("Query abort.");
+      return false;
+    }
+
     iter_.Next();
   }
 
@@ -1468,6 +1502,14 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   PERF_COUNTER_ADD(internal_merge_count, 1);
 
   while (true) {
+    // This could be a long-running operation due to merge operands, etc.
+    bool aborted = ROCKSDB_THREAD_YIELD_CHECK_ABORT();
+    if (UNLIKELY(aborted)) {
+      valid_ = false;
+      status_ = Status::Aborted("Query abort.");
+      return false;
+    }
+
     iter_.Next();
 
     if (!iter_.Valid()) {
@@ -1663,6 +1705,14 @@ bool DBIter::FindUserKeyBeforeSavedKey() {
       PERF_COUNTER_ADD(internal_key_skipped_count, 1);
     }
 
+    // This could be a long-running operation due to tombstones, etc.
+    bool aborted = ROCKSDB_THREAD_YIELD_CHECK_ABORT();
+    if (UNLIKELY(aborted)) {
+      valid_ = false;
+      status_ = Status::Aborted("Query abort.");
+      return false;
+    }
+
     if (num_skipped >= max_skip_) {
       num_skipped = 0;
       std::string last_key;
@@ -1785,7 +1835,7 @@ void DBIter::MaybeInsertRangeTombstone(const Slice& end_key) {
   assert(ingest_sst_lock_ != nullptr);
   if (active_mem_->AddLogicallyRedundantRangeTombstone(
           insert_seq, range_tomb_first_key_.GetUserKey(), end_key,
-          *ingest_sst_lock_)) {
+          version_number_, *ingest_sst_lock_)) {
     RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_INSERTED);
     ROCKS_LOG_DEBUG(logger_,
                     "Inserted range tombstone [%s, %s) @ seq %" PRIu64
@@ -2019,7 +2069,8 @@ void DBIter::Seek(const Slice& target) {
 
   if (has_trace_state_) {
     // TODO: What do we do if this returns an error?
-    Slice lower_bound, upper_bound;
+    Slice lower_bound;
+    Slice upper_bound;
     if (iterate_lower_bound_ != nullptr) {
       lower_bound = *iterate_lower_bound_;
     } else {
@@ -2030,7 +2081,9 @@ void DBIter::Seek(const Slice& target) {
     } else {
       upper_bound = Slice("");
     }
-    trace_db_->TraceIteratorSeek(trace_cf_id_, target, lower_bound, upper_bound)
+    trace_db_
+        ->TraceIteratorSeek(trace_cf_id_, target, lower_bound, upper_bound,
+                            trace_read_options_)
         .PermitUncheckedError();
   }
 
@@ -2140,7 +2193,8 @@ void DBIter::SeekForPrev(const Slice& target) {
 
   if (has_trace_state_) {
     // TODO: What do we do if this returns an error?
-    Slice lower_bound, upper_bound;
+    Slice lower_bound;
+    Slice upper_bound;
     if (iterate_lower_bound_ != nullptr) {
       lower_bound = *iterate_lower_bound_;
     } else {
@@ -2153,7 +2207,7 @@ void DBIter::SeekForPrev(const Slice& target) {
     }
     trace_db_
         ->TraceIteratorSeekForPrev(trace_cf_id_, target, lower_bound,
-                                   upper_bound)
+                                   upper_bound, trace_read_options_)
         .PermitUncheckedError();
   }
 

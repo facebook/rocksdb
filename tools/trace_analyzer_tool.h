@@ -68,7 +68,7 @@ class AnalyzerOptions {
 
   AnalyzerOptions();
 
-  ~AnalyzerOptions();
+  ~AnalyzerOptions() = default;
 
   void SparseCorrelationInput(const std::string& in_str);
 };

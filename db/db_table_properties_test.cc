@@ -451,7 +451,8 @@ TEST_P(DBTablePropertiesInRangeTest, GetPropertiesOfTablesInRange) {
   ASSERT_GT(NumTableFilesAtLevel(2), 0);
 
   // Query the largest range
-  std::size_t num_properties, num_files;
+  std::size_t num_properties;
+  std::size_t num_files;
   TestGetPropertiesOfTablesInRange(
       {Range(test::RandomKey(&rnd, 5, test::RandomKeyType::SMALLEST),
              test::RandomKey(&rnd, 5, test::RandomKeyType::LARGEST))},
@@ -547,7 +548,8 @@ TEST_F(DBTablePropertiesTest, GetDbIdentifiersProperty) {
     ASSERT_OK(db_->GetPropertiesOfAllTables(handles_[cf], &fname_to_props));
     ASSERT_EQ(1U, fname_to_props.size());
 
-    std::string id, sid;
+    std::string id;
+    std::string sid;
     ASSERT_OK(db_->GetDbIdentity(id));
     ASSERT_OK(db_->GetDbSessionId(sid));
     ASSERT_EQ(id, fname_to_props.begin()->second->db_id);

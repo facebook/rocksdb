@@ -87,12 +87,6 @@ static void rocksdb_roundtrip_test_rocksdb_block_based_options(void) {
   rocksdb_block_based_options_set_enable_index_compression(obj, 0);
   CheckCondition(
       rocksdb_block_based_options_get_enable_index_compression(obj) == 0);
-  rocksdb_block_based_options_set_fail_if_no_udi_on_open(obj, 1);
-  CheckCondition(rocksdb_block_based_options_get_fail_if_no_udi_on_open(obj) ==
-                 1);
-  rocksdb_block_based_options_set_fail_if_no_udi_on_open(obj, 0);
-  CheckCondition(rocksdb_block_based_options_get_fail_if_no_udi_on_open(obj) ==
-                 0);
   rocksdb_block_based_options_set_format_version(obj, 1);
   CheckCondition(rocksdb_block_based_options_get_format_version(obj) == 1);
   rocksdb_block_based_options_set_format_version(obj, 0);
@@ -223,12 +217,6 @@ static void rocksdb_roundtrip_test_rocksdb_block_based_options(void) {
   CheckCondition(rocksdb_block_based_options_get_use_delta_encoding(obj) == 1);
   rocksdb_block_based_options_set_use_delta_encoding(obj, 0);
   CheckCondition(rocksdb_block_based_options_get_use_delta_encoding(obj) == 0);
-  rocksdb_block_based_options_set_use_udi_as_primary_index(obj, 1);
-  CheckCondition(
-      rocksdb_block_based_options_get_use_udi_as_primary_index(obj) == 1);
-  rocksdb_block_based_options_set_use_udi_as_primary_index(obj, 0);
-  CheckCondition(
-      rocksdb_block_based_options_get_use_udi_as_primary_index(obj) == 0);
   rocksdb_block_based_options_set_verify_compression(obj, 1);
   CheckCondition(rocksdb_block_based_options_get_verify_compression(obj) == 1);
   rocksdb_block_based_options_set_verify_compression(obj, 0);
@@ -1124,6 +1112,12 @@ static void rocksdb_roundtrip_test_rocksdb_trace_options(void) {
   CheckCondition(rocksdb_trace_options_get_filter(obj) == 1);
   rocksdb_trace_options_set_filter(obj, 0);
   CheckCondition(rocksdb_trace_options_get_filter(obj) == 0);
+  rocksdb_trace_options_set_include_read_write_options(obj, 1);
+  CheckCondition(rocksdb_trace_options_get_include_read_write_options(obj) ==
+                 1);
+  rocksdb_trace_options_set_include_read_write_options(obj, 0);
+  CheckCondition(rocksdb_trace_options_get_include_read_write_options(obj) ==
+                 0);
   rocksdb_trace_options_set_max_trace_file_size(obj, 1);
   CheckCondition(rocksdb_trace_options_get_max_trace_file_size(obj) == 1);
   rocksdb_trace_options_set_max_trace_file_size(obj, 0);

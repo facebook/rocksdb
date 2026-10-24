@@ -235,7 +235,7 @@ class PersistentCacheTier : public PersistentCache {
  public:
   using Tier = std::shared_ptr<PersistentCacheTier>;
 
-  ~PersistentCacheTier() override {}
+  ~PersistentCacheTier() override = default;
 
   // Open the persistent cache tier
   virtual Status Open();

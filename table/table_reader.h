@@ -40,7 +40,7 @@ class MultiGetContext;
 // BlockBasedTable, PlainTable and CuckooTable format.
 class TableReader {
  public:
-  virtual ~TableReader() {}
+  virtual ~TableReader() = default;
 
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must

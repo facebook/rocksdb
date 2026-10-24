@@ -790,7 +790,14 @@ TEST_F(OptionsUtilTest, DisabledTrackingUsesLegacyWritesAndCanReenable) {
   ASSERT_EQ(OptionsFileName(legacy_number), selected_name);
 
   tracked.create_if_missing = false;
+  ASSERT_OK(DB::OpenForReadOnly(tracked, dbname_, &db));
+  db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+  ASSERT_FALSE(db_impl->GetVersionSet()->has_committed_options_file_number());
+  ASSERT_EQ(legacy_number, db_impl->GetVersionSet()->options_file_number());
+  db.reset();
+
   ASSERT_OK(DB::Open(tracked, dbname_, &db));
+  ASSERT_OK(env_->FileExists(OptionsFileName(dbname_, legacy_number)));
   ColumnFamilyHandle* new_cf = nullptr;
   ASSERT_OK(db->CreateColumnFamily(ColumnFamilyOptions(), "one", &new_cf));
   ASSERT_NE(nullptr, new_cf);

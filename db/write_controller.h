@@ -122,6 +122,8 @@ class WriteControllerToken {
   // no copying allowed
   WriteControllerToken(const WriteControllerToken&) = delete;
   void operator=(const WriteControllerToken&) = delete;
+  WriteControllerToken(WriteControllerToken&&) = delete;
+  void operator=(WriteControllerToken&&) = delete;
 };
 
 class StopWriteToken : public WriteControllerToken {

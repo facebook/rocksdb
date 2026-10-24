@@ -115,7 +115,8 @@ class ColumnFamilyTestBase : public testing::Test {
   }
 
   void Build(int base, int n, int flush_every = 0) {
-    std::string key_space, value_space;
+    std::string key_space;
+    std::string value_space;
     WriteBatch batch;
 
     for (int i = 0; i < n; i++) {
@@ -545,8 +546,9 @@ class ColumnFamilyTest
 
 INSTANTIATE_TEST_CASE_P(FormatDef, ColumnFamilyTest,
                         testing::Values(test::kDefaultFormatVersion));
-INSTANTIATE_TEST_CASE_P(FormatLatest, ColumnFamilyTest,
-                        testing::Values(kLatestBbtFormatVersion));
+INSTANTIATE_TEST_CASE_P(
+    FormatLatest, ColumnFamilyTest,
+    testing::Values(BlockBasedTableOptions::kLatestSupportedFormatVersion));
 
 TEST_P(ColumnFamilyTest, DontReuseColumnFamilyID) {
   for (int iter = 0; iter < 3; ++iter) {
@@ -736,8 +738,11 @@ INSTANTIATE_TEST_CASE_P(
                     std::make_tuple(test::kDefaultFormatVersion, false)));
 INSTANTIATE_TEST_CASE_P(
     FormatLatest, FlushEmptyCFTestWithParam,
-    testing::Values(std::make_tuple(kLatestBbtFormatVersion, true),
-                    std::make_tuple(kLatestBbtFormatVersion, false)));
+    testing::Values(
+        std::make_tuple(BlockBasedTableOptions::kLatestSupportedFormatVersion,
+                        true),
+        std::make_tuple(BlockBasedTableOptions::kLatestSupportedFormatVersion,
+                        false)));
 
 TEST_P(ColumnFamilyTest, AddDrop) {
   Open();
@@ -948,7 +953,9 @@ TEST_P(ColumnFamilyTest, IgnoreRecoveredLog) {
   CreateColumnFamilies({"cf1", "cf2"});
 
   // fill up the DB
-  std::string one, two, three;
+  std::string one;
+  std::string two;
+  std::string three;
   PutFixed64(&one, 1);
   PutFixed64(&two, 2);
   PutFixed64(&three, 3);
@@ -1156,7 +1163,10 @@ TEST_P(ColumnFamilyTest, DifferentWriteBufferSizes) {
   db_options_.max_total_wal_size = std::numeric_limits<uint64_t>::max();
   Open();
   CreateColumnFamilies({"one", "two", "three"});
-  ColumnFamilyOptions default_cf, one, two, three;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
+  ColumnFamilyOptions two;
+  ColumnFamilyOptions three;
   // setup options. all column families have max_write_buffer_number setup to 10
   // "default" -> 100KB memtable, start flushing immediately
   // "one" -> 200KB memtable, start flushing with two immutable memtables
@@ -1308,7 +1318,9 @@ TEST_P(ColumnFamilyTest, GetComparator) {
 
   // Add three column families - one with no comparator and two
   // with comparators specified
-  ColumnFamilyOptions second, third, fourth;
+  ColumnFamilyOptions second;
+  ColumnFamilyOptions third;
+  ColumnFamilyOptions fourth;
   second.comparator = &third_comparator;
   third.comparator = &fourth_comparator;
   CreateColumnFamilies({"second", "third", "fourth"}, {second, third, fourth});
@@ -1321,12 +1333,16 @@ TEST_P(ColumnFamilyTest, GetComparator) {
 TEST_P(ColumnFamilyTest, DifferentMergeOperators) {
   Open();
   CreateColumnFamilies({"first", "second"});
-  ColumnFamilyOptions default_cf, first, second;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions first;
+  ColumnFamilyOptions second;
   first.merge_operator = MergeOperators::CreateUInt64AddOperator();
   second.merge_operator = MergeOperators::CreateStringAppendOperator();
   Reopen({default_cf, first, second});
 
-  std::string one, two, three;
+  std::string one;
+  std::string two;
+  std::string three;
   PutFixed64(&one, 1);
   PutFixed64(&two, 2);
   PutFixed64(&three, 3);
@@ -1351,7 +1367,9 @@ TEST_P(ColumnFamilyTest, DifferentMergeOperators) {
 TEST_P(ColumnFamilyTest, DifferentCompactionStyles) {
   Open();
   CreateColumnFamilies({"one", "two"});
-  ColumnFamilyOptions default_cf, one, two;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
+  ColumnFamilyOptions two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
 
   default_cf.level_compaction_dynamic_level_bytes = false;
@@ -1423,7 +1441,9 @@ TEST_P(ColumnFamilyTest, DifferentCompactionStyles) {
 TEST_P(ColumnFamilyTest, MultipleManualCompactions) {
   Open();
   CreateColumnFamilies({"one", "two"});
-  ColumnFamilyOptions default_cf, one, two;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
+  ColumnFamilyOptions two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
@@ -1523,7 +1543,9 @@ TEST_P(ColumnFamilyTest, MultipleManualCompactions) {
 TEST_P(ColumnFamilyTest, AutomaticAndManualCompactions) {
   Open();
   CreateColumnFamilies({"one", "two"});
-  ColumnFamilyOptions default_cf, one, two;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
+  ColumnFamilyOptions two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
@@ -1620,7 +1642,9 @@ TEST_P(ColumnFamilyTest, AutomaticAndManualCompactions) {
 TEST_P(ColumnFamilyTest, ManualAndAutomaticCompactions) {
   Open();
   CreateColumnFamilies({"one", "two"});
-  ColumnFamilyOptions default_cf, one, two;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
+  ColumnFamilyOptions two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
@@ -1719,7 +1743,8 @@ TEST_P(ColumnFamilyTest, ManualAndAutomaticCompactions) {
 TEST_P(ColumnFamilyTest, SameCFManualManualCompactions) {
   Open();
   CreateColumnFamilies({"one"});
-  ColumnFamilyOptions default_cf, one;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
@@ -1819,7 +1844,8 @@ TEST_P(ColumnFamilyTest, SameCFManualManualCompactions) {
 TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
   Open();
   CreateColumnFamilies({"one"});
-  ColumnFamilyOptions default_cf, one;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
@@ -1910,7 +1936,8 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
 TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
   Open();
   CreateColumnFamilies({"one"});
-  ColumnFamilyOptions default_cf, one;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
@@ -2007,7 +2034,8 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
 TEST_P(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
   Open();
   CreateColumnFamilies({"one"});
-  ColumnFamilyOptions default_cf, one;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
@@ -2220,7 +2248,9 @@ TEST_P(ColumnFamilyTest, DontRollEmptyLogs) {
 TEST_P(ColumnFamilyTest, FlushStaleColumnFamilies) {
   Open();
   CreateColumnFamilies({"one", "two"});
-  ColumnFamilyOptions default_cf, one, two;
+  ColumnFamilyOptions default_cf;
+  ColumnFamilyOptions one;
+  ColumnFamilyOptions two;
   default_cf.write_buffer_size = 100000;  // small write buffer size
   default_cf.arena_block_size = 4096;
   default_cf.disable_auto_compactions = true;
@@ -3682,6 +3712,12 @@ TEST_P(ColumnFamilyTest, FlushCloseWALFiles) {
 TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
   SpecialEnv env(Env::Default());
   db_options_.env = &env;
+  // The DB keeps its Env pointer until Close(). Close it before the local Env
+  // is destroyed, including when an ASSERT below exits the test early.
+  Defer close_db_on_exit([this] {
+    Close();
+    db_options_.env = env_;
+  });
   db_options_.max_background_flushes = 1;
   // When this option is removed, the test will need re-engineering
   db_options_.background_close_inactive_wals = true;
@@ -3691,25 +3727,38 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
   CreateColumnFamilies({"one"});
   ASSERT_OK(Put(1, "fodor", "mirko"));
   // Create an iterator holding the current super version.
-  Iterator* it = db_->NewIterator(ReadOptions(), handles_[1]);
+  std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions(), handles_[1]));
   ASSERT_OK(it->status());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::BGWorkFlush:done",
+       "ColumnFamilyTest::IteratorCloseWALFile1:SetupFlushDone"},
+  });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  Defer disable_sync_points(
+      [] { ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing(); });
+
   // A flush will make `it` hold the last reference of its super version.
   ASSERT_OK(Flush(1));
+  // Flush() can return before the background function releases all temporary
+  // references to the old super version.
+  TEST_SYNC_POINT("ColumnFamilyTest::IteratorCloseWALFile1:SetupFlushDone");
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
+      {"ColumnFamilyTest::IteratorCloseWALFile1:ReleaseFlush",
+       "DBImpl::BackgroundCallFlush:start"},
+  });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_OK(Put(1, "fodor", "mirko"));
   ASSERT_OK(Put(0, "fodor", "mirko"));
   ASSERT_OK(Put(1, "fodor", "mirko"));
 
-  // Flush jobs will close previous WAL files after finishing. By
-  // block flush jobs from running, we trigger a condition where
-  // the iterator destructor should close the WAL files.
-  test::SleepingBackgroundTask sleeping_task;
-  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
-                 Env::Priority::HIGH);
-  // Make sure the task is sleeping. Otherwise, it might start to execute
-  // after sleeping_task.WaitUntilDone() and cause TSAN warning.
-  sleeping_task.WaitUntilSleeping();
-
+  // Flush jobs close previous WAL files after finishing. Keep the next flush
+  // from starting so the iterator destructor is responsible for closing the
+  // WAL. Occupying one Env worker is insufficient because the shared Env can
+  // have multiple HIGH-priority workers.
   WriteOptions wo;
   wo.sync = true;
   ASSERT_OK(db_->Put(wo, handles_[1], "fodor", "mirko"));
@@ -3717,18 +3766,15 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
   ASSERT_EQ(2, env.num_open_wal_file_.load());
   // Deleting the iterator will clear its super version, triggering
   // closing all files
-  delete it;
+  it.reset();
   ASSERT_EQ(1, env.num_open_wal_file_.load());
 
-  sleeping_task.WakeUp();
-  sleeping_task.WaitUntilDone();
+  TEST_SYNC_POINT("ColumnFamilyTest::IteratorCloseWALFile1:ReleaseFlush");
   WaitForFlush(1);
 
   Reopen();
   ASSERT_EQ("mirko", Get(0, "fodor"));
   ASSERT_EQ("mirko", Get(1, "fodor"));
-  db_options_.env = env_;
-  Close();
 }
 
 TEST_P(ColumnFamilyTest, IteratorCloseWALFile2) {
@@ -3985,7 +4031,8 @@ TEST_P(ColumnFamilyTest, DefaultCfPathsTest) {
   // Leave cf_paths for one column families to be empty.
   // Files should be generated according to db_paths for that
   // column family.
-  ColumnFamilyOptions cf_opt1, cf_opt2;
+  ColumnFamilyOptions cf_opt1;
+  ColumnFamilyOptions cf_opt2;
   cf_opt1.cf_paths.emplace_back(dbname_ + "_one_1",
                                 std::numeric_limits<uint64_t>::max());
   CreateColumnFamilies({"one", "two"}, {cf_opt1, cf_opt2});
@@ -4010,7 +4057,8 @@ TEST_P(ColumnFamilyTest, DefaultCfPathsTest) {
 TEST_P(ColumnFamilyTest, MultipleCFPathsTest) {
   Open();
   // Configure Column family specific paths.
-  ColumnFamilyOptions cf_opt1, cf_opt2;
+  ColumnFamilyOptions cf_opt1;
+  ColumnFamilyOptions cf_opt2;
   cf_opt1.cf_paths.emplace_back(dbname_ + "_one_1",
                                 std::numeric_limits<uint64_t>::max());
   cf_opt2.cf_paths.emplace_back(dbname_ + "_two_1",
@@ -4126,7 +4174,9 @@ TEST(ColumnFamilyTest, ValidateMemtableKVChecksumOption) {
 // the behavior of manual flush is that it skips retaining UDTs.
 class ColumnFamilyRetainUDTTest : public ColumnFamilyTestBase {
  public:
-  ColumnFamilyRetainUDTTest() : ColumnFamilyTestBase(kLatestBbtFormatVersion) {}
+  ColumnFamilyRetainUDTTest()
+      : ColumnFamilyTestBase(
+            BlockBasedTableOptions::kLatestSupportedFormatVersion) {}
 
   void SetUp() override {
     db_options_.allow_concurrent_memtable_write = false;

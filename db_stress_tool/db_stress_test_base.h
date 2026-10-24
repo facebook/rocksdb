@@ -484,6 +484,7 @@ class StressTest {
     // - Both reuse_manifest_on_open=1 and optimize_manifest_for_recovery=1
     // - Not in best_efforts_recovery mode
     // - avoid_flush_during_recovery=true (no flush during recovery)
+    // - No WriteBufferManager limit enforced during recovery
     // - write_dbid_to_manifest=0 (no DB_ID write on open)
     // - metadata_write_fault_one_in=0 (no fault injection)
     // - open_metadata_write_fault_one_in=0 (no fault injection)
@@ -628,6 +629,11 @@ class StressTest {
 
   void CleanUpColumnFamilies();
 
+  Status VerifyOptionsFileStateBeforeOpen(
+      const std::vector<ColumnFamilyDescriptor>& cf_descriptors,
+      bool db_exists);
+  Status VerifyPersistedOptionsAfterOpen();
+
   void RecordManifestStateBeforeReopen();
   void VerifyManifestNotRewritten();
 
@@ -675,6 +681,11 @@ class StressTest {
   uint64_t manifest_file_number_before_reopen_;
   uint64_t manifest_file_size_before_reopen_;
   std::string current_file_content_before_reopen_;
+  bool verify_options_manifest_tracking_ = false;
+  // True while a reopen holds auto compactions off so that a background
+  // compaction cannot append to the MANIFEST before
+  // VerifyManifestNotRewritten() measures it.
+  bool auto_compactions_paused_for_manifest_verify_ = false;
 };
 
 // Load options from OPTIONS file and populate `options`.

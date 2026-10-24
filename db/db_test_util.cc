@@ -362,8 +362,7 @@ Options DBTestBase::GetOptions(
   Options options = default_options;
   BlockBasedTableOptions table_options;
   bool set_block_based_table_factory = true;
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
-    !defined(OS_AIX)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_AIX)
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
       "NewRandomAccessFile:O_DIRECT");
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
@@ -535,7 +534,8 @@ Options DBTestBase::GetOptions(
     }
     case kBlockBasedTableWithLatestFormat: {
       // In case different from default
-      table_options.format_version = kLatestBbtFormatVersion;
+      table_options.format_version =
+          BlockBasedTableOptions::kLatestSupportedFormatVersion;
       break;
     }
     case kOptimizeFiltersForHits: {

@@ -28,6 +28,8 @@ class InternalIteratorBase : public Cleanable {
   // No copying allowed
   InternalIteratorBase(const InternalIteratorBase&) = delete;
   InternalIteratorBase& operator=(const InternalIteratorBase&) = delete;
+  InternalIteratorBase(InternalIteratorBase&&) = delete;
+  InternalIteratorBase& operator=(InternalIteratorBase&&) = delete;
 
   virtual ~InternalIteratorBase() {}
 

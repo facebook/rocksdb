@@ -19,6 +19,10 @@ namespace ROCKSDB_NAMESPACE {
 struct Entry {
   Entry() : ptr(nullptr) {}
   Entry(const Entry& e) : ptr(e.ptr.load(std::memory_order_relaxed)) {}
+  Entry(Entry&& e) noexcept : ptr(e.ptr.load(std::memory_order_relaxed)) {}
+  Entry& operator=(const Entry&) = delete;
+  Entry& operator=(Entry&&) = delete;
+  ~Entry() = default;
   std::atomic<void*> ptr;
 };
 
@@ -314,6 +318,13 @@ ThreadLocalPtr::StaticMeta::StaticMeta()
 // This is not required on Windows.
 #if !defined(OS_WIN)
   static struct A {
+    A() = default;
+    // No copying allowed
+    A(const A&) = delete;
+    A& operator=(const A&) = delete;
+    A(A&&) = delete;
+    A& operator=(A&&) = delete;
+
     ~A() {
       if (tls_) {
         OnThreadExit(tls_);

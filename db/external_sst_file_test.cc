@@ -4302,7 +4302,9 @@ TEST_F(ExternalSSTFileWithTimestampTest, Basic) {
     // Put [key=k, ts=k, value=k_val] for k in [50, 200)
     // RangeDelete[start_key=75, end_key=125, ts=100]
     std::string file2 = sst_files_dir_ + "file2.sst";
-    int range_del_begin = 75, range_del_end = 125, range_del_ts = 100;
+    int range_del_begin = 75;
+    int range_del_end = 125;
+    int range_del_ts = 100;
     ASSERT_OK(sst_file_writer.Open(file2));
     for (int k = 50; k < 200; k++) {
       ASSERT_OK(
@@ -4677,7 +4679,8 @@ TEST_F(ExternalSSTFileWithTimestampTest, TimestampsNotPersistedBasic) {
     // Put [key=k, ts=0, value=k_val0] for k in [50, 200)
     // RangeDelete[start_key=75, end_key=125, ts=0]
     std::string file2 = sst_files_dir_ + "file2.sst";
-    int range_del_begin = 75, range_del_end = 125;
+    int range_del_begin = 75;
+    int range_del_end = 125;
     ASSERT_OK(sst_file_writer.Open(file2));
     for (int k = 50; k < 200; k++) {
       // All these timestamps will later be effectively 0

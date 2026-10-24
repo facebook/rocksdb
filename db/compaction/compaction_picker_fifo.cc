@@ -246,7 +246,8 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
       fifo_opts.max_data_files_size > 0
           ? vstorage->GetBlobStats().total_file_size
           : 0;
-  uint64_t effective_size, effective_max;
+  uint64_t effective_size;
+  uint64_t effective_max;
   GetEffectiveSizeAndLimit(fifo_opts, total_size, total_blob_size,
                            &effective_size, &effective_max);
 
