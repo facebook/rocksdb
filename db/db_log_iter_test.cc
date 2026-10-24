@@ -12,6 +12,7 @@
 // which is a pity, it is a good test
 
 #include "db/db_test_util.h"
+#include "db/write_batch_internal.h"
 #include "env/mock_env.h"
 #include "port/stack_trace.h"
 #include "util/atomic.h"
@@ -86,6 +87,41 @@ TEST_F(DBWalIteratorTest, Basic) {
       ExpectRecords(6, iter);
     }
   } while (ChangeCompactOptions());
+}
+
+// GetUpdatesSince reads indexed WALs across the archive and the live WAL
+// directory, from sequence 1 and from the middle of a file, with contiguous
+// sequences.
+TEST_F(DBWalIteratorTest, IndexedWALsInArchiveAndLive) {
+  Options options = OptionsForLogIterTest();
+  options.partition_wal_usage = PartitionWALUsage::kPartitionByColumnFamily;
+  DestroyAndReopen(options);
+  constexpr int kBatches = 8;
+  for (int i = 0; i < kBatches / 2; ++i) {
+    ASSERT_OK(Put("key" + std::to_string(i), DummyString(16)));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForPurge());
+  for (int i = kBatches / 2; i < kBatches; ++i) {
+    ASSERT_OK(Put("key" + std::to_string(i), DummyString(16)));
+  }
+  ASSERT_GT(test::CountIndexedWALFiles(env_, ArchivalDirectory(dbname_)), 0);
+  ASSERT_GT(test::CountIndexedWALFiles(env_, dbname_), 0);
+
+  for (const SequenceNumber start : {SequenceNumber{1}, SequenceNumber{3},
+                                     SequenceNumber{kBatches / 2 + 2}}) {
+    SCOPED_TRACE(start);
+    std::unique_ptr<WalIterator> iter = OpenWalIter(start);
+    SequenceNumber expected = start;
+    for (; iter->Valid(); iter->Next()) {
+      BatchResult batch = iter->GetBatch();
+      ASSERT_EQ(expected, batch.sequence);
+      ASSERT_EQ(1U, WriteBatchInternal::Count(batch.writeBatchPtr.get()));
+      ++expected;
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(SequenceNumber{kBatches + 1}, expected);
+  }
 }
 
 #ifndef NDEBUG  // sync point is not included with DNDEBUG build

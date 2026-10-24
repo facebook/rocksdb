@@ -5,9 +5,11 @@
 //
 #include "rocksdb/utilities/ldb_cmd.h"
 
+#include <cctype>
 #include <cinttypes>
 #include <iomanip>
 #include <memory>
+#include <sstream>
 
 #include "db/db_test_util.h"
 #include "db/version_edit.h"
@@ -124,6 +126,67 @@ TEST_F(LdbCmdTest, MemEnv) {
 
   ASSERT_EQ(0,
             LDBCommandRunner::RunCommand(3, argv, opts, LDBOptions(), nullptr));
+}
+
+// `ldb dump_wal` prints every record of an indexed WAL with its sequence and
+// count, and finds no sequence gap in it.
+TEST_F(LdbCmdTest, DumpWalPrintsIndexedRecords) {
+  Env* env = TryLoadCustomOrDefaultEnv();
+  Options opts;
+  opts.env = env;
+  opts.create_if_missing = true;
+  opts.partition_wal_usage = PartitionWALUsage::kPartitionByColumnFamily;
+  const std::string dbname = test::PerThreadDBPath(env, "ldb_cmd_test");
+  ASSERT_OK(DestroyDB(dbname, opts));
+
+  std::unique_ptr<DB> db;
+  ASSERT_OK(DB::Open(opts, dbname, &db));
+  for (int i = 0; i < 4; ++i) {
+    ASSERT_OK(db->Put(WriteOptions(), "key" + std::to_string(i), "value"));
+  }
+  WriteBatch batch;
+  for (int i = 4; i < 7; ++i) {
+    ASSERT_OK(batch.Put("key" + std::to_string(i), "value"));
+  }
+  ASSERT_OK(db->Write(WriteOptions(), &batch));
+  std::unique_ptr<WalFile> wal;
+  ASSERT_OK(db->GetCurrentWalFile(&wal));
+  const std::string wal_path = dbname + wal->PathName();
+  db.reset();
+  ASSERT_GT(test::CountIndexedWALFiles(env, dbname), 0);
+
+  const std::string wal_arg = "--walfile=" + wal_path;
+  auto dump = [&](const char* flag, std::string* out, std::string* err) {
+    const char* argv[] = {"./ldb", "dump_wal", wal_arg.c_str(), flag};
+    testing::internal::CaptureStdout();
+    testing::internal::CaptureStderr();
+    const int code = LDBCommandRunner::RunCommand(flag ? 4 : 3, argv, opts,
+                                                  LDBOptions(), nullptr);
+    *err = testing::internal::GetCapturedStderr();
+    *out = testing::internal::GetCapturedStdout();
+    return code;
+  };
+
+  std::string out;
+  std::string err;
+  ASSERT_EQ(0, dump(nullptr, &out, &err));
+  EXPECT_EQ("", err);
+  std::vector<std::string> rows;
+  std::istringstream lines(out);
+  std::string line;
+  while (std::getline(lines, line)) {
+    if (!line.empty() && std::isdigit(static_cast<unsigned char>(line[0]))) {
+      rows.push_back(line.substr(0, line.find(',', line.find(',') + 1) + 1));
+    }
+  }
+  const std::vector<std::string> expected = {"1,1,", "2,1,", "3,1,", "4,1,",
+                                             "5,3,"};
+  EXPECT_EQ(expected, rows) << out;
+
+  ASSERT_EQ(0, dump("--only_print_seqno_gaps", &out, &err));
+  EXPECT_EQ("", err);
+  EXPECT_EQ("", out);
+  ASSERT_OK(DestroyDB(dbname, opts));
 }
 
 class FileChecksumTestHelper {

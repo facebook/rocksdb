@@ -1518,6 +1518,28 @@ TEST_P(BackupEngineTestWithParam, OnlineIntegrationTest) {
 INSTANTIATE_TEST_CASE_P(BackupEngineTestWithParam, BackupEngineTestWithParam,
                         ::testing::Bool());
 
+// A backup taken without a flush copies the live indexed WAL, and the
+// restored DB replays every acknowledged write from it.
+TEST_F(BackupEngineTest, BackupWithoutFlushCopiesIndexedWAL) {
+  options_.partition_wal_usage = PartitionWALUsage::kPartitionByColumnFamily;
+  OpenDBAndBackupEngine(/*destroy_old_data=*/true);
+  FillDB(db_.get(), 0, 100, kAutoFlushOnly);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
+                                            /*flush_before_backup=*/false));
+  CloseDBAndBackupEngine();
+  ASSERT_GT(test::CountIndexedWALFiles(backup_chroot_env_.get(),
+                                       backupdir_ + "/private/1"),
+            0);
+  DestroyDBWithoutCheck(dbname_, options_);
+
+  OpenBackupEngine();
+  ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_));
+  CloseBackupEngine();
+  ASSERT_GT(test::CountIndexedWALFiles(db_chroot_env_.get(), dbname_), 0);
+  std::unique_ptr<DB> db = OpenDB();
+  AssertExists(db.get(), 0, 100);
+}
+
 // this will make sure that backup does not copy the same file twice
 TEST_F(BackupEngineTest, NoDoubleCopy_And_AutoGC) {
   OpenDBAndBackupEngine(true, true);
