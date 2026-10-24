@@ -1433,6 +1433,7 @@ class DBImpl : public DB
   void TEST_SetBGError(const IOStatus& error, BackgroundErrorReason reason);
 
   bool TEST_IsRecoveryInProgress();
+  bool TEST_IsStopped() { return error_handler_.IsDBStopped(); }
 
   Status TEST_ResumeImpl(DBRecoverContext context);
 
