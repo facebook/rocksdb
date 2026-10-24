@@ -147,6 +147,11 @@ Status DBImpl::TEST_SwitchMemtable(ColumnFamilyData* cfd) {
 size_t DBImpl::TEST_GetWBMFlushableMemUsage() {
   InstrumentedMutexLock l(&mutex_);
   assert(wbm_flush_initiator_ != nullptr);
+  if (wbm_flush_initiator_->UsesOnDemandAccounting()) {
+    const FlushableCFs cfds = CollectFlushableCFs(true);
+    return immutable_db_options_.atomic_flush ? cfds.total_mem
+                                              : cfds.largest_mem;
+  }
   RefreshFlushableMemAccounting();
   return wbm_flush_initiator_->GetFlushableMemUsage();
 }

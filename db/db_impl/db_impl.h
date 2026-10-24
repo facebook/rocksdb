@@ -1409,7 +1409,7 @@ class DBImpl : public DB
   // finishes. For example in CompactRange.
   Status TEST_AtomicFlushMemTables(
       const autovector<ColumnFamilyData*>& provided_candidate_cfds,
-      const FlushOptions& flush_opts, bool non_blocking_write_thread = false);
+      const FlushOptions& flush_opts, bool non_blocking_write_thread);
 
   void TEST_BeginWriteStall();
   void TEST_EndWriteStall();
@@ -1653,6 +1653,9 @@ class DBImpl : public DB
     bool TryRefreshMemoryAccounting() override {
       return db_->TryRefreshFlushableMemAccounting();
     }
+
+    bool UsesOnDemandAccounting() const override { return true; }
+    bool TryGetFlushableMemUsage(size_t* bytes) override;
 
    private:
     DBImpl* const db_;
@@ -2455,6 +2458,7 @@ class DBImpl : public DB
     DBImpl* db_;
 
     Env::Priority thread_pri_;
+    uint64_t enqueue_time_micros_;
   };
 
   // Information for a manual compaction

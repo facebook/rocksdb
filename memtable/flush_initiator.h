@@ -77,6 +77,15 @@ class FlushInitiator {
   // Tries to rebuild counters without waiting for the owning DB's mutex.
   virtual bool TryRefreshMemoryAccounting() { return false; }
 
+  virtual bool UsesOnDemandAccounting() const { return false; }
+  virtual bool TryGetFlushableMemUsage(size_t* bytes) {
+    if (!HasAccurateFlushableMemUsage() && !TryRefreshMemoryAccounting()) {
+      return false;
+    }
+    *bytes = GetFlushableMemUsage();
+    return HasAccurateFlushableMemUsage();
+  }
+
  private:
   friend class WriteBufferManager;
 
