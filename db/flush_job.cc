@@ -498,6 +498,11 @@ Status FlushJob::MemPurge() {
         s = Status::NotSupported(
             "CompactionFilter::IgnoreSnapshots() = false is not supported "
             "anymore.");
+        // MemPurge() must return with db_mutex_ re-acquired (the caller falls
+        // back to WriteLevel0Table(), which asserts the lock is held). Drop the
+        // filter first so its user-defined destructor runs without the mutex.
+        compaction_filter.reset();
+        db_mutex_->Lock();
         return s;
       }
     }
