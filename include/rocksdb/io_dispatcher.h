@@ -19,11 +19,12 @@
 namespace ROCKSDB_NAMESPACE {
 
 class FileSystem;
+class ParallelAsyncIOMaterializer;
 class Statistics;
+class ThreadPool;
 
 // Forward declaration for internal implementation
-struct IODispatcherImplData;
-struct PendingPrefetchRequest;
+class PrefetchScheduler;
 
 // EXPERIMENTAL
 // The interface defined in this file is experimental and the behavior and
@@ -38,6 +39,11 @@ struct IODispatcherOptions {
 
   // Optional statistics for tracking memory limiter metrics
   Statistics* statistics = nullptr;
+
+  // Optional executor for materializing asynchronously read data blocks,
+  // including decompression. A null pool or a pool with no workers preserves
+  // inline materialization.
+  std::shared_ptr<ThreadPool> async_decompression_pool;
 };
 
 /*
@@ -151,6 +157,16 @@ class BlockBasedTable;
 
 struct JobOptions {
   uint64_t io_coalesce_threshold = 16 * 1024;
+
+  // Maximum physical span of one rolling window and the initial batch budget.
+  // Each batch contains the longest prefix of windows that fits; a single
+  // oversized window is submitted alone.
+  uint64_t rolling_prefetch_window_size = 0;
+
+  // Maximum adaptive rolling batch budget. Zero uses
+  // rolling_prefetch_window_size. A foreground wait doubles the current budget
+  // up to this limit.
+  uint64_t rolling_prefetch_max_batch_size = 0;
   ReadOptions read_options;
 
   // True when IOJob::block_handles is already sorted by file offset. Callers
@@ -240,6 +256,10 @@ class ReadSet {
   // FileSystem for calling AbortIO in destructor
   std::shared_ptr<FileSystem> fs_;
 
+  // Null unless parallel materialization was enabled when this ReadSet was
+  // created. All other async I/O state remains owned by the existing path.
+  std::shared_ptr<ParallelAsyncIOMaterializer> parallel_materializer_;
+
   // Storage for pinned blocks (one per block handle in the job)
   std::vector<CachableEntry<Block>> pinned_blocks_;
 
@@ -253,9 +273,11 @@ class ReadSet {
   // blocks are coalesced into a single IO request.
   std::unordered_map<size_t, std::shared_ptr<AsyncIOState>> async_io_map_;
 
-  // For memory release notifications back to dispatcher (weak ref to avoid
-  // cycles)
-  std::weak_ptr<IODispatcherImplData> dispatcher_data_;
+  // Owns the configured scheduling policy and its per-ReadSet state. Null when
+  // SubmitJob finds every requested block in cache, since that ReadSet has no
+  // prefetch work or prefetch memory to schedule or release. I/O buffers and
+  // asynchronous operations remain owned by ReadSet.
+  std::shared_ptr<PrefetchScheduler> prefetch_scheduler_;
 
   // Size of each block (parallel to pinned_blocks_) for memory accounting
   std::vector<size_t> block_sizes_;
@@ -273,7 +295,12 @@ class ReadSet {
 
   // Poll and process a specific async IO request. Takes ownership by value so
   // async_io_map_ entries can be erased without destroying the state mid-loop.
-  Status PollAndProcessAsyncIO(std::shared_ptr<AsyncIOState> async_state);
+  Status PollAndProcessAsyncIO(std::shared_ptr<AsyncIOState> async_state,
+                               bool* poll_stalled);
+
+  // Fork of PollAndProcessAsyncIO that only parallelizes block materialization.
+  Status PollAndProcessAsyncIOInParallel(
+      std::shared_ptr<AsyncIOState> async_state, bool* poll_stalled);
 
   // Release memory budget acquired for a prefetched block.
   void ReleasePrefetchMemory(size_t block_index);
@@ -289,15 +316,6 @@ class ReadSet {
   // Perform synchronous read for a specific block
   Status SyncRead(size_t block_index);
 
-  // Remove a block from pending prefetch (called by ReadIndex/ReleaseBlock)
-  void RemoveFromPending(size_t block_index);
-
-  // Atomic flags indicating if block is pending prefetch (lock-free check)
-  std::unique_ptr<std::atomic<bool>[]> pending_prefetch_flags_;
-  size_t pending_prefetch_flags_size_ = 0;
-
-  // Reference to pending request (for removal notification)
-  std::shared_ptr<PendingPrefetchRequest> pending_request_;
 };
 
 /*

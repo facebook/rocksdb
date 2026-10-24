@@ -277,6 +277,7 @@ LIB_SOURCES =                                                   \
   util/thread_local.cc                                          \
   util/threadpool_imp.cc                                        \
   util/io_dispatcher_imp.cc                                     \
+  util/io_prefetch_scheduler.cc                                 \
   util/udt_util.cc                                              \
   util/write_batch_util.cc                                      \
   util/xxhash.cc                                                \
