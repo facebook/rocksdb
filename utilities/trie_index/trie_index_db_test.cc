@@ -4463,7 +4463,7 @@ TEST_P(TrieIndexDBTest, MigrationFullPath) {
   // footer-satisfying stub exists, so the mixed-mode migration path is not
   // applicable.
   if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kCustomOnly) {
-    ROCKSDB_GTEST_SKIP("Not applicable in kCustomOnly mode");
+    ROCKSDB_GTEST_BYPASS("Not applicable in kCustomOnly mode");
     return;
   }
 
@@ -4661,7 +4661,7 @@ TEST_P(TrieIndexDBTest, RollbackFromPrimaryWithoutCompactSucceeds) {
   // In kCustomOnly mode, standard-index reads fail loudly because only a
   // footer-satisfying stub exists, so this rollback path is not applicable.
   if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kCustomOnly) {
-    ROCKSDB_GTEST_SKIP("Not applicable in kCustomOnly mode");
+    ROCKSDB_GTEST_BYPASS("Not applicable in kCustomOnly mode");
     return;
   }
   options_.disable_auto_compactions = true;
@@ -4722,7 +4722,7 @@ TEST_P(TrieIndexDBTest, EstimatedSizeNonZero) {
   // mode, the standard index is a stub with zero size -- the trie's size is
   // tracked separately in the meta block, not in the index_size property.
   if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kCustomOnly) {
-    ROCKSDB_GTEST_SKIP("index_size property tracks standard index only");
+    ROCKSDB_GTEST_BYPASS("index_size property tracks standard index only");
     return;
   }
   ASSERT_OK(OpenDB(/*block_size=*/128));
@@ -5037,7 +5037,7 @@ TEST_P(TrieIndexDBTest, PrefetchWithCustomIndexWrapper) {
     // In secondary mode, Prefetch uses the standard IndexBlockIter (the
     // wrapper falls through for internal ReadOptions). The bug only
     // manifests in primary mode where the wrapper intercepts all reads.
-    ROCKSDB_GTEST_SKIP("Only applicable in primary modes");
+    ROCKSDB_GTEST_BYPASS("Only applicable in primary modes");
     return;
   }
   ASSERT_OK(OpenDB(/*block_size=*/256));
