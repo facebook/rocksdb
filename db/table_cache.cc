@@ -366,7 +366,8 @@ InternalIterator* TableCache::NewIterator(
     const SequenceNumber* read_seqno,
     std::unique_ptr<TruncatedRangeDelIterator>* range_del_iter,
     bool maybe_pin_table_handle, std::string* file_open_metadata,
-    const TableCacheOpenOptions& open_options) {
+    const TableCacheOpenOptions& open_options, const Slice* seek_target,
+    TableReader** prefix_filtered_table) {
   PERF_TIMER_GUARD(new_table_iterator_nanos);
 
   Status s;
@@ -374,6 +375,7 @@ InternalIterator* TableCache::NewIterator(
   TypedHandle* handle = nullptr;
   assert(!open_options.open_ephemeral_table_reader ||
          table_reader_ptr == nullptr);
+  assert(seek_target == nullptr || prefix_filtered_table != nullptr);
   // Holds ownership of a freshly-opened TableReader when the caller asked us
   // to bypass the shared cache. When non-empty, the iterator we hand back must
   // arrange to free it on destruction.
@@ -401,6 +403,16 @@ InternalIterator* TableCache::NewIterator(
     if (HasTableFilter(options) &&
         !(*options.table_filter)(*table_reader->GetTableProperties())) {
       result = NewEmptyInternalIterator<Slice>(arena);
+    } else if (seek_target != nullptr) {
+      result = table_reader->NewIteratorForSeek(
+          options, mutable_cf_options.prefix_extractor.get(), arena,
+          effective_skip_filters, caller,
+          file_options.compaction_readahead_size, allow_unprepared_value,
+          *seek_target);
+      if (result == nullptr) {
+        result = NewEmptyInternalIterator<Slice>(arena);
+        *prefix_filtered_table = table_reader;
+      }
     } else {
       result = table_reader->NewIterator(
           options, mutable_cf_options.prefix_extractor.get(), arena,
