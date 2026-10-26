@@ -363,11 +363,11 @@ InternalIterator* TableCache::NewIterator(
     bool skip_filters, int level, size_t max_file_size_for_l0_meta_pin,
     const InternalKey* smallest_compaction_key,
     const InternalKey* largest_compaction_key, bool allow_unprepared_value,
+    const Slice* seek_target, TableReader** prefix_filtered_table,
     const SequenceNumber* read_seqno,
     std::unique_ptr<TruncatedRangeDelIterator>* range_del_iter,
     bool maybe_pin_table_handle, std::string* file_open_metadata,
-    const TableCacheOpenOptions& open_options, const Slice* seek_target,
-    TableReader** prefix_filtered_table) {
+    const TableCacheOpenOptions& open_options) {
   PERF_TIMER_GUARD(new_table_iterator_nanos);
 
   Status s;

@@ -2817,8 +2817,8 @@ InternalIterator* BlockBasedTable::NewIteratorImpl(
     auto* iter = new BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator, std::move(index_iter),
         check_filter, need_upper_bound_check, prefix_extractor, caller,
-        compaction_readahead_size, inner_allow_unprepared_value,
-        first_seek_prefix_check);
+        first_seek_prefix_check, compaction_readahead_size,
+        inner_allow_unprepared_value);
     if (!resolve_embedded_values) {
       return iter;
     }
@@ -2833,8 +2833,8 @@ InternalIterator* BlockBasedTable::NewIteratorImpl(
     auto* iter = new (mem) BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator, std::move(index_iter),
         check_filter, need_upper_bound_check, prefix_extractor, caller,
-        compaction_readahead_size, inner_allow_unprepared_value,
-        first_seek_prefix_check);
+        first_seek_prefix_check, compaction_readahead_size,
+        inner_allow_unprepared_value);
     if (!resolve_embedded_values) {
       return iter;
     }

@@ -37,9 +37,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       std::unique_ptr<InternalIteratorBase<IndexValue>>&& index_iter,
       bool check_filter, bool need_upper_bound_check,
       const SliceTransform* prefix_extractor, TableReaderCaller caller,
-      size_t compaction_readahead_size = 0, bool allow_unprepared_value = false,
-      FirstSeekPrefixCheck first_seek_prefix_check =
-          FirstSeekPrefixCheck::kNotRun)
+      FirstSeekPrefixCheck first_seek_prefix_check,
+      size_t compaction_readahead_size = 0, bool allow_unprepared_value = false)
       : index_iter_(std::move(index_iter)),
         table_(table),
         read_options_(read_options),

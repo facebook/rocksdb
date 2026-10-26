@@ -271,7 +271,8 @@ void AddTableIteratorForLevel(
       TableReaderCaller::kUserIterator, arena, skip_filters, level,
       max_file_size_for_l0_meta_pin,
       /*smallest_compaction_key=*/nullptr,
-      /*largest_compaction_key=*/nullptr, allow_unprepared_value, &read_seq,
+      /*largest_compaction_key=*/nullptr, allow_unprepared_value,
+      /*seek_target=*/nullptr, /*prefix_filtered_table=*/nullptr, &read_seq,
       &tombstone_iter,
       /*maybe_pin_table_handle=*/true);
 #ifndef NDEBUG
@@ -1392,7 +1393,8 @@ class LevelIterator final : public InternalIterator {
 
         file_index_ = file_index;
         // Create iterator for this file
-        auto iter = NewFileIterator();
+        auto iter = NewFileIterator(/*seek_target=*/nullptr,
+                                    /*prefix_filtered_table=*/nullptr);
         if (iter != nullptr) {
           // If we have async enabled, lets prepare all our iterators.
           iter->Prepare(&file_to_arg.second);
@@ -1409,8 +1411,7 @@ class LevelIterator final : public InternalIterator {
   bool SkipEmptyFileForward();
   void SkipEmptyFileBackward();
   void SetFileIterator(InternalIterator* iter);
-  void InitFileIterator(size_t new_file_index,
-                        const Slice* seek_target = nullptr);
+  void InitFileIterator(size_t new_file_index, const Slice* seek_target);
   void RetryPrefixFilteredFile(const Slice* seek_target);
 
   const Slice& file_smallest_key(size_t file_index) {
@@ -1464,9 +1465,8 @@ class LevelIterator final : public InternalIterator {
   // iterator is an empty stand-in and *prefix_filtered_table is set to the
   // file's table reader, which the stand-in keeps alive. Otherwise
   // *prefix_filtered_table is left unchanged.
-  InternalIterator* NewFileIterator(
-      const Slice* seek_target = nullptr,
-      TableReader** prefix_filtered_table = nullptr) {
+  InternalIterator* NewFileIterator(const Slice* seek_target,
+                                    TableReader** prefix_filtered_table) {
     assert(file_index_ < flevel_->num_files);
     auto file_meta = flevel_->files[file_index_];
 
@@ -1487,12 +1487,11 @@ class LevelIterator final : public InternalIterator {
         nullptr /* don't need reference to table */, file_read_hist_, caller_,
         /*arena=*/nullptr, skip_filters_, level_,
         /*max_file_size_for_l0_meta_pin=*/0, smallest_compaction_key,
-        largest_compaction_key, allow_unprepared_value_, &read_seq_,
-        range_tombstone_iter_,
+        largest_compaction_key, allow_unprepared_value_, seek_target,
+        prefix_filtered_table, &read_seq_, range_tombstone_iter_,
         /*maybe_pin_table_handle=*/
         !table_cache_open_options_.open_ephemeral_table_reader,
-        /*file_open_metadata=*/nullptr, table_cache_open_options_, seek_target,
-        prefix_filtered_table);
+        /*file_open_metadata=*/nullptr, table_cache_open_options_);
   }
 
   // Check if current file being fully within iterate_lower_bound.
@@ -1727,7 +1726,7 @@ void LevelIterator::SeekForPrev(const Slice& target) {
     new_file_index = flevel_->num_files - 1;
   }
 
-  InitFileIterator(new_file_index);
+  InitFileIterator(new_file_index, /*seek_target=*/nullptr);
   if (file_iter_.iter() != nullptr) {
     file_iter_.SeekForPrev(target);
     if (range_tombstone_iter_ &&
@@ -1750,7 +1749,7 @@ void LevelIterator::SeekForPrev(const Slice& target) {
 void LevelIterator::SeekToFirst() {
   prefix_exhausted_ = false;
   ClearSentinel();
-  InitFileIterator(0);
+  InitFileIterator(0, /*seek_target=*/nullptr);
   if (file_iter_.iter() != nullptr) {
     file_iter_.SeekToFirst();
     if (range_tombstone_iter_) {
@@ -1767,7 +1766,7 @@ void LevelIterator::SeekToFirst() {
 void LevelIterator::SeekToLast() {
   prefix_exhausted_ = false;
   ClearSentinel();
-  InitFileIterator(flevel_->num_files - 1);
+  InitFileIterator(flevel_->num_files - 1, /*seek_target=*/nullptr);
   if (file_iter_.iter() != nullptr) {
     file_iter_.SeekToLast();
     if (range_tombstone_iter_) {
@@ -1861,7 +1860,7 @@ bool LevelIterator::SkipEmptyFileForward() {
       break;
     }
     // may init a new *range_tombstone_iter
-    InitFileIterator(file_index_ + 1);
+    InitFileIterator(file_index_ + 1, /*seek_target=*/nullptr);
     // We moved to a new SST file
     // Seek range_tombstone_iter_ to reset its !Valid() default state.
     // We do not need to call range_tombstone_iter_.Seek* in
@@ -1915,7 +1914,7 @@ void LevelIterator::SkipEmptyFileBackward() {
       ClearRangeTombstoneIter();
       return;
     }
-    InitFileIterator(file_index_ - 1);
+    InitFileIterator(file_index_ - 1, /*seek_target=*/nullptr);
     // We moved to a new SST file
     // Seek range_tombstone_iter_ to reset its !Valid() default state.
     if (file_iter_.iter() != nullptr) {
@@ -2009,7 +2008,9 @@ void LevelIterator::InitFileIterator(size_t new_file_index,
 
 // file_iter_ stands in for the file at file_index_ because the file's prefix
 // filter ruled out an earlier seek target. Replaces it with a real iterator
-// for the file, unless the filter rules out seek_target too.
+// for the file, unless the filter rules out seek_target too. Only the point
+// iterator is replaced: TableCache::NewIterator() already set up the file's
+// range tombstones, if any, along with the stand-in.
 void LevelIterator::RetryPrefixFilteredFile(const Slice* seek_target) {
   PERF_TIMER_GUARD(new_table_iterator_nanos);
   const bool skip_filters =
@@ -2736,7 +2737,8 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
           /*skip_filters=*/false, /*level=*/0, max_file_size_for_l0_meta_pin_,
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key=*/nullptr,
-          /*allow_unprepared_value=*/false));
+          /*allow_unprepared_value=*/false, /*seek_target=*/nullptr,
+          /*prefix_filtered_table=*/nullptr));
       status = OverlapWithIterator(ucmp, smallest_user_key, largest_user_key,
                                    iter.get(), overlap);
       if (!status.ok() || *overlap) {
@@ -8541,7 +8543,8 @@ InternalIterator* VersionSet::MakeInputIterator(
               MaxFileSizeForL0MetaPin(c->mutable_cf_options()),
               /*smallest_compaction_key=*/nullptr,
               /*largest_compaction_key=*/nullptr,
-              /*allow_unprepared_value=*/false,
+              /*allow_unprepared_value=*/false, /*seek_target=*/nullptr,
+              /*prefix_filtered_table=*/nullptr,
               /*range_del_read_seqno=*/nullptr,
               /*range_del_iter=*/&range_tombstone_iter,
               /*maybe_pin_table_handle=*/false,

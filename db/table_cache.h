@@ -134,15 +134,14 @@ class TableCache {
       size_t max_file_size_for_l0_meta_pin,
       const InternalKey* smallest_compaction_key,
       const InternalKey* largest_compaction_key, bool allow_unprepared_value,
+      const Slice* seek_target, TableReader** prefix_filtered_table,
       const SequenceNumber* range_del_read_seqno = nullptr,
       std::unique_ptr<TruncatedRangeDelIterator>* range_del_iter = nullptr,
       bool maybe_pin_table_handle = false,
       // If non-null, and the table reader is newly opened (not cached),
       // retrieves file open metadata via GetFileOpenMetadata().
       std::string* file_open_metadata = nullptr,
-      const TableCacheOpenOptions& open_options = TableCacheOpenOptions(),
-      const Slice* seek_target = nullptr,
-      TableReader** prefix_filtered_table = nullptr);
+      const TableCacheOpenOptions& open_options = TableCacheOpenOptions());
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call get_context->SaveValue() repeatedly until
