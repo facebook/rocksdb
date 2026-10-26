@@ -404,6 +404,10 @@ DEFINE_SYNC_AND_ASYNC(void, Version::MultiGet)
   // use autovector in order to avoid unnecessary construction of GetContext
   // objects, which is expensive
   autovector<GetContext, 16> get_ctx;
+  // Batches of up to MAX_BATCH_SIZE keys spill past the inline capacity.
+  // Sizing the spill-over once avoids regrowing it, which reallocates and moves
+  // the GetContexts already built. Batches that fit inline do not allocate.
+  get_ctx.reserve(range->KeysLeft());
   VersionBlobFetcher blob_fetcher(this, read_options);
   for (auto iter = range->begin(); iter != range->end(); ++iter) {
     assert(iter->s->ok() || iter->s->IsMergeInProgress());
