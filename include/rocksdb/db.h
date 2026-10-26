@@ -1455,6 +1455,10 @@ class DB {
   // relying on TLS state left by an earlier async read. Disable both perf and
   // IO stats before a call when no stats are needed. Async reads reset the
   // calling thread's configuration to disabled.
+  //
+  // An async read records PerfContext::get_cpu_nanos when the perf level is at
+  // least kEnableTimeAndCPUTimeExceptForMutex, or after
+  // SetAsyncReadCPUTimeEnabled(true) (see rocksdb/perf_level.h).
   class AsyncCallback {
    public:
     virtual ~AsyncCallback() = default;
