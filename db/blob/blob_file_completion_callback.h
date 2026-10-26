@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
+#include <optional>
+
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
 #include "file/sst_file_manager_impl.h"
@@ -38,26 +40,31 @@ class BlobFileCompletionCallback {
                                                 job_id, creation_reason);
   }
 
-  Status OnBlobFileCompleted(const std::string& file_name,
-                             const std::string& column_family_name, int job_id,
-                             uint64_t file_number,
-                             BlobFileCreationReason creation_reason,
-                             const Status& report_status,
-                             const std::string& checksum_value,
-                             const std::string& checksum_method,
-                             uint64_t blob_count, uint64_t blob_bytes) {
+  // A caller that holds a lock ordered before the DB mutex must pass
+  // `set_bg_error = false` and report a returned error itself. With
+  // `file_size`, the file is registered with the SstFileManager at that size
+  // instead of looking it up, so the registration cannot fail.
+  Status OnBlobFileCompleted(
+      const std::string& file_name, const std::string& column_family_name,
+      int job_id, uint64_t file_number, BlobFileCreationReason creation_reason,
+      const Status& report_status, const std::string& checksum_value,
+      const std::string& checksum_method, uint64_t blob_count,
+      uint64_t blob_bytes, bool set_bg_error = true,
+      std::optional<uint64_t> file_size = std::nullopt) {
     Status s;
 
     auto sfm = static_cast<SstFileManagerImpl*>(sst_file_manager_);
     if (sfm) {
       // Report new blob files to SstFileManagerImpl
-      s = sfm->OnAddFile(file_name);
+      s = file_size.has_value() ? sfm->OnAddFile(file_name, *file_size)
+                                : sfm->OnAddFile(file_name);
       if (sfm->IsMaxAllowedSpaceReached()) {
         s = Status::SpaceLimit("Max allowed space was reached");
         TEST_SYNC_POINT(
             "BlobFileCompletionCallback::CallBack::MaxAllowedSpaceReached");
-        InstrumentedMutexLock l(mutex_);
-        error_handler_->SetBGError(s, BackgroundErrorReason::kFlush);
+        if (set_bg_error) {
+          SetBGError(s);
+        }
       }
     }
 
@@ -71,6 +78,11 @@ class BlobFileCompletionCallback {
                                  : checksum_method),
         blob_count, blob_bytes);
     return s;
+  }
+
+  void SetBGError(const Status& s) {
+    InstrumentedMutexLock l(mutex_);
+    error_handler_->SetBGError(s, BackgroundErrorReason::kFlush);
   }
 
  private:
