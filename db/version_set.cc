@@ -8025,6 +8025,10 @@ Status VersionSet::WriteCurrentStateToManifest(
         }
       }
 
+      for (const uint64_t blob_file_number : vstorage->GetDroppedBlobFiles()) {
+        edit.AddDroppedBlobFile(blob_file_number);
+      }
+
       const auto iter = curr_state.find(cfd->GetID());
       assert(iter != curr_state.end());
       uint64_t log_number = iter->second.log_number;
