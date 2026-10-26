@@ -324,7 +324,6 @@ static void CheckPutCF(void* ptr, uint32_t cfid, const char* k, size_t klen,
       break;
     default:
       CheckCondition(false);
-      break;
   }
   (*state)++;
 }
@@ -343,7 +342,6 @@ static void CheckDelCF(void* ptr, uint32_t cfid, const char* k, size_t klen) {
       break;
     default:
       CheckCondition(false);
-      break;
   }
   (*state)++;
 }
@@ -365,7 +363,6 @@ static void CheckMergeCF(void* ptr, uint32_t cfid, const char* k, size_t klen,
       break;
     default:
       CheckCondition(false);
-      break;
   }
   (*state)++;
 }
