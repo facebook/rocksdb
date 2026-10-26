@@ -5059,7 +5059,10 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,
                             compaction_job_stats, job_context->job_id);
 
+    ColumnFamilyData* const cfd = c->column_family_data();
     std::vector<FileMetaData> out_files;
+    // Output whose creation was announced to listeners but has not finished.
+    std::string unfinished_out_fname;
     for (const auto& in_file : *c->inputs(0)) {
       const uint64_t out_file_number = versions_->NewFileNumber();
       const std::string in_fname =
@@ -5069,12 +5072,23 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           TableFileName(c->immutable_options().cf_paths, out_file_number,
                         c->output_path_id());
 
-      // TODO (mikechuang): Currently skip calling
-      // EventHelpers::NotifyTableFileCreationStarted for the trivial copy.
-      // Since it's a trivial copy we should ideally use the exact
-      // TableProperties from the input file but that will break some existing
-      // stress tests. For now skip the listener call for the FIFO
-      // kChangeTemperature trivial copy move.
+      // The output is a byte-for-byte copy of the input, so its table
+      // properties are exactly the input's, including the SST unique ID.
+      // Loading them can read the input file, and listeners are called without
+      // the DB mutex.
+      std::shared_ptr<const TableProperties> out_table_properties;
+      mutex_.Unlock();
+      const TablePropertiesCollection& input_table_properties =
+          c->GetOrInitInputTableProperties();
+      auto input_table_properties_it = input_table_properties.find(in_fname);
+      if (input_table_properties_it != input_table_properties.end()) {
+        out_table_properties = input_table_properties_it->second;
+      }
+      EventHelpers::NotifyTableFileCreationStarted(
+          cfd->ioptions().listeners, dbname_, cfd->GetName(), out_fname,
+          job_context->job_id, TableFileCreationReason::kCompaction);
+      mutex_.Lock();
+      unfinished_out_fname = out_fname;
 
       int64_t tmp_current_time = 0;
       auto get_time_status =
@@ -5223,7 +5237,34 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           in_file->min_timestamp,
           in_file->max_timestamp};
 
+      if (out_table_properties) {
+        c->SetOutputTableProperties(out_fname, out_table_properties);
+      }
+      mutex_.Unlock();
+      EventHelpers::LogAndNotifyTableFileCreationFinished(
+          &event_logger_, cfd->ioptions().listeners, dbname_, cfd->GetName(),
+          out_fname, job_context->job_id, out_file_metadata.fd,
+          out_file_metadata.oldest_blob_file_number,
+          out_table_properties ? *out_table_properties : TableProperties(),
+          TableFileCreationReason::kCompaction, io_s,
+          out_file_metadata.file_checksum,
+          out_file_metadata.file_checksum_func_name);
+      mutex_.Lock();
+      unfinished_out_fname.clear();
+
       out_files.push_back(std::move(out_file_metadata));
+    }
+
+    if (!unfinished_out_fname.empty()) {
+      assert(!io_s.ok());
+      mutex_.Unlock();
+      EventHelpers::LogAndNotifyTableFileCreationFinished(
+          &event_logger_, cfd->ioptions().listeners, dbname_, cfd->GetName(),
+          unfinished_out_fname, job_context->job_id, FileDescriptor(),
+          kInvalidBlobFileNumber, TableProperties(),
+          TableFileCreationReason::kCompaction, io_s, kUnknownFileChecksum,
+          kUnknownFileChecksumFuncName);
+      mutex_.Lock();
     }
 
     // Update version set
@@ -5255,13 +5296,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
             compaction_released = true;
           });
     }
-
-    // TODO (mikechuang): Currently skip calling
-    // EventHelper::LogAndNotifyTableFileCreationFinished for the trivial copy.
-    // Since it's a trivial copy we should ideally use the exact TableProperties
-    // from the input file but that will break some existing stress tests. For
-    // now skip the listener call for the FIFO kChangeTemperature trivial copy
-    // move.
 
     if (io_s.ok()) {
       io_s = versions_->io_status();
