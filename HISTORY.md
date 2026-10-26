@@ -1,6 +1,11 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 11.13.1 (10/23/2026)
+### Bug Fixes
+* Fixed data loss with `min_tombstones_for_range_conversion` and external file ingestion. An iterator whose view predated the ingestion could convert the deleted keys around the ingested keys into a range tombstone that deleted them. This happened when the file got no new sequence number (sequence number zero, `ingest_behind`, or `allow_db_generated_files`), and when an iterator was created during the ingestion.
+* Fixed a data loss bug where an iterator with `ReadOptions::read_tier = kMemtableTier` could, with `min_tombstones_for_range_conversion` enabled, insert a range tombstone that deleted live keys stored only in SST files. Read-path range tombstone conversion now runs only for iterators with `read_tier = kReadAllTier`.
+
 ## 11.13.0 (10/21/2026)
 ### New Features
 * Added `FileSystem::IsPreallocationSupported()`. A `FileSystem` that never preallocates file space can return false so that DB open skips reopening and truncating the last WAL file.
