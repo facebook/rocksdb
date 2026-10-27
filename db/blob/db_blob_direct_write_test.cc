@@ -10,12 +10,15 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <functional>
+#include <future>
 #include <limits>
 #include <mutex>
 #include <set>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -35,6 +38,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/sst_file_manager.h"
 #include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/trace_record.h"
 #include "rocksdb/utilities/replayer.h"
@@ -1873,6 +1877,292 @@ TEST_F(DBBlobDirectWriteTest,
 
   options.enable_blob_direct_write = false;
   AssertOrderedTraceStoresLogicalPut(options, /*expect_blob_files=*/false);
+}
+
+TEST_F(DBBlobDirectWriteTest, SpaceLimitWhileSealingKeepsBlobFile) {
+  Options options = GetDirectWriteOptions();
+  std::shared_ptr<SstFileManager> sst_file_manager(NewSstFileManager(env_));
+  options.sst_file_manager = sst_file_manager;
+  DestroyAndReopen(options);
+  const std::string value(1024, 'v');
+  ASSERT_OK(Put("key", value));
+
+  // The flush seals the blob file holding "key", and the space limit is
+  // reported for that file. The memtable still refers to it.
+  sst_file_manager->SetMaxAllowedSpaceUsage(1);
+  ASSERT_NOK(Flush());
+  // Let the failed flush's obsolete-file purge finish. Both waits return the
+  // background error.
+  dbfull()->TEST_WaitForBackgroundWork().PermitUncheckedError();
+  dbfull()->TEST_WaitForPurge().PermitUncheckedError();
+  ASSERT_EQ(1U, CountBlobFiles());
+  ASSERT_EQ(value, Get("key"));
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       SpaceLimitWhileSealingDoesNotBlockMemtableSwitch) {
+  Options options = GetDirectWriteOptions();
+  options.max_write_buffer_number = 4;
+  std::shared_ptr<SstFileManager> sst_file_manager(NewSstFileManager(env_));
+  options.sst_file_manager = sst_file_manager;
+  DestroyAndReopen(options);
+  const std::string value(1024, 'v');
+  ASSERT_OK(Put("key1", value));
+
+  // While the flush reports the space limit for the blob file holding "key1",
+  // a concurrent memtable switch holds the DB mutex and rotates the blob
+  // generation.
+  port::Thread switch_thread;
+  std::atomic<bool> switch_started{false};
+  std::promise<void> switch_holds_db_mutex;
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBBlobDirectWriteTest::SpaceLimitWhileSealing:SecondPut",
+        "DBImpl::BackgroundCallFlush:start"}});
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SwitchMemtable:BeforeRotateBlobGeneration", [&](void*) {
+        if (switch_started.exchange(false)) {
+          switch_holds_db_mutex.set_value();
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobFileCompletionCallback::CallBack::MaxAllowedSpaceReached",
+      [&](void*) {
+        if (switch_thread.joinable()) {
+          return;
+        }
+        switch_started = true;
+        switch_thread = port::Thread([&]() {
+          FlushOptions no_wait;
+          no_wait.wait = false;
+          no_wait.allow_write_stall = true;
+          db_->Flush(no_wait).PermitUncheckedError();
+        });
+        switch_holds_db_mutex.get_future().wait();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  sst_file_manager->SetMaxAllowedSpaceUsage(1);
+  FlushOptions no_wait;
+  no_wait.wait = false;
+  ASSERT_OK(db_->Flush(no_wait));
+  ASSERT_OK(Put("key2", value));
+  TEST_SYNC_POINT("DBBlobDirectWriteTest::SpaceLimitWhileSealing:SecondPut");
+
+  dbfull()->TEST_WaitForBackgroundWork().PermitUncheckedError();
+  ASSERT_TRUE(switch_thread.joinable());
+  switch_thread.join();
+  dbfull()->TEST_WaitForBackgroundWork().PermitUncheckedError();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ(value, Get("key1"));
+  ASSERT_EQ(value, Get("key2"));
+}
+
+class IgnoreFlushNoWALErrorListener : public EventListener {
+ public:
+  void OnBackgroundError(BackgroundErrorReason reason,
+                         Status* bg_error) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    reasons_.push_back(reason);
+    if (reason == BackgroundErrorReason::kFlushNoWAL) {
+      *bg_error = Status::OK();
+    }
+  }
+
+  void OnErrorRecoveryBegin(BackgroundErrorReason /*reason*/, Status bg_error,
+                            bool* /*auto_recovery*/) override {
+    bg_error.PermitUncheckedError();
+  }
+
+  std::vector<BackgroundErrorReason> GetReasons() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return reasons_;
+  }
+
+ private:
+  std::mutex mutex_;
+  std::vector<BackgroundErrorReason> reasons_;
+};
+
+TEST_F(DBBlobDirectWriteTest, SpaceLimitWhileSealingStopsWrites) {
+  Options options = GetDirectWriteOptions();
+  std::shared_ptr<SstFileManager> sst_file_manager(NewSstFileManager(env_));
+  options.sst_file_manager = sst_file_manager;
+  auto listener = std::make_shared<IgnoreFlushNoWALErrorListener>();
+  options.listeners.emplace_back(listener);
+  DestroyAndReopen(options);
+  const std::string value(1024, 'v');
+  ASSERT_OK(Put("key1", value));
+
+  // The space limit is reported for the blob file the flush seals, with the
+  // reason kFlush, so a listener that ignores kFlushNoWAL errors still stops
+  // writes.
+  sst_file_manager->SetMaxAllowedSpaceUsage(1);
+  FlushOptions no_wait;
+  no_wait.wait = false;
+  ASSERT_OK(db_->Flush(no_wait));
+  dbfull()->TEST_WaitForBackgroundWork().PermitUncheckedError();
+  const std::vector<BackgroundErrorReason> reasons = listener->GetReasons();
+  ASSERT_GT(
+      std::count(reasons.begin(), reasons.end(), BackgroundErrorReason::kFlush),
+      0);
+  ASSERT_NOK(Put("key2", value));
+}
+
+class FailBlobFileSizeFileSystem : public FileSystemWrapper {
+ public:
+  explicit FailBlobFileSizeFileSystem(const std::shared_ptr<FileSystem>& fs)
+      : FileSystemWrapper(fs) {}
+
+  static const char* kClassName() { return "FailBlobFileSizeFileSystem"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus GetFileSize(const std::string& fname, const IOOptions& options,
+                       uint64_t* file_size, IODebugContext* dbg) override {
+    if (IsBlobFilePath(fname)) {
+      return IOStatus::IOError("Injected blob file size error");
+    }
+    return target()->GetFileSize(fname, options, file_size, dbg);
+  }
+};
+
+TEST_F(DBBlobDirectWriteTest, SealedBlobFilesTrackedWhenSizeLookupFails) {
+  Options options = GetDirectWriteOptions();
+  options.blob_file_size = 2048;
+  // Only the SstFileManager fails to look up blob file sizes.
+  std::shared_ptr<SstFileManager> sst_file_manager(NewSstFileManager(
+      env_,
+      std::make_shared<FailBlobFileSizeFileSystem>(env_->GetFileSystem())));
+  options.sst_file_manager = sst_file_manager;
+  DestroyAndReopen(options);
+  const std::string value(1024, 'v');
+
+  // "key2" does not fit in the blob file holding "key1", so the write seals
+  // that file, and the flush seals the one holding "key2".
+  ASSERT_OK(Put("key1", value));
+  ASSERT_OK(Put("key2", value));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(2U, CountBlobFiles());
+
+  std::unordered_map<std::string, uint64_t> blob_file_sizes;
+  std::vector<std::string> files;
+  ASSERT_OK(env_->GetChildren(dbname_, &files));
+  for (const auto& file : files) {
+    const std::string path = dbname_ + "/" + file;
+    if (IsBlobFilePath(path)) {
+      ASSERT_OK(env_->GetFileSize(path, &blob_file_sizes[path]));
+    }
+  }
+  std::unordered_map<std::string, uint64_t> tracked_blob_file_sizes;
+  for (const auto& [path, size] : sst_file_manager->GetTrackedFiles()) {
+    if (IsBlobFilePath(path)) {
+      tracked_blob_file_sizes[path] = size;
+    }
+  }
+  ASSERT_EQ(blob_file_sizes, tracked_blob_file_sizes);
+
+  Reopen(options);
+  ASSERT_EQ(value, Get("key1"));
+  ASSERT_EQ(value, Get("key2"));
+}
+
+TEST_F(DBBlobDirectWriteTest, FailedBlobSealLeavesMemtableFlushable) {
+  for (bool atomic_flush : {false, true}) {
+    SCOPED_TRACE("atomic_flush=" + std::to_string(atomic_flush));
+    Options options = GetDirectWriteOptions();
+    options.atomic_flush = atomic_flush;
+    std::shared_ptr<SstFileManager> sst_file_manager(NewSstFileManager(env_));
+    options.sst_file_manager = sst_file_manager;
+    DestroyAndReopen(options);
+    const std::string value(1024, 'v');
+    ASSERT_OK(Put("key", value));
+
+    sst_file_manager->SetMaxAllowedSpaceUsage(1);
+    ASSERT_NOK(Flush());
+    dbfull()->TEST_WaitForBackgroundWork().PermitUncheckedError();
+    uint64_t flush_pending = 0;
+    ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kMemTableFlushPending,
+                                    &flush_pending));
+    ASSERT_EQ(1U, flush_pending);
+
+    // Lifting the limit lets the SstFileManager's recovery retry the flush.
+    sst_file_manager->SetMaxAllowedSpaceUsage(0);
+    for (int i = 0; i < 300 && !dbfull()->TEST_GetBGError().ok(); ++i) {
+      env_->SleepForMicroseconds(100 * 1000);
+    }
+    ASSERT_OK(dbfull()->TEST_GetBGError());
+    ASSERT_EQ(1, NumTableFilesAtLevel(0));
+    ASSERT_EQ(1U, CountBlobFiles());
+    Reopen(options);
+    ASSERT_EQ(value, Get("key"));
+  }
+}
+
+class DisableAutoRecoveryListener : public EventListener {
+ public:
+  void OnErrorRecoveryBegin(BackgroundErrorReason /*reason*/, Status bg_error,
+                            bool* auto_recovery) override {
+    bg_error.PermitUncheckedError();
+    *auto_recovery = false;
+  }
+};
+
+TEST_F(DBBlobDirectWriteTest, FailedBlobFooterSyncFailsRetriedFlush) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_env(
+      new FaultInjectionTestEnv(env_));
+  Options options = GetDirectWriteOptions();
+  options.env = fault_env.get();
+  options.listeners.emplace_back(
+      std::make_shared<DisableAutoRecoveryListener>());
+  DestroyAndReopen(options);
+  Defer close_db([this]() { Close(); });
+  const std::string value(1024, 'v');
+  ASSERT_OK(Put("key", value));
+
+  // The flush fails to sync the footer of the blob file holding "key".
+  SyncPoint::GetInstance()->SetCallBack("BlobLogWriter::Sync", [&](void*) {
+    fault_env->SetFilesystemActive(false, Status::NoSpace("injected"));
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_NOK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  fault_env->SetFilesystemActive(true);
+
+  // That blob file can no longer be sealed, so retrying the flush must fail
+  // rather than install a table file that references it.
+  ASSERT_NOK(dbfull()->Resume());
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(value, Get("key"));
+}
+
+TEST_F(DBBlobDirectWriteTest, CloseAfterFailedBlobSeal) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_env(
+      new FaultInjectionTestEnv(env_));
+  Options options = GetDirectWriteOptions();
+  options.env = fault_env.get();
+  options.blob_file_size = 2048;
+  options.listeners.emplace_back(
+      std::make_shared<DisableAutoRecoveryListener>());
+  for (bool seal_on_write : {false, true}) {
+    SCOPED_TRACE("seal_on_write=" + std::to_string(seal_on_write));
+    DestroyAndReopen(options);
+    Defer close_db([this]() { Close(); });
+    const std::string value(1024, 'v');
+    ASSERT_OK(Put("key1", value));
+
+    // Sealing the blob file holding "key1" fails, either in the write that
+    // does not fit in it or in the flush. The DB closes without retrying.
+    SyncPoint::GetInstance()->SetCallBack("BlobLogWriter::Sync", [&](void*) {
+      fault_env->SetFilesystemActive(false, Status::NoSpace("injected"));
+    });
+    SyncPoint::GetInstance()->EnableProcessing();
+    ASSERT_NOK(seal_on_write ? Put("key2", value) : Flush());
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    fault_env->SetFilesystemActive(true);
+  }
 }
 
 class DBBlobDirectWriteWithTimestampTest : public DBBasicTestWithTimestampBase {

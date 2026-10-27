@@ -1,0 +1,1 @@
+Fixed blob direct write when the `SstFileManager` space limit is reached while a blob file is sealed: the sealed blob file was deleted while memtables still referenced it, so reads of its values failed and the values were lost, and reporting the error could deadlock with a concurrent memtable switch.

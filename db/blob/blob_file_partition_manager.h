@@ -179,6 +179,11 @@ class BlobFilePartitionManager {
   };
 
   struct DeferredFile {
+    DeferredFile() = default;
+    DeferredFile(DeferredFile&&) = default;
+    DeferredFile& operator=(DeferredFile&&) = default;
+    ~DeferredFile();
+
     // Blob writer moved out of an active partition at memtable rotation.
     std::unique_ptr<BlobLogWriter> writer;
     // Metadata preserved until flush preparation seals the file.
@@ -188,6 +193,10 @@ class BlobFilePartitionManager {
     // Failed transformed writes already appended before the file is sealed.
     uint64_t garbage_blob_count = 0;
     uint64_t garbage_blob_bytes = 0;
+    // Set once sealing fails. The writer cannot be finalized again, and
+    // memtables still reference the file, so every flush of its generation
+    // fails with this status.
+    Status seal_status;
   };
 
   struct SealedFile {
@@ -208,26 +217,40 @@ class BlobFilePartitionManager {
 
   // Clears all active-file bookkeeping from a partition after sealing.
   void ResetPartitionState(Partition* partition);
+  // Moves a partition's open file out of the partition and resets it.
+  DeferredFile DetachPartitionFile(Partition* partition);
   // Marks a blob file as manager-owned until it is committed or abandoned.
   void AddFilePartitionMapping(uint64_t file_number, uint32_t partition_idx);
-  // Stops tracking a blob file after open/seal failure.
+  // Stops tracking a blob file after open failure.
   void RemoveFilePartitionMapping(uint64_t file_number);
 
   // Opens a new active blob file for one partition.
   Status OpenNewBlobFile(Partition* partition, uint32_t column_family_id,
                          CompressionType compression, uint32_t partition_idx);
+  // The seal functions below return OK once the file is complete. Memtables
+  // still reference a complete file, so the caller must keep it even if
+  // reporting its completion fails; that error is returned in
+  // `completion_status`. A kept file is always tracked by the SstFileManager,
+  // as completion registers it at its known size.
+  //
   // Finalizes one active partition file and returns the MANIFEST addition.
   Status SealActiveBlobFile(const WriteOptions& write_options,
-                            Partition* partition, SealedFile* sealed_file);
+                            Partition* partition, SealedFile* sealed_file,
+                            Status* completion_status);
   // Finalizes one deferred file that was carried over to flush preparation.
   Status SealDeferredFile(const WriteOptions& write_options,
-                          DeferredFile* deferred, SealedFile* sealed_file);
+                          DeferredFile* deferred, SealedFile* sealed_file,
+                          Status* completion_status);
   // Appends the footer, reports file completion, and builds the resulting
   // BlobFileAddition for one sealed blob file.
   Status FinalizeBlobFile(const WriteOptions& write_options,
                           BlobLogWriter* writer, uint64_t file_number,
                           uint64_t blob_count, uint64_t total_blob_bytes,
-                          BlobFileAddition* addition);
+                          BlobFileAddition* addition,
+                          Status* completion_status);
+  // Sets a space-limit `completion_status` as the background error. It takes
+  // the DB mutex, so it must run after `mutex_` is released.
+  void ReportSpaceLimitError(const Status& completion_status) const;
   // Appends one initial-garbage record to the flush output if any failed
   // transformed writes targeted the sealed blob file.
   static void AddSealedFileGarbage(const SealedFile& sealed_file,
@@ -286,6 +309,8 @@ class BlobFilePartitionManager {
   mutable port::Mutex mutex_;
   // Files already sealed while the current mutable memtable was active.
   std::vector<SealedFile> current_generation_sealed_files_;
+  // Files whose seal failed while the current mutable memtable was active.
+  std::vector<DeferredFile> current_generation_failed_files_;
   // FIFO immutable memtable generations waiting to be flushed.
   std::deque<GenerationBatch> pending_generations_;
 
