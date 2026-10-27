@@ -2067,6 +2067,104 @@ TEST_F(DBBlobDirectWriteTest, SealedBlobFilesTrackedWhenSizeLookupFails) {
   ASSERT_EQ(value, Get("key2"));
 }
 
+TEST_F(DBBlobDirectWriteTest, FailedBlobSealLeavesMemtableFlushable) {
+  for (bool atomic_flush : {false, true}) {
+    SCOPED_TRACE("atomic_flush=" + std::to_string(atomic_flush));
+    Options options = GetDirectWriteOptions();
+    options.atomic_flush = atomic_flush;
+    std::shared_ptr<SstFileManager> sst_file_manager(NewSstFileManager(env_));
+    options.sst_file_manager = sst_file_manager;
+    DestroyAndReopen(options);
+    const std::string value(1024, 'v');
+    ASSERT_OK(Put("key", value));
+
+    sst_file_manager->SetMaxAllowedSpaceUsage(1);
+    ASSERT_NOK(Flush());
+    dbfull()->TEST_WaitForBackgroundWork().PermitUncheckedError();
+    uint64_t flush_pending = 0;
+    ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kMemTableFlushPending,
+                                    &flush_pending));
+    ASSERT_EQ(1U, flush_pending);
+
+    // Lifting the limit lets the SstFileManager's recovery retry the flush.
+    sst_file_manager->SetMaxAllowedSpaceUsage(0);
+    for (int i = 0; i < 300 && !dbfull()->TEST_GetBGError().ok(); ++i) {
+      env_->SleepForMicroseconds(100 * 1000);
+    }
+    ASSERT_OK(dbfull()->TEST_GetBGError());
+    ASSERT_EQ(1, NumTableFilesAtLevel(0));
+    ASSERT_EQ(1U, CountBlobFiles());
+    Reopen(options);
+    ASSERT_EQ(value, Get("key"));
+  }
+}
+
+class DisableAutoRecoveryListener : public EventListener {
+ public:
+  void OnErrorRecoveryBegin(BackgroundErrorReason /*reason*/, Status bg_error,
+                            bool* auto_recovery) override {
+    bg_error.PermitUncheckedError();
+    *auto_recovery = false;
+  }
+};
+
+TEST_F(DBBlobDirectWriteTest, FailedBlobFooterSyncFailsRetriedFlush) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_env(
+      new FaultInjectionTestEnv(env_));
+  Options options = GetDirectWriteOptions();
+  options.env = fault_env.get();
+  options.listeners.emplace_back(
+      std::make_shared<DisableAutoRecoveryListener>());
+  DestroyAndReopen(options);
+  Defer close_db([this]() { Close(); });
+  const std::string value(1024, 'v');
+  ASSERT_OK(Put("key", value));
+
+  // The flush fails to sync the footer of the blob file holding "key".
+  SyncPoint::GetInstance()->SetCallBack("BlobLogWriter::Sync", [&](void*) {
+    fault_env->SetFilesystemActive(false, Status::NoSpace("injected"));
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_NOK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  fault_env->SetFilesystemActive(true);
+
+  // That blob file can no longer be sealed, so retrying the flush must fail
+  // rather than install a table file that references it.
+  ASSERT_NOK(dbfull()->Resume());
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(value, Get("key"));
+}
+
+TEST_F(DBBlobDirectWriteTest, CloseAfterFailedBlobSeal) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_env(
+      new FaultInjectionTestEnv(env_));
+  Options options = GetDirectWriteOptions();
+  options.env = fault_env.get();
+  options.blob_file_size = 2048;
+  options.listeners.emplace_back(
+      std::make_shared<DisableAutoRecoveryListener>());
+  for (bool seal_on_write : {false, true}) {
+    SCOPED_TRACE("seal_on_write=" + std::to_string(seal_on_write));
+    DestroyAndReopen(options);
+    Defer close_db([this]() { Close(); });
+    const std::string value(1024, 'v');
+    ASSERT_OK(Put("key1", value));
+
+    // Sealing the blob file holding "key1" fails, either in the write that
+    // does not fit in it or in the flush. The DB closes without retrying.
+    SyncPoint::GetInstance()->SetCallBack("BlobLogWriter::Sync", [&](void*) {
+      fault_env->SetFilesystemActive(false, Status::NoSpace("injected"));
+    });
+    SyncPoint::GetInstance()->EnableProcessing();
+    ASSERT_NOK(seal_on_write ? Put("key2", value) : Flush());
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    fault_env->SetFilesystemActive(true);
+  }
+}
+
 class DBBlobDirectWriteWithTimestampTest : public DBBasicTestWithTimestampBase {
  protected:
   DBBlobDirectWriteWithTimestampTest()
