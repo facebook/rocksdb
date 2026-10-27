@@ -14,9 +14,11 @@
 #include <limits>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include "db/blob/blob_counting_iterator.h"
 #include "db/blob/blob_file_completion_callback.h"
 #include "db/column_family.h"
 #include "db/compaction/compaction_iterator.h"
@@ -307,6 +309,7 @@ class CompactionJob {
 
   void InitializeCompactionRun();
   void RunSubcompactions();
+  void RecordRemoteCompactionInputBlobFileCount();
   void UpdateTimingStats(uint64_t start_micros);
   void RemoveEmptyOutputs();
   void CleanupAbortedSubcompactions();
@@ -370,7 +373,7 @@ class CompactionJob {
   struct SubcompactionInternalIterators {
     std::unique_ptr<InternalIterator> raw_input;
     std::unique_ptr<InternalIterator> clip;
-    std::unique_ptr<InternalIterator> blob_counter;
+    std::unique_ptr<BlobCountingIterator> blob_counter;
     std::unique_ptr<InternalIterator> trim_history_iter;
   };
 
@@ -398,11 +401,14 @@ class CompactionJob {
       MergeHelper& merge, std::unique_ptr<BlobFileBuilder>& blob_file_builder,
       const WriteOptions& write_options);
   std::pair<CompactionFileOpenFunc, CompactionFileCloseFunc> CreateFileHandlers(
-      SubcompactionState* sub_compact, SubcompactionKeyBoundaries& boundaries);
+      SubcompactionState* sub_compact, SubcompactionKeyBoundaries& boundaries,
+      BlobFileBuilder* blob_file_builder,
+      const BlobCountingIterator* blob_counter);
   Status ProcessKeyValue(SubcompactionState* sub_compact, ColumnFamilyData* cfd,
                          CompactionIterator* c_iter,
                          const CompactionFileOpenFunc& open_file_func,
                          const CompactionFileCloseFunc& close_file_func,
+                         bool defer_blob_output_preparation,
                          uint64_t& prev_cpu_micros);
   void UpdateSubcompactionJobStatsIncrementally(
       CompactionIterator* c_iter, CompactionJobStats* compaction_job_stats,
@@ -439,7 +445,9 @@ class CompactionJob {
       const ParsedInternalKey& prev_iter_output_internal_key,
       const Slice& next_table_min_key, const Slice* comp_start_user_key,
       const Slice* comp_end_user_key, const CompactionIterator* c_iter,
-      SubcompactionState* sub_compact, CompactionOutputs& outputs);
+      bool post_prepare_retry, SubcompactionState* sub_compact,
+      BlobFileBuilder* blob_file_builder,
+      const BlobCountingIterator* blob_counter, CompactionOutputs& outputs);
   Status InstallCompactionResults(bool* compaction_released);
   Status OpenCompactionOutputFile(SubcompactionState* sub_compact,
                                   CompactionOutputs& outputs);
@@ -452,6 +460,8 @@ class CompactionJob {
   void NotifyOnSubcompactionCompleted(SubcompactionState* sub_compact);
 
   uint32_t job_id_;
+  // Limits unsafe resume-boundary diagnostics to one per compaction job.
+  mutable std::atomic<bool> logged_unsafe_resume_boundary_{false};
 
   // DBImpl state
   const std::string& dbname_;
@@ -532,12 +542,33 @@ class CompactionJob {
   uint64_t min_manifest_file_number_ = 0;
   uint64_t min_manifest_file_size_ = 0;
 
+  // Remote subcompactions run concurrently and validate their blob garbage
+  // before moving output into the primary. This aggregate prevents each
+  // subcompaction from independently claiming up to the same blob-file total.
+  port::Mutex remote_blob_garbage_mutex_;
+  std::unordered_map<uint64_t, BlobGarbageMeter::BlobStats>
+      remote_blob_garbage_;
+
+  // Minimum blob-file dependency among subcompactions successfully dispatched
+  // to a remote worker. Recorded once for the whole job after they finish.
+  std::atomic<uint64_t> remote_compaction_min_blob_file_number_{
+      std::numeric_limits<uint64_t>::max()};
+
   // Writer for persisting compaction progress during compaction
   log::Writer* compaction_progress_writer_ = nullptr;
 
   // Get table file name in where it's outputting to, which should also be in
   // `output_directory_`.
   virtual std::string GetTableFileName(uint64_t file_number);
+  virtual const std::string& GetBlobOutputPath() const;
+  virtual uint64_t NewBlobFileNumber();
+  virtual uint64_t GetNextBlobFileNumber() const;
+  virtual Status RestoreNextBlobFileNumber(
+      const SubcompactionProgress& subcompaction_progress);
+  virtual std::optional<uint64_t> GetBlobGarbageCollectionCutoffFileNumber()
+      const {
+    return std::nullopt;
+  }
 
   // True if this job builds output files as a remote (offloaded)
   // CompactionService worker. Overridden by CompactionServiceCompactionJob.
@@ -572,11 +603,21 @@ class CompactionJob {
   bool ShouldUpdateSubcompactionProgress(
       const SubcompactionState* sub_compact, const CompactionIterator* c_iter,
       const ParsedInternalKey& prev_iter_output_internal_key,
-      const Slice& next_table_min_internal_key, const FileMetaData* meta) const;
+      const Slice& next_table_min_internal_key, const FileMetaData* meta,
+      const BlobFileBuilder* blob_file_builder,
+      const BlobCountingIterator* blob_counter, bool post_prepare_retry) const;
 
   void UpdateSubcompactionProgress(const CompactionIterator* c_iter,
                                    const Slice next_table_min_key,
                                    SubcompactionState* sub_compact);
+
+  Status RestoreBlobCompactionProgress(
+      SubcompactionState* sub_compact,
+      const SubcompactionProgress& subcompaction_progress);
+
+  void UpdateBlobCompactionProgress(
+      SubcompactionState* sub_compact,
+      SubcompactionProgress& subcompaction_progress);
 
   Status PersistSubcompactionProgress(SubcompactionState* sub_compact);
 
@@ -584,6 +625,11 @@ class CompactionJob {
       SubcompactionState* sub_compact, bool is_proximal_level,
       SubcompactionProgress& subcompaction_progress);
 };
+
+// Version of the blob-aware remote compaction result produced by this binary.
+// Zero means the worker did not advertise support.
+constexpr uint64_t kCompactionServiceBlobVersion = 1;
+constexpr uint64_t kCompactionServiceBlobGCCutoffVersion = 1;
 
 // CompactionServiceInput is used the pass compaction information between two
 // db instances. It contains the information needed to do a compaction. It
@@ -599,6 +645,23 @@ struct CompactionServiceInput {
   // files needed for this compaction, for both input level files and output
   // level files.
   std::vector<std::string> input_files;
+
+  // Blob files potentially referenced by input_files. CompactionService
+  // implementations can use this list to make the files available to the
+  // remote worker.
+  std::vector<std::string> input_blob_files;
+
+  // When present, the remote worker uses this primary-computed cutoff instead
+  // of deriving one from its reconstructed Version. An absent field disables
+  // blob GC on the worker for compatibility with older primaries.
+  bool has_blob_gc_cutoff_file_number = false;
+  uint64_t blob_gc_cutoff_file_number = 0;
+
+  // The primary reserves this half-open file-number range before scheduling
+  // the remote compaction. A worker that creates blob files must allocate them
+  // consecutively from this range.
+  uint64_t blob_file_number_start = kInvalidBlobFileNumber;
+  uint64_t blob_file_number_limit = kInvalidBlobFileNumber;
   int output_level = 0;
 
   // db_id is used to generate unique id of sst on the remote compactor
@@ -642,6 +705,7 @@ struct CompactionServiceOutputFile {
   SequenceNumber largest_seqno{};
   std::string smallest_internal_key;
   std::string largest_internal_key;
+  uint64_t oldest_blob_file_number = kInvalidBlobFileNumber;
   uint64_t oldest_ancestor_time = kUnknownOldestAncestorTime;
   uint64_t file_creation_time = kUnknownFileCreationTime;
   uint64_t epoch_number = kUnknownEpochNumber;
@@ -658,9 +722,9 @@ struct CompactionServiceOutputFile {
   CompactionServiceOutputFile(
       const std::string& name, uint64_t size, SequenceNumber smallest,
       SequenceNumber largest, std::string _smallest_internal_key,
-      std::string _largest_internal_key, uint64_t _oldest_ancestor_time,
-      uint64_t _file_creation_time, uint64_t _epoch_number,
-      const std::string& _file_checksum,
+      std::string _largest_internal_key, uint64_t _oldest_blob_file_number,
+      uint64_t _oldest_ancestor_time, uint64_t _file_creation_time,
+      uint64_t _epoch_number, const std::string& _file_checksum,
       const std::string& _file_checksum_func_name, uint64_t _paranoid_hash,
       bool _marked_for_compaction, UniqueId64x2 _unique_id,
       const TableProperties& _table_properties, bool _is_proximal_level_output,
@@ -671,6 +735,7 @@ struct CompactionServiceOutputFile {
         largest_seqno(largest),
         smallest_internal_key(std::move(_smallest_internal_key)),
         largest_internal_key(std::move(_largest_internal_key)),
+        oldest_blob_file_number(_oldest_blob_file_number),
         oldest_ancestor_time(_oldest_ancestor_time),
         file_creation_time(_file_creation_time),
         epoch_number(_epoch_number),
@@ -690,6 +755,14 @@ struct CompactionServiceOutputFile {
 struct CompactionServiceResult {
   Status status;
   std::vector<CompactionServiceOutputFile> output_files;
+
+  // Blob metadata generated by the remote compaction. Blob file additions
+  // identify files in output_path that must be installed before the output
+  // SSTs. Garbage records apply to blob files already known to the primary.
+  std::vector<BlobFileAddition> blob_file_additions;
+  std::vector<BlobFileGarbage> blob_file_garbages;
+  uint64_t blob_compaction_version = 0;
+  uint64_t blob_gc_cutoff_version = 0;
   int output_level = 0;
 
   // location of the output files
@@ -762,12 +835,21 @@ class CompactionServiceCompactionJob : private CompactionJob {
  private:
   // Get table file name in output_path
   std::string GetTableFileName(uint64_t file_number) override;
+  const std::string& GetBlobOutputPath() const override;
+  uint64_t NewBlobFileNumber() override;
+  uint64_t GetNextBlobFileNumber() const override;
+  Status RestoreNextBlobFileNumber(
+      const SubcompactionProgress& subcompaction_progress) override;
+  std::optional<uint64_t> GetBlobGarbageCollectionCutoffFileNumber()
+      const override;
   bool IsRemoteCompaction() const override { return true; }
   // Specific the compaction output path, otherwise it uses default DB path
   const std::string output_path_;
 
   // Compaction job input
   const CompactionServiceInput& compaction_input_;
+
+  uint64_t next_blob_file_number_;
 
   // Compaction job result
   CompactionServiceResult* compaction_result_;

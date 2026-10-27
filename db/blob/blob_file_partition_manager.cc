@@ -321,7 +321,7 @@ Status BlobFilePartitionManager::FinalizeBlobFile(
     s = blob_callback_->OnBlobFileCompleted(
         blob_file_path, column_family_name_, /*job_id=*/0, file_number,
         BlobFileCreationReason::kFlush, s, checksum_value, checksum_method,
-        blob_count, total_blob_bytes);
+        blob_count, total_blob_bytes, /*set_bg_error_on_space_limit=*/true);
     if (!s.ok()) {
       return s;
     }

@@ -478,6 +478,7 @@ class DBImplSecondary : public DBImpl {
 
     // All output file numbers - for cleanup optimization
     std::vector<uint64_t> table_file_numbers;
+    std::vector<uint64_t> blob_file_numbers;
 
     bool HasLatestProgressFile() const {
       return latest_progress_filename.has_value();
@@ -489,6 +490,7 @@ class DBImplSecondary : public DBImpl {
       old_progress_filenames.clear();
       temp_progress_filenames.clear();
       table_file_numbers.clear();
+      blob_file_numbers.clear();
     }
   };
 
@@ -532,7 +534,7 @@ class DBImplSecondary : public DBImpl {
 
   Status PersistInitialCompactionProgress(
       log::Writer* compaction_progress_writer,
-      const CompactionProgress& compaction_progress);
+      CompactionProgress* compaction_progress);
 
   Status RenameCompactionProgressFile(const std::string& temp_file_path,
                                       std::string* final_file_path);

@@ -775,10 +775,29 @@ void CompactionJob::RunSubcompactions() {
   for (auto& thread : thread_pool) {
     thread.join();
   }
+  RecordRemoteCompactionInputBlobFileCount();
   RemoveEmptyOutputs();
 
   ReleaseSubcompactionResources();
   TEST_SYNC_POINT("CompactionJob::ReleaseSubcompactionResources");
+}
+
+void CompactionJob::RecordRemoteCompactionInputBlobFileCount() {
+  const uint64_t oldest_blob_file_number =
+      remote_compaction_min_blob_file_number_.load(std::memory_order_relaxed);
+  if (oldest_blob_file_number == std::numeric_limits<uint64_t>::max()) {
+    return;
+  }
+
+  uint64_t blob_file_count = 0;
+  const VersionStorageInfo* const storage_info =
+      compact_->compaction->input_version()->storage_info();
+  for (const auto& blob_file : storage_info->GetBlobFiles()) {
+    if (blob_file->GetBlobFileNumber() >= oldest_blob_file_number) {
+      ++blob_file_count;
+    }
+  }
+  RecordTick(stats_, REMOTE_COMPACT_INPUT_BLOB_FILE_COUNT, blob_file_count);
 }
 
 void CompactionJob::UpdateTimingStats(uint64_t start_micros) {
@@ -1599,9 +1618,12 @@ InternalIterator* CompactionJob::CreateInputIterator(
   }
 
   if (sub_compact->compaction->DoesInputReferenceBlobFiles()) {
-    BlobGarbageMeter* meter = sub_compact->Current().CreateBlobGarbageMeter();
-    iterators.blob_counter =
-        std::make_unique<BlobCountingIterator>(input, meter);
+    BlobGarbageMeter* meter = sub_compact->Current().GetBlobGarbageMeter();
+    if (meter == nullptr) {
+      meter = sub_compact->Current().CreateBlobGarbageMeter();
+    }
+    iterators.blob_counter = std::make_unique<BlobCountingIterator>(
+        input, meter, compaction_progress_writer_ != nullptr);
     input = iterators.blob_counter.get();
   }
 
@@ -1627,10 +1649,11 @@ void CompactionJob::CreateBlobFileBuilder(
       sub_compact->compaction->output_level() >=
           mutable_cf_options.blob_file_starting_level) {
     blob_file_builder = std::make_unique<BlobFileBuilder>(
-        versions_, fs_.get(), &sub_compact->compaction->immutable_options(),
-        &mutable_cf_options, &file_options_, &write_options, db_id_,
-        db_session_id_, job_id_, cfd->GetID(), cfd->GetName(), write_hint_,
-        io_tracer_, blob_callback_, BlobFileCreationReason::kCompaction,
+        [this]() { return NewBlobFileNumber(); }, fs_.get(),
+        &sub_compact->compaction->immutable_options(), &mutable_cf_options,
+        &file_options_, &write_options, db_id_, db_session_id_, job_id_,
+        cfd->GetID(), cfd->GetName(), write_hint_, io_tracer_, blob_callback_,
+        BlobFileCreationReason::kCompaction, GetBlobOutputPath(),
         sub_compact->Current().GetOutputFilePathsPtr(),
         sub_compact->Current().GetBlobFileAdditionsPtr());
   } else {
@@ -1660,12 +1683,16 @@ std::unique_ptr<CompactionIterator> CompactionJob::CreateCompactionIterator(
       sub_compact->compaction
           ->DoesInputReferenceBlobFiles() /* must_count_input_entries */,
       sub_compact->compaction, compaction_filter, shutting_down_,
-      db_options_.info_log, full_history_ts_low, preserve_seqno_after_);
+      db_options_.info_log, full_history_ts_low, preserve_seqno_after_,
+      nullptr /* input_version */, Env::IOActivity::kCompaction,
+      GetBlobGarbageCollectionCutoffFileNumber());
 }
 
 std::pair<CompactionFileOpenFunc, CompactionFileCloseFunc>
 CompactionJob::CreateFileHandlers(SubcompactionState* sub_compact,
-                                  SubcompactionKeyBoundaries& boundaries) {
+                                  SubcompactionKeyBoundaries& boundaries,
+                                  BlobFileBuilder* blob_file_builder,
+                                  const BlobCountingIterator* blob_counter) {
   const CompactionFileOpenFunc open_file_func =
       [this, sub_compact](CompactionOutputs& outputs) {
         return this->OpenCompactionOutputFile(sub_compact, outputs);
@@ -1677,14 +1704,16 @@ CompactionJob::CreateFileHandlers(SubcompactionState* sub_compact,
       sub_compact->end.has_value() ? &boundaries.end_user_key : nullptr;
 
   const CompactionFileCloseFunc close_file_func =
-      [this, sub_compact, start_user_key, end_user_key](
-          const Status& status,
-          const ParsedInternalKey& prev_iter_output_internal_key,
-          const Slice& next_table_min_key, const CompactionIterator* c_iter,
-          CompactionOutputs& outputs) {
+      [this, sub_compact, start_user_key, end_user_key, blob_file_builder,
+       blob_counter](const Status& status,
+                     const ParsedInternalKey& prev_iter_output_internal_key,
+                     const Slice& next_table_min_key,
+                     const CompactionIterator* c_iter, bool post_prepare_retry,
+                     CompactionOutputs& outputs) {
         return this->FinishCompactionOutputFile(
             status, prev_iter_output_internal_key, next_table_min_key,
-            start_user_key, end_user_key, c_iter, sub_compact, outputs);
+            start_user_key, end_user_key, c_iter, post_prepare_retry,
+            sub_compact, blob_file_builder, blob_counter, outputs);
       };
 
   return {open_file_func, close_file_func};
@@ -1693,7 +1722,8 @@ CompactionJob::CreateFileHandlers(SubcompactionState* sub_compact,
 Status CompactionJob::ProcessKeyValue(
     SubcompactionState* sub_compact, ColumnFamilyData* cfd,
     CompactionIterator* c_iter, const CompactionFileOpenFunc& open_file_func,
-    const CompactionFileCloseFunc& close_file_func, uint64_t& prev_cpu_micros) {
+    const CompactionFileCloseFunc& close_file_func,
+    bool defer_blob_output_preparation, uint64_t& prev_cpu_micros) {
   // Cron interval for periodic operations: stats update, abort check,
   // and sync points. Uses 1024 (power of 2) for efficient bitwise check.
   const uint64_t kCronEveryMask = (1 << 10) - 1;
@@ -1776,7 +1806,6 @@ Status CompactionJob::ProcessKeyValue(
     if (!status.ok()) {
       break;
     }
-
     TEST_SYNC_POINT_CALLBACK("CompactionJob::Run():PausingManualCompaction:2",
                              static_cast<void*>(const_cast<std::atomic<bool>*>(
                                  &manual_compaction_canceled_)));
@@ -1785,7 +1814,11 @@ Status CompactionJob::ProcessKeyValue(
                                         &prev_iter_output_internal_key);
     prev_iter_output_internal_key.sequence = ikey.sequence;
     prev_iter_output_internal_key.type = ikey.type;
-    c_iter->Next();
+    if (defer_blob_output_preparation) {
+      c_iter->NextWithoutPreparingOutput();
+    } else {
+      c_iter->Next();
+    }
 
 #ifndef NDEBUG
     bool stop = false;
@@ -1998,7 +2031,16 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       CreateCompactionIterator(sub_compact, cfd, input_iter, compaction_filter,
                                merge, blob_file_builder, write_options);
   assert(c_iter);
-  c_iter->SeekToFirst();
+  const bool defer_blob_output_preparation =
+      compaction_progress_writer_ != nullptr &&
+      !sub_compact->compaction->SupportsPerKeyPlacement() &&
+      (blob_file_builder != nullptr ||
+       sub_compact->Current().GetBlobGarbageMeter() != nullptr);
+  if (defer_blob_output_preparation) {
+    c_iter->SeekToFirstWithoutPreparingOutput();
+  } else {
+    c_iter->SeekToFirst();
+  }
 
   TEST_SYNC_POINT("CompactionJob::Run():Inprogress");
   TEST_SYNC_POINT_CALLBACK("CompactionJob::Run():PausingManualCompaction:1",
@@ -2006,10 +2048,12 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
                                &manual_compaction_canceled_)));
 
   auto [open_file_func, close_file_func] =
-      CreateFileHandlers(sub_compact, boundaries);
+      CreateFileHandlers(sub_compact, boundaries, blob_file_builder.get(),
+                         iterators.blob_counter.get());
 
   status = ProcessKeyValue(sub_compact, cfd, c_iter.get(), open_file_func,
-                           close_file_func, prev_cpu_micros);
+                           close_file_func, defer_blob_output_preparation,
+                           prev_cpu_micros);
 
   status = FinalizeProcessKeyValueStatus(cfd, input_iter, c_iter.get(), status);
 
@@ -2094,7 +2138,9 @@ Status CompactionJob::FinishCompactionOutputFile(
     const ParsedInternalKey& prev_iter_output_internal_key,
     const Slice& next_table_min_key, const Slice* comp_start_user_key,
     const Slice* comp_end_user_key, const CompactionIterator* c_iter,
-    SubcompactionState* sub_compact, CompactionOutputs& outputs) {
+    bool post_prepare_retry, SubcompactionState* sub_compact,
+    BlobFileBuilder* blob_file_builder,
+    const BlobCountingIterator* blob_counter, CompactionOutputs& outputs) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_SYNC_FILE);
   assert(sub_compact != nullptr);
@@ -2276,9 +2322,31 @@ Status CompactionJob::FinishCompactionOutputFile(
     }
   }
 
-  if (s.ok() && ShouldUpdateSubcompactionProgress(sub_compact, c_iter,
-                                                  prev_iter_output_internal_key,
-                                                  next_table_min_key, meta)) {
+  bool should_update_progress =
+      s.ok() && ShouldUpdateSubcompactionProgress(
+                    sub_compact, c_iter, prev_iter_output_internal_key,
+                    next_table_min_key, meta, blob_file_builder, blob_counter,
+                    post_prepare_retry);
+  if (post_prepare_retry) {
+    TEST_SYNC_POINT_CALLBACK(
+        "CompactionJob::FinishCompactionOutputFile:"
+        "PostPrepareRetryShouldUpdateProgress",
+        &should_update_progress);
+  }
+  if (should_update_progress) {
+    s = sub_compact->UpdateBlobGarbageCheckpoint(
+        blob_counter == nullptr || !blob_counter->TracksCurrentKeyInflow()
+            ? nullptr
+            : &blob_counter->GetCurrentKeyInflow());
+  }
+  if (s.ok() && should_update_progress && blob_file_builder != nullptr) {
+    // An SST checkpoint must never reference a blob file that is still open or
+    // absent from the persisted BlobFileAddition state. Closing here also
+    // makes a crash before the progress record harmless: workspace cleanup
+    // removes the uncheckpointed blob file and SST together.
+    s = blob_file_builder->Finish();
+  }
+  if (s.ok() && should_update_progress) {
     UpdateSubcompactionProgress(c_iter, next_table_min_key, sub_compact);
     s = PersistSubcompactionProgress(sub_compact);
   }
@@ -2289,10 +2357,29 @@ Status CompactionJob::FinishCompactionOutputFile(
 bool CompactionJob::ShouldUpdateSubcompactionProgress(
     const SubcompactionState* sub_compact, const CompactionIterator* c_iter,
     const ParsedInternalKey& prev_iter_output_internal_key,
-    const Slice& next_table_min_internal_key, const FileMetaData* meta) const {
+    const Slice& next_table_min_internal_key, const FileMetaData* meta,
+    const BlobFileBuilder* blob_file_builder,
+    const BlobCountingIterator* blob_counter, bool post_prepare_retry) const {
+  if (post_prepare_retry) {
+    return false;
+  }
   const auto* cfd = sub_compact->compaction->column_family_data();
   // No need to update when the progress will not get persisted
   if (compaction_progress_writer_ == nullptr) {
+    return false;
+  }
+
+  bool supports_per_key_placement =
+      sub_compact->compaction->SupportsPerKeyPlacement();
+  TEST_SYNC_POINT_CALLBACK(
+      "CompactionJob::ShouldUpdateSubcompactionProgress:"
+      "SupportsPerKeyPlacement",
+      &supports_per_key_placement);
+  if (supports_per_key_placement &&
+      (blob_file_builder != nullptr || blob_counter != nullptr)) {
+    // Per-key placement prepares blob output before reaching this boundary.
+    // Checkpointing would retain an unreferenced blob record when the current
+    // key is processed again after resumption.
     return false;
   }
 
@@ -2305,6 +2392,7 @@ bool CompactionJob::ShouldUpdateSubcompactionProgress(
   if (next_table_min_internal_key.empty()) {
     return false;
   }
+  assert(c_iter != nullptr);
 
   // LIMITATION: Persisting compaction progress with timestamp
   // is not supported since the feature of persisting timestamp of the key in
@@ -2351,18 +2439,20 @@ bool CompactionJob::ShouldUpdateSubcompactionProgress(
     return false;
   }
 
-  // LIMITATION: Don't save progress if the current key has already been scanned
-  // (looked ahead) in the input but not yet output. This can happen with merge
-  // operations, single deletes, and deletes at the bottommost level where
-  // CompactionIterator needs to look ahead to process multiple entries for the
-  // same user key before outputting a result. If we saved progress and resumed
-  // at this boundary, the resumed session would see and process the same input
-  // key again through Seek(), leading to incorrect double-counting in
-  // number of processed input entries and input count verification failure
-  //
-  // TODO(hx235): Offset num_processed_input_records to avoid double counting
-  // instead of disabling progress persistence.
-  if (c_iter->IsCurrentKeyAlreadyScanned()) {
+  // LIMITATION: Don't save progress when the current output required looking
+  // ahead or consuming an earlier input entry of the same user key. Resuming
+  // through Seek() would process those entries again and double-count them.
+  // A future implementation could persist enough iterator state to allow
+  // checkpoints at these boundaries.
+  if (c_iter->IsCurrentKeyAlreadyScanned() ||
+      c_iter->HasConsumedEarlierEntriesOfCurrentKey()) {
+    if (!logged_unsafe_resume_boundary_.exchange(true,
+                                                 std::memory_order_relaxed)) {
+      ROCKS_LOG_INFO(db_options_.info_log,
+                     "[%s] [JOB %d] Skipping resumable compaction checkpoint "
+                     "at an input-consumed user-key boundary",
+                     cfd->GetName().c_str(), job_id_);
+    }
     return false;
   }
 
@@ -2404,18 +2494,38 @@ Status CompactionJob::InstallCompactionResults(bool* compaction_released) {
   VersionEdit* const edit = compaction->edit();
   assert(edit);
 
-  // Add compaction inputs
-  compaction->AddInputDeletions(edit);
+  struct BlobFileState {
+    uint64_t total_blob_count;
+    uint64_t total_blob_bytes;
+    uint64_t garbage_blob_count;
+    uint64_t garbage_blob_bytes;
+  };
+  std::unordered_map<uint64_t, BlobFileState> blob_files;
+  const VersionStorageInfo* const storage_info =
+      compaction->input_version()->storage_info();
+  for (const auto& blob_file : storage_info->GetBlobFiles()) {
+    assert(blob_file);
+    blob_files.emplace(blob_file->GetBlobFileNumber(),
+                       BlobFileState{blob_file->GetTotalBlobCount(),
+                                     blob_file->GetTotalBlobBytes(),
+                                     blob_file->GetGarbageBlobCount(),
+                                     blob_file->GetGarbageBlobBytes()});
+  }
+  for (const auto& sub_compact : compact_->sub_compact_states) {
+    for (const auto& blob : sub_compact.Current().GetBlobFileAdditions()) {
+      if (!blob_files
+               .emplace(blob.GetBlobFileNumber(),
+                        BlobFileState{blob.GetTotalBlobCount(),
+                                      blob.GetTotalBlobBytes(), 0, 0})
+               .second) {
+        return Status::Corruption(
+            "Compaction produced duplicate blob file additions");
+      }
+    }
+  }
 
   std::unordered_map<uint64_t, BlobGarbageMeter::BlobStats> blob_total_garbage;
-
   for (const auto& sub_compact : compact_->sub_compact_states) {
-    sub_compact.AddOutputsEdit(edit);
-
-    for (const auto& blob : sub_compact.Current().GetBlobFileAdditions()) {
-      edit->AddBlobFile(blob);
-    }
-
     if (sub_compact.Current().GetBlobGarbageMeter()) {
       const auto& flows = sub_compact.Current().GetBlobGarbageMeter()->flows();
 
@@ -2425,10 +2535,47 @@ Status CompactionJob::InstallCompactionResults(bool* compaction_released) {
 
         assert(flow.IsValid());
         if (flow.HasGarbage()) {
-          blob_total_garbage[blob_file_number].Add(flow.GetGarbageCount(),
-                                                   flow.GetGarbageBytes());
+          const std::unordered_map<uint64_t, BlobFileState>::const_iterator
+              blob_file = blob_files.find(blob_file_number);
+          if (blob_file == blob_files.end()) {
+            return Status::Corruption(
+                "Compaction produced garbage for an unknown blob file");
+          }
+          const BlobFileState& state = blob_file->second;
+          if (state.garbage_blob_count > state.total_blob_count ||
+              state.garbage_blob_bytes > state.total_blob_bytes) {
+            return Status::Corruption(
+                "Compaction encountered invalid existing blob garbage");
+          }
+          BlobGarbageMeter::BlobStats& aggregate =
+              blob_total_garbage[blob_file_number];
+          const uint64_t available_blob_count =
+              state.total_blob_count - state.garbage_blob_count;
+          const uint64_t available_blob_bytes =
+              state.total_blob_bytes - state.garbage_blob_bytes;
+          if (aggregate.GetCount() > available_blob_count ||
+              aggregate.GetBytes() > available_blob_bytes ||
+              flow.GetGarbageCount() >
+                  available_blob_count - aggregate.GetCount() ||
+              flow.GetGarbageBytes() >
+                  available_blob_bytes - aggregate.GetBytes()) {
+            return Status::Corruption(
+                "Compaction blob garbage exceeds file totals");
+          }
+          aggregate.Add(flow.GetGarbageCount(), flow.GetGarbageBytes());
         }
       }
+    }
+  }
+
+  // Add compaction inputs and outputs only after all blob metadata has been
+  // validated across subcompactions.
+  compaction->AddInputDeletions(edit);
+  for (const auto& sub_compact : compact_->sub_compact_states) {
+    sub_compact.AddOutputsEdit(edit);
+
+    for (const auto& blob : sub_compact.Current().GetBlobFileAdditions()) {
+      edit->AddBlobFile(blob);
     }
   }
 
@@ -2938,6 +3085,38 @@ std::string CompactionJob::GetTableFileName(uint64_t file_number) {
                        file_number, compact_->compaction->output_path_id());
 }
 
+const std::string& CompactionJob::GetBlobOutputPath() const {
+  return compact_->compaction->immutable_options().cf_paths.front().path;
+}
+
+uint64_t CompactionJob::NewBlobFileNumber() {
+  return versions_->NewFileNumber();
+}
+
+uint64_t CompactionJob::GetNextBlobFileNumber() const {
+  return versions_->current_next_file_number();
+}
+
+Status CompactionJob::RestoreNextBlobFileNumber(
+    const SubcompactionProgress& subcompaction_progress) {
+  if (!subcompaction_progress.has_blob_compaction_progress) {
+    return Status::OK();
+  }
+
+  const uint64_t next_blob_file_number =
+      subcompaction_progress.next_blob_file_number;
+  if (next_blob_file_number == kInvalidBlobFileNumber) {
+    return Status::Corruption("Invalid next blob file number in progress");
+  }
+  const uint64_t current_next_file_number =
+      versions_->current_next_file_number();
+  if (current_next_file_number < next_blob_file_number) {
+    versions_->FetchAddFileNumber(next_blob_file_number -
+                                  current_next_file_number);
+  }
+  return Status::OK();
+}
+
 Env::IOPriority CompactionJob::GetRateLimiterPriority() {
   if (versions_ && versions_->GetColumnFamilySet() &&
       versions_->GetColumnFamilySet()->write_controller()) {
@@ -3074,17 +3253,47 @@ void CompactionJob::RestoreCompactionOutputs(
       subcompaction_progress_per_level.GetNumProcessedOutputRecords());
 }
 
+Status CompactionJob::RestoreBlobCompactionProgress(
+    SubcompactionState* sub_compact,
+    const SubcompactionProgress& subcompaction_progress) {
+  if (!subcompaction_progress.has_blob_compaction_progress) {
+    return RestoreNextBlobFileNumber(subcompaction_progress);
+  }
+
+  CompactionOutputs* const outputs = sub_compact->Outputs(false);
+  assert(outputs);
+  assert(outputs->GetBlobFileAdditions().empty());
+  *outputs->GetBlobFileAdditionsPtr() =
+      subcompaction_progress.blob_file_additions;
+
+  if (!subcompaction_progress.blob_file_garbages.empty()) {
+    BlobGarbageMeter* meter = outputs->GetBlobGarbageMeter();
+    if (meter == nullptr) {
+      meter = outputs->CreateBlobGarbageMeter();
+    }
+    for (const auto& garbage : subcompaction_progress.blob_file_garbages) {
+      meter->AddGarbage(garbage.GetBlobFileNumber(),
+                        garbage.GetGarbageBlobCount(),
+                        garbage.GetGarbageBlobBytes());
+    }
+  }
+
+  return RestoreNextBlobFileNumber(subcompaction_progress);
+}
+
 // Attempt to resume compaction from a previously persisted compaction progress.
 //
 // RETURNS:
 // - Status::OK():
 // * Input iterator positioned at next unprocessed key
 // * CompactionOutputs objects fully restored for both output and proximal
-// output levels in SubcompactionState
+// output levels in SubcompactionState, including BlobDB additions and garbage
 // * Compaction job statistics accurately reflect input and output records
 // processed for record count verification
-// * File number generation advanced to prevent conflicts with existing outputs
+// * SST and blob file-number generation advanced to prevent conflicts with
+// existing outputs
 // - Status::NotFound(): No valid progress to resume from
+// - Status::Incomplete(): Blob state cannot be resumed safely
 // - Status::Corruption(): Resume key is invalid, beyond input range, or output
 // restoration failed
 Status CompactionJob::MaybeResumeSubcompactionProgressOnInputIterator(
@@ -3181,6 +3390,12 @@ Status CompactionJob::MaybeResumeSubcompactionProgressOnInputIterator(
     }
   }
 
+  Status blob_status =
+      RestoreBlobCompactionProgress(sub_compact, subcompaction_progress);
+  if (!blob_status.ok()) {
+    return blob_status;
+  }
+
   return Status::OK();
 }
 
@@ -3217,6 +3432,49 @@ void CompactionJob::UpdateSubcompactionProgress(
     UpdateSubcompactionProgressPerLevel(
         sub_compact, true /* is_proximal_level */, subcompaction_progress);
   }
+
+  UpdateBlobCompactionProgress(sub_compact, subcompaction_progress);
+}
+
+void CompactionJob::UpdateBlobCompactionProgress(
+    SubcompactionState* sub_compact,
+    SubcompactionProgress& subcompaction_progress) {
+  CompactionOutputs* const outputs = sub_compact->Outputs(false);
+  assert(outputs);
+
+  const MutableCFOptions& mutable_cf_options =
+      sub_compact->compaction->mutable_cf_options();
+  const bool can_create_blob_files =
+      mutable_cf_options.enable_blob_files &&
+      sub_compact->compaction->output_level() >=
+          mutable_cf_options.blob_file_starting_level;
+  const BlobGarbageMeter* garbage_meter =
+      sub_compact->GetBlobGarbageCheckpoint();
+  if (garbage_meter == nullptr) {
+    garbage_meter = outputs->GetBlobGarbageMeter();
+  }
+  if (!can_create_blob_files && garbage_meter == nullptr) {
+    return;
+  }
+
+  subcompaction_progress.has_blob_compaction_progress = true;
+  subcompaction_progress.blob_file_additions = outputs->GetBlobFileAdditions();
+  subcompaction_progress.blob_file_garbages.clear();
+  if (garbage_meter != nullptr) {
+    for (const auto& [file_number, flow] : garbage_meter->flows()) {
+      assert(flow.IsValid());
+      if (flow.HasGarbage()) {
+        subcompaction_progress.blob_file_garbages.emplace_back(
+            file_number, flow.GetGarbageCount(), flow.GetGarbageBytes());
+      }
+    }
+    std::sort(subcompaction_progress.blob_file_garbages.begin(),
+              subcompaction_progress.blob_file_garbages.end(),
+              [](const BlobFileGarbage& lhs, const BlobFileGarbage& rhs) {
+                return lhs.GetBlobFileNumber() < rhs.GetBlobFileNumber();
+              });
+  }
+  subcompaction_progress.next_blob_file_number = GetNextBlobFileNumber();
 }
 
 void CompactionJob::UpdateSubcompactionProgressPerLevel(
@@ -3283,11 +3541,15 @@ Status CompactionJob::PersistSubcompactionProgress(
     return s;
   }
 
+  TEST_SYNC_POINT("CompactionJob::PersistSubcompactionProgress:Complete");
+
   subcompaction_progress.output_level_progress
       .UpdateLastPersistedOutputFilesCount();
 
   subcompaction_progress.proximal_output_level_progress
       .UpdateLastPersistedOutputFilesCount();
+
+  subcompaction_progress.UpdateLastPersistedBlobFileAdditionsCount();
 
   return Status::OK();
 }
@@ -3308,6 +3570,8 @@ Status CompactionJob::VerifyInputRecordCount(
     uint64_t expected = internal_stats_.output_level_stats.num_input_records -
                         num_input_range_del;
     uint64_t actual = job_stats_->num_input_records;
+    TEST_SYNC_POINT_CALLBACK("CompactionJob::VerifyInputRecordCount:Actual",
+                             &actual);
     if (expected != actual) {
       char scratch[2345];
       compact_->compaction->Summary(scratch, sizeof(scratch));

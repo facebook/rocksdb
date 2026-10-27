@@ -5890,14 +5890,6 @@ void StressTest::Open(SharedState* shared, bool reopen) {
 
   // Remote Compaction
   if (FLAGS_remote_compaction_worker_threads > 0) {
-    if ((options_.enable_blob_files ||
-         options_.enable_blob_garbage_collection ||
-         FLAGS_allow_setting_blob_options_dynamically)) {
-      fprintf(stderr,
-              "Integrated BlobDB is currently incompatible with Remote "
-              "Compaction\n");
-      exit(1);
-    }
     // Each DB open/reopen gets a fresh compaction service instance with a clean
     // aborted_ state
     auto compaction_service = std::make_shared<DbStressCompactionService>(

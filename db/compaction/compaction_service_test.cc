@@ -3,19 +3,29 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <algorithm>
+#include <array>
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <string>
+#include <thread>
+#include <unordered_map>
 #include <vector>
 
+#include "db/blob/blob_log_sequential_reader.h"
+#include "db/compaction/compaction_outputs.h"
 #include "db/db_test_util.h"
 #include "file/file_util.h"
 #include "file/filename.h"
+#include "file/random_access_file_reader.h"
+#include "file/sst_file_manager_impl.h"
 #include "port/stack_trace.h"
 #include "rocksdb/advanced_compression.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_util.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "table/unique_id_impl.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 
@@ -160,6 +170,123 @@ class VanishingCurrentFileFS : public FileSystemWrapper {
   std::atomic<int> injected_failures_{0};
 };
 
+struct RetryCloseTableFactoryState {
+  std::atomic<bool> enabled{false};
+  std::atomic<int> cut_requests{0};
+};
+
+class RetryCloseTableBuilder : public TableBuilder {
+ public:
+  RetryCloseTableBuilder(std::unique_ptr<TableBuilder> base_builder,
+                         std::string cut_before_key,
+                         std::shared_ptr<RetryCloseTableFactoryState> state)
+      : base_builder_(std::move(base_builder)),
+        cut_before_key_(std::move(cut_before_key)),
+        state_(std::move(state)) {}
+
+  void Add(const Slice& key, const Slice& value) override {
+    base_builder_->Add(key, value);
+  }
+
+  TableBuilderAddResult TryAdd(const Slice& key, const Slice& value,
+                               TableBuilderAddContext* context) override {
+    int expected_cut_requests = 0;
+    if (state_->enabled.load() && !base_builder_->IsEmpty() &&
+        ExtractUserKey(key).compare(Slice(cut_before_key_)) == 0 &&
+        state_->cut_requests.compare_exchange_strong(expected_cut_requests,
+                                                     1)) {
+      context->new_table_reason = TableBuilderNewTableReason::kBuilderPolicy;
+      return TableBuilderAddResult::kRequiresNewTable;
+    }
+    return base_builder_->TryAdd(key, value, context);
+  }
+
+  Status status() const override { return base_builder_->status(); }
+  IOStatus io_status() const override { return base_builder_->io_status(); }
+  Status Finish() override { return base_builder_->Finish(); }
+  void Abandon() override { base_builder_->Abandon(); }
+  uint64_t NumEntries() const override { return base_builder_->NumEntries(); }
+  bool IsEmpty() const override { return base_builder_->IsEmpty(); }
+  uint64_t PreCompressionSize() const override {
+    return base_builder_->PreCompressionSize();
+  }
+  uint64_t FileSize() const override { return base_builder_->FileSize(); }
+  uint64_t EstimatedFileSize() const override {
+    return base_builder_->EstimatedFileSize();
+  }
+  uint64_t EstimatedTailSize() const override {
+    return base_builder_->EstimatedTailSize();
+  }
+  uint64_t GetTailSize() const override { return base_builder_->GetTailSize(); }
+  bool NeedCompact() const override { return base_builder_->NeedCompact(); }
+  TableProperties GetTableProperties() const override {
+    return base_builder_->GetTableProperties();
+  }
+  std::string GetFileChecksum() const override {
+    return base_builder_->GetFileChecksum();
+  }
+  const char* GetFileChecksumFuncName() const override {
+    return base_builder_->GetFileChecksumFuncName();
+  }
+  void SetSeqnoTimeTableProperties(const SeqnoToTimeMapping& mapping,
+                                   uint64_t oldest_ancestor_time) override {
+    base_builder_->SetSeqnoTimeTableProperties(mapping, oldest_ancestor_time);
+  }
+  uint64_t GetWorkerCPUMicros() const override {
+    return base_builder_->GetWorkerCPUMicros();
+  }
+
+ private:
+  std::unique_ptr<TableBuilder> base_builder_;
+  std::string cut_before_key_;
+  std::shared_ptr<RetryCloseTableFactoryState> state_;
+};
+
+class RetryCloseTableFactory : public TableFactory {
+ public:
+  RetryCloseTableFactory(std::string cut_before_key,
+                         std::shared_ptr<RetryCloseTableFactoryState> state)
+      : cut_before_key_(std::move(cut_before_key)), state_(std::move(state)) {}
+
+  const char* Name() const override { return "RetryCloseTableFactory"; }
+  using TableFactory::NewTableReader;
+
+  Status NewTableReader(
+      const ReadOptions& read_options,
+      const TableReaderOptions& table_reader_options,
+      std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+      std::unique_ptr<TableReader>* table_reader,
+      bool prefetch_index_and_filter_in_cache) const override {
+    return base_factory_.NewTableReader(
+        read_options, table_reader_options, std::move(file), file_size,
+        table_reader, prefetch_index_and_filter_in_cache);
+  }
+
+  TableBuilder* NewTableBuilder(
+      const TableBuilderOptions& table_builder_options,
+      WritableFileWriter* file) const override {
+    return new RetryCloseTableBuilder(
+        std::unique_ptr<TableBuilder>(
+            base_factory_.NewTableBuilder(table_builder_options, file)),
+        cut_before_key_, state_);
+  }
+
+  std::unique_ptr<TableFactory> Clone() const override {
+    return std::make_unique<RetryCloseTableFactory>(cut_before_key_, state_);
+  }
+  bool IsDeleteRangeSupported() const override {
+    return base_factory_.IsDeleteRangeSupported();
+  }
+  std::string GetPrintableOptions() const override {
+    return base_factory_.GetPrintableOptions();
+  }
+
+ private:
+  std::string cut_before_key_;
+  std::shared_ptr<RetryCloseTableFactoryState> state_;
+  BlockBasedTableFactory base_factory_;
+};
+
 }  // namespace
 
 class MyTestCompactionService : public CompactionService {
@@ -190,6 +317,8 @@ class MyTestCompactionService : public CompactionService {
       const std::string& compaction_service_input) override {
     InstrumentedMutexLock l(&mutex_);
     start_info_ = info;
+    last_input_ = compaction_service_input;
+    inputs_.push_back(compaction_service_input);
     assert(info.db_name == db_path_);
     std::string unique_id = Env::Default()->GenerateUniqueId();
     last_output_directory_name_ = unique_id;
@@ -231,14 +360,21 @@ class MyTestCompactionService : public CompactionService {
     options.canceled = &canceled_;
     options.max_secondary_open_retries = max_secondary_open_retries_;
 
+    TEST_SYNC_POINT("MyTestCompactionService::Wait:BeforeOpenAndCompact");
+    TEST_SYNC_POINT("MyTestCompactionService::Wait:Continue");
+
     Status s = DB::OpenAndCompact(options, db_path_, scheduled_job_id,
                                   compaction_input, result, options_override);
+    if (wait_result_mutator_) {
+      wait_result_mutator_(result);
+    }
     {
       InstrumentedMutexLock l(&mutex_);
       if (is_override_wait_result_) {
         *result = override_wait_result_;
       }
       result_ = *result;
+      results_.push_back(*result);
     }
     compaction_num_.fetch_add(1);
     if (s.ok()) {
@@ -248,9 +384,12 @@ class MyTestCompactionService : public CompactionService {
       // rejected an older/stale filesystem view). Mapping that decline to
       // kUseLocal (retry locally) vs. kFailure (surface it) is the integrator's
       // choice; this example picks kUseLocal to exercise the fallback path,
-      // while DbStressCompactionService deliberately picks kFailure. Real
-      // cancellation (kManualCompactionPaused) is handled as a failure.
-      return CompactionServiceJobStatus::kUseLocal;
+      // while DbStressCompactionService deliberately picks kFailure. Tests can
+      // select the latter behavior here as well. Real cancellation
+      // (kManualCompactionPaused) is handled as a failure.
+      return return_incomplete_as_failure_
+                 ? CompactionServiceJobStatus::kFailure
+                 : CompactionServiceJobStatus::kUseLocal;
     } else {
       return CompactionServiceJobStatus::kFailure;
     }
@@ -271,6 +410,7 @@ class MyTestCompactionService : public CompactionService {
     options_override.sst_partitioner_factory = options_.sst_partitioner_factory;
     options_override.statistics = statistics_;
     options_override.info_log = options_.info_log;
+    options_override.options_map = worker_options_override_;
     if (!listeners_.empty()) {
       options_override.listeners = listeners_;
     }
@@ -287,6 +427,9 @@ class MyTestCompactionService : public CompactionService {
   void OnInstallation(const std::string& /*scheduled_job_id*/,
                       CompactionServiceJobStatus status) override {
     installation_callback_count_.fetch_add(1);
+    if (status == CompactionServiceJobStatus::kUseLocal) {
+      use_local_installation_callback_count_.fetch_add(1);
+    }
     final_updated_status_ = status;
   }
 
@@ -315,6 +458,10 @@ class MyTestCompactionService : public CompactionService {
     override_wait_result_ = std::move(str);
   }
 
+  void SetWaitResultMutator(std::function<void(std::string*)> mutator) {
+    wait_result_mutator_ = std::move(mutator);
+  }
+
   void ResetOverride() {
     is_override_wait_result_ = false;
     is_override_start_status_ = false;
@@ -328,8 +475,47 @@ class MyTestCompactionService : public CompactionService {
     max_secondary_open_retries_ = retries;
   }
 
+  void ReturnIncompleteAsFailure(bool value) {
+    return_incomplete_as_failure_ = value;
+  }
+
+  void SetWorkerOptionOverride(const std::string& name,
+                               const std::string& value) {
+    worker_options_override_[name] = value;
+  }
+
   void GetResult(CompactionServiceResult* deserialized) {
     CompactionServiceResult::Read(result_, deserialized).PermitUncheckedError();
+  }
+
+  void GetInput(CompactionServiceInput* deserialized) {
+    InstrumentedMutexLock l(&mutex_);
+    CompactionServiceInput::Read(last_input_, deserialized)
+        .PermitUncheckedError();
+  }
+
+  std::vector<CompactionServiceInput> GetInputs() {
+    InstrumentedMutexLock l(&mutex_);
+    std::vector<CompactionServiceInput> inputs;
+    inputs.reserve(inputs_.size());
+    for (const auto& serialized : inputs_) {
+      inputs.emplace_back();
+      CompactionServiceInput::Read(serialized, &inputs.back())
+          .PermitUncheckedError();
+    }
+    return inputs;
+  }
+
+  std::vector<CompactionServiceResult> GetResults() {
+    InstrumentedMutexLock l(&mutex_);
+    std::vector<CompactionServiceResult> results;
+    results.reserve(results_.size());
+    for (const auto& serialized : results_) {
+      results.emplace_back();
+      CompactionServiceResult::Read(serialized, &results.back())
+          .PermitUncheckedError();
+    }
+    return results;
   }
 
   CompactionServiceJobStatus GetFinalCompactionServiceJobStatus() {
@@ -338,6 +524,10 @@ class MyTestCompactionService : public CompactionService {
 
   int GetOnInstallationCount() { return installation_callback_count_.load(); }
 
+  int GetUseLocalInstallationCount() {
+    return use_local_installation_callback_count_.load();
+  }
+
  protected:
   InstrumentedMutex mutex_;
   const std::string db_path_;
@@ -345,6 +535,9 @@ class MyTestCompactionService : public CompactionService {
   std::map<std::string, std::string> jobs_;
   std::map<std::string, CompactionServiceJobInfo> infos_;
   std::string result_;
+  std::vector<std::string> results_;
+  std::string last_input_;
+  std::vector<std::string> inputs_;
   std::string last_output_directory_name_;
 
   std::string GetOutputPath(const std::string& scheduled_job_id) {
@@ -366,10 +559,14 @@ class MyTestCompactionService : public CompactionService {
       CompactionServiceJobStatus::kFailure;
   bool is_override_wait_result_ = false;
   std::string override_wait_result_;
+  std::function<void(std::string*)> wait_result_mutator_;
+  bool return_incomplete_as_failure_ = false;
+  std::unordered_map<std::string, std::string> worker_options_override_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
   std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
       table_properties_collector_factories_;
   std::atomic_int installation_callback_count_{0};
+  std::atomic_int use_local_installation_callback_count_{0};
   std::atomic<CompactionServiceJobStatus> final_updated_status_{
       CompactionServiceJobStatus::kUseLocal};
   uint32_t max_secondary_open_retries_ =
@@ -452,6 +649,45 @@ class CompactionServiceTest : public DBTestBase {
         }
       }
     }
+  }
+
+  Status ReadBlobFileRecords(uint64_t blob_file_number, size_t num_records,
+                             std::vector<BlobLogRecord>* records) {
+    assert(records != nullptr);
+    records->clear();
+
+    std::unique_ptr<FSRandomAccessFile> file;
+    FileOptions file_options;
+    constexpr IODebugContext* dbg = nullptr;
+    const std::string blob_file_path = BlobFileName(dbname_, blob_file_number);
+    FileSystem* const fs = env_->GetFileSystem().get();
+    SystemClock* const clock = env_->GetSystemClock().get();
+    Status s =
+        fs->NewRandomAccessFile(blob_file_path, file_options, &file, dbg);
+    if (!s.ok()) {
+      return s;
+    }
+
+    auto file_reader = std::make_unique<RandomAccessFileReader>(
+        std::move(file), blob_file_path, clock);
+    BlobLogSequentialReader reader(std::move(file_reader), clock,
+                                   /*statistics=*/nullptr);
+    BlobLogHeader header;
+    s = reader.ReadHeader(&header);
+    if (!s.ok()) {
+      return s;
+    }
+    records->reserve(num_records);
+    for (size_t i = 0; i < num_records; ++i) {
+      BlobLogRecord record;
+      s = reader.ReadRecord(&record,
+                            BlobLogSequentialReader::kReadHeaderKeyBlob);
+      if (!s.ok()) {
+        return s;
+      }
+      records->push_back(std::move(record));
+    }
+    return Status::OK();
   }
 
   std::vector<std::shared_ptr<EventListener>> remote_listeners;
@@ -592,6 +828,42 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
 
   Close();
   SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(CompactionServiceTest, SuccessfulWaitWithFailedResultInstallsNoOutput) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  ReopenWithCompactionService(&options);
+
+  ASSERT_OK(Put("key", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(metadata.levels[0].files.size(), 1);
+  const SstFileMetaData& input_sst = metadata.levels[0].files.front();
+
+  GetCompactionService()->SetWaitResultMutator([](std::string* serialized) {
+    CompactionServiceResult result;
+    ASSERT_OK(CompactionServiceResult::Read(*serialized, &result));
+    result.status = Status::Corruption("injected non-OK worker result");
+    serialized->clear();
+    ASSERT_OK(result.Write(serialized));
+  });
+
+  const Status status = db_->CompactFiles(
+      CompactionOptions(), {input_sst.db_path + "/" + input_sst.name}, 1);
+
+  ASSERT_TRUE(status.IsCorruption()) << status.ToString();
+  ASSERT_NE(status.ToString().find("injected non-OK worker result"),
+            std::string::npos);
+  EXPECT_EQ(GetCompactionService()->GetFinalCompactionServiceJobStatus(),
+            CompactionServiceJobStatus::kFailure);
+  EXPECT_EQ(GetCompactionService()->GetOnInstallationCount(), 1);
+  EXPECT_EQ(NumTableFilesAtLevel(0), 1);
+  EXPECT_EQ(NumTableFilesAtLevel(1), 0);
+  EXPECT_EQ(Get("key"), "value");
 }
 
 namespace {
@@ -794,6 +1066,1701 @@ TEST_F(CompactionServiceTest, ManualCompaction) {
   info = my_cs->GetCompactionInfoForWait();
   ASSERT_EQ(handles_[1]->GetID(), info.cf_id);
   ASSERT_EQ(handles_[1]->GetName(), info.cf_name);
+}
+
+TEST_F(CompactionServiceTest, RemoteCompactionPreservesBlobDependencies) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  ReopenWithCompactionService(&options);
+
+  const std::vector<std::pair<std::string, std::string>> old_values{
+      {"key1", std::string(16 * 1024, 'a')},
+      {"key2", std::string(16 * 1024, 'b')}};
+  for (const auto& [key, value] : old_values) {
+    ASSERT_OK(Put(key, value));
+  }
+  ASSERT_OK(Flush());
+
+  const std::vector<std::pair<std::string, std::string>> expected_values{
+      {"key1", std::string(16 * 1024, 'c')},
+      {"key2", std::string(16 * 1024, 'd')}};
+  for (const auto& [key, value] : expected_values) {
+    ASSERT_OK(Put(key, value));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->SetOptions({{"enable_blob_files", "false"}}));
+
+  auto* const compaction_service = GetCompactionService();
+  const uint64_t compaction_num = compaction_service->GetCompactionNum();
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+  ASSERT_GE(compaction_service->GetCompactionNum(), compaction_num + 1);
+
+  CompactionServiceInput input;
+  compaction_service->GetInput(&input);
+  ASSERT_FALSE(input.input_blob_files.empty());
+  ASSERT_EQ(input.blob_file_number_start, kInvalidBlobFileNumber);
+  ASSERT_EQ(input.blob_file_number_limit, kInvalidBlobFileNumber);
+
+  CompactionServiceResult result;
+  compaction_service->GetResult(&result);
+  ASSERT_OK(result.status);
+  ASSERT_FALSE(result.output_files.empty());
+  for (const auto& output_file : result.output_files) {
+    EXPECT_NE(output_file.oldest_blob_file_number, kInvalidBlobFileNumber);
+  }
+
+  for (const auto& [key, expected_value] : expected_values) {
+    std::string actual_value;
+    ASSERT_OK(db_->Get(ReadOptions(), key, &actual_value));
+    EXPECT_EQ(actual_value, expected_value);
+  }
+}
+
+class ChangeBlobValueCompactionFilter : public CompactionFilter {
+ public:
+  Decision FilterV2(int /* level */, const Slice& key,
+                    ValueType /* value_type */, const Slice& existing_value,
+                    std::string* new_value,
+                    std::string* /* skip_until */) const override {
+    if (key == "key1") {
+      *new_value = existing_value.ToString();
+      (*new_value)[0] = 'z';
+      return Decision::kChangeValue;
+    }
+    if (key == "key2") {
+      return Decision::kRemove;
+    }
+    return Decision::kKeep;
+  }
+
+  const char* Name() const override {
+    return "ChangeBlobValueCompactionFilter";
+  }
+};
+
+class RemoveAllBlobValuesCompactionFilter : public CompactionFilter {
+ public:
+  Decision FilterV2(int /* level */, const Slice& /* key */,
+                    ValueType /* value_type */,
+                    const Slice& /* existing_value */,
+                    std::string* /* new_value */,
+                    std::string* /* skip_until */) const override {
+    return Decision::kRemove;
+  }
+
+  const char* Name() const override {
+    return "RemoveAllBlobValuesCompactionFilter";
+  }
+};
+
+class ChangeAllBlobValuesCompactionFilter : public CompactionFilter {
+ public:
+  Decision FilterV2(int /* level */, const Slice& /* key */,
+                    ValueType /* value_type */, const Slice& existing_value,
+                    std::string* new_value,
+                    std::string* /* skip_until */) const override {
+    *new_value = existing_value.ToString();
+    (*new_value)[0] = 'z';
+    return Decision::kChangeValue;
+  }
+
+  const char* Name() const override {
+    return "ChangeAllBlobValuesCompactionFilter";
+  }
+};
+
+class RecordingBlobCreationListener : public EventListener {
+ public:
+  void OnBlobFileCreated(const BlobFileCreationInfo& info) override {
+    if (info.reason == BlobFileCreationReason::kCompaction) {
+      created_files.push_back(info.file_path);
+    }
+  }
+
+  std::vector<std::string> created_files;
+};
+
+enum class BoundaryFilterDecision {
+  kChangeValue,
+  kRemove,
+  kChangeWideColumnEntity,
+};
+
+class BoundaryBlobValueCompactionFilter : public CompactionFilter {
+ public:
+  explicit BoundaryBlobValueCompactionFilter(BoundaryFilterDecision decision)
+      : decision_(decision) {}
+
+  Decision FilterV4(
+      int /* level */, const Slice& key, ValueType value_type,
+      const Slice* existing_value, const WideColumns* existing_columns,
+      std::string* new_value,
+      std::vector<std::pair<std::string, std::string>>* new_columns,
+      std::string* /* skip_until */,
+      WideColumnBlobResolver* /* blob_resolver */) const override {
+    if (key != "key3") {
+      return Decision::kKeep;
+    }
+    switch (decision_) {
+      case BoundaryFilterDecision::kChangeValue:
+        assert(value_type == ValueType::kValue);
+        assert(existing_value != nullptr);
+        assert(new_value != nullptr);
+        *new_value = existing_value->ToString();
+        (*new_value)[0] = 'z';
+        return Decision::kChangeValue;
+      case BoundaryFilterDecision::kRemove:
+        return Decision::kRemove;
+      case BoundaryFilterDecision::kChangeWideColumnEntity:
+        assert(value_type == ValueType::kWideColumnEntity);
+        assert(existing_columns != nullptr);
+        assert(new_columns != nullptr);
+        new_columns->emplace_back(kDefaultWideColumnName.ToString(),
+                                  "changed_default");
+        new_columns->emplace_back("attribute", "changed_attribute");
+        return Decision::kChangeWideColumnEntity;
+    }
+    assert(false);
+    return Decision::kKeep;
+  }
+
+  bool SupportsFilterV4() const override { return true; }
+
+  const char* Name() const override {
+    return "BoundaryBlobValueCompactionFilter";
+  }
+
+ private:
+  BoundaryFilterDecision decision_;
+};
+
+TEST_F(CompactionServiceTest,
+       RemoteCompactionIncludesFullBlobFileRangeAndSizesReservation) {
+  constexpr uint64_t kBlobFileSize = 4096;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.blob_file_size = kBlobFileSize;
+  options.max_subcompactions = 1;
+  std::unique_ptr<CompactionFilter> compaction_filter(
+      new ChangeAllBlobValuesCompactionFilter());
+  options.compaction_filter = compaction_filter.get();
+  ReopenWithCompactionService(&options);
+
+  const std::vector<std::pair<std::string, std::string>> values{
+      {"key1", std::string(kBlobFileSize, 'a')},
+      {"key2", std::string(kBlobFileSize, 'b')},
+      {"key3", std::string(kBlobFileSize, 'c')}};
+  for (const auto& [key, value] : values) {
+    ASSERT_OK(Put(key, value));
+  }
+  ASSERT_OK(Flush());
+
+  const std::vector<uint64_t> original_blob_files = GetBlobFileNumbers();
+  ASSERT_GE(original_blob_files.size(), 3);
+  std::vector<std::string> expected_input_blob_files;
+  expected_input_blob_files.reserve(original_blob_files.size());
+  for (const uint64_t file_number : original_blob_files) {
+    expected_input_blob_files.emplace_back(BlobFileName(file_number));
+  }
+
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(metadata.levels[0].files.size(), 1);
+  const SstFileMetaData& input_sst = metadata.levels[0].files.front();
+  ASSERT_OK(db_->CompactFiles(CompactionOptions(),
+                              {input_sst.db_path + "/" + input_sst.name}, 1));
+
+  CompactionServiceInput input;
+  GetCompactionService()->GetInput(&input);
+  EXPECT_EQ(input.input_blob_files, expected_input_blob_files);
+  EXPECT_EQ(GetPrimaryStatistics()->getTickerCount(
+                REMOTE_COMPACT_INPUT_BLOB_FILE_COUNT),
+            expected_input_blob_files.size());
+  EXPECT_GE(input.blob_file_number_limit - input.blob_file_number_start,
+            original_blob_files.size() + 2);
+
+  CompactionServiceResult result;
+  GetCompactionService()->GetResult(&result);
+  ASSERT_OK(result.status);
+  EXPECT_EQ(result.blob_compaction_version, kCompactionServiceBlobVersion);
+  for (const auto& [key, value] : values) {
+    std::string expected = value;
+    expected[0] = 'z';
+    EXPECT_EQ(Get(key), expected);
+  }
+}
+
+TEST_F(CompactionServiceTest, OlderBlobWorkerIsDeclinedRecoverably) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  std::unique_ptr<CompactionFilter> compaction_filter(
+      new ChangeAllBlobValuesCompactionFilter());
+  options.compaction_filter = compaction_filter.get();
+  ReopenWithCompactionService(&options);
+
+  const std::string value(4096, 'a');
+  ASSERT_OK(Put("key", value));
+  ASSERT_OK(Flush());
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(metadata.levels[0].files.size(), 1);
+  const SstFileMetaData& input_sst = metadata.levels[0].files.front();
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceCompactionJob::Run:0", [](void* arg) {
+        CompactionServiceResult** const result_ptr =
+            static_cast<CompactionServiceResult**>(arg);
+        ASSERT_NE(result_ptr, nullptr);
+        ASSERT_NE(*result_ptr, nullptr);
+        (*result_ptr)->blob_compaction_version = 0;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const Status status = db_->CompactFiles(
+      CompactionOptions(), {input_sst.db_path + "/" + input_sst.name}, 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(status);
+  EXPECT_EQ(GetCompactionService()->GetFinalCompactionServiceJobStatus(),
+            CompactionServiceJobStatus::kUseLocal);
+  EXPECT_EQ(GetCompactionService()->GetUseLocalInstallationCount(), 1);
+  std::string expected = value;
+  expected[0] = 'z';
+  EXPECT_EQ(Get("key"), expected);
+  ASSERT_OK(Put("post-fallback", "writable"));
+}
+
+TEST_F(CompactionServiceTest,
+       OlderBlobGarbageCollectionWorkerIsDeclinedRecoverably) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 1.0;
+  ReopenWithCompactionService(&options);
+
+  const std::string value(4096, 'a');
+  ASSERT_OK(Put("key", value));
+  ASSERT_OK(Flush());
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(metadata.levels[0].files.size(), 1);
+  const SstFileMetaData& input_sst = metadata.levels[0].files.front();
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceCompactionJob::Run:0", [](void* arg) {
+        CompactionServiceResult** const result_ptr =
+            static_cast<CompactionServiceResult**>(arg);
+        ASSERT_NE(result_ptr, nullptr);
+        ASSERT_NE(*result_ptr, nullptr);
+        (*result_ptr)->blob_gc_cutoff_version = 0;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const Status status = db_->CompactFiles(
+      CompactionOptions(), {input_sst.db_path + "/" + input_sst.name}, 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(status);
+  EXPECT_EQ(GetCompactionService()->GetFinalCompactionServiceJobStatus(),
+            CompactionServiceJobStatus::kUseLocal);
+  EXPECT_EQ(GetCompactionService()->GetUseLocalInstallationCount(), 1);
+  EXPECT_EQ(Get("key"), value);
+  ASSERT_OK(Put("post-fallback", "writable"));
+}
+
+TEST_F(CompactionServiceTest,
+       OlderBlobWorkerCreatingBlobsIsDeclinedRecoverably) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = false;
+  options.min_blob_size = 0;
+  std::unique_ptr<CompactionFilter> compaction_filter(
+      new ChangeAllBlobValuesCompactionFilter());
+  options.compaction_filter = compaction_filter.get();
+  ReopenWithCompactionService(&options);
+
+  const std::string value(4096, 'a');
+  ASSERT_OK(Put("key", value));
+  ASSERT_OK(Flush());
+  ASSERT_TRUE(GetBlobFileNumbers().empty());
+  ASSERT_OK(db_->SetOptions({{"enable_blob_files", "true"}}));
+
+  MyTestCompactionService* const compaction_service = GetCompactionService();
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(metadata.levels[0].files.size(), 1);
+  const SstFileMetaData& input_sst = metadata.levels[0].files.front();
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceCompactionJob::Run:0", [](void* arg) {
+        CompactionServiceResult** const result_ptr =
+            static_cast<CompactionServiceResult**>(arg);
+        ASSERT_NE(result_ptr, nullptr);
+        ASSERT_NE(*result_ptr, nullptr);
+        CompactionServiceResult* const result = *result_ptr;
+        ASSERT_FALSE(result->blob_file_additions.empty());
+
+        // Model a pre-feature worker, which can create blob files but cannot
+        // advertise their metadata or its support for transporting them.
+        result->blob_compaction_version = 0;
+        result->blob_file_additions.clear();
+        result->blob_file_garbages.clear();
+        for (auto& output_file : result->output_files) {
+          output_file.oldest_blob_file_number = kInvalidBlobFileNumber;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const Status status = db_->CompactFiles(
+      CompactionOptions(), {input_sst.db_path + "/" + input_sst.name}, 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(status);
+  EXPECT_EQ(compaction_service->GetFinalCompactionServiceJobStatus(),
+            CompactionServiceJobStatus::kUseLocal);
+  EXPECT_EQ(compaction_service->GetUseLocalInstallationCount(), 1);
+  ASSERT_FALSE(GetBlobFileNumbers().empty());
+  std::string expected = value;
+  expected[0] = 'z';
+  EXPECT_EQ(Get("key"), expected);
+  ASSERT_OK(Put("post-fallback", "writable"));
+}
+
+TEST_F(CompactionServiceTest, BlobValidationDeclinesFallBackLocally) {
+  using ResultMutator = std::function<void(CompactionServiceResult*)>;
+  struct ValidationCase {
+    const char* name;
+    ResultMutator mutate;
+  };
+  const std::vector<ValidationCase> cases{
+      {"missing capability",
+       [](CompactionServiceResult* result) {
+         result->blob_compaction_version = 0;
+       }},
+      {"non-contiguous file number",
+       [](CompactionServiceResult* result) {
+         ASSERT_FALSE(result->blob_file_additions.empty());
+         const BlobFileAddition& addition = result->blob_file_additions.front();
+         result->blob_file_additions.front() = BlobFileAddition(
+             addition.GetBlobFileNumber() + 1, addition.GetTotalBlobCount(),
+             addition.GetTotalBlobBytes(), addition.GetChecksumMethod(),
+             addition.GetChecksumValue());
+       }},
+      {"invalid addition metadata",
+       [](CompactionServiceResult* result) {
+         ASSERT_FALSE(result->blob_file_additions.empty());
+         const BlobFileAddition& addition = result->blob_file_additions.front();
+         result->blob_file_additions.front() = BlobFileAddition(
+             addition.GetBlobFileNumber(), /*total_blob_count=*/0,
+             addition.GetTotalBlobBytes(), addition.GetChecksumMethod(),
+             addition.GetChecksumValue());
+       }},
+      {"unknown oldest blob file",
+       [](CompactionServiceResult* result) {
+         ASSERT_FALSE(result->output_files.empty());
+         result->output_files.front().oldest_blob_file_number =
+             std::numeric_limits<uint64_t>::max() - 1;
+       }},
+  };
+
+  for (const ValidationCase& test_case : cases) {
+    SCOPED_TRACE(test_case.name);
+    Options options = CurrentOptions();
+    options.disable_auto_compactions = true;
+    options.enable_blob_files = true;
+    options.min_blob_size = 0;
+    options.blob_file_size = 1;
+    options.max_subcompactions = 1;
+    options.paranoid_checks = true;
+    std::unique_ptr<CompactionFilter> compaction_filter(
+        new ChangeAllBlobValuesCompactionFilter());
+    options.compaction_filter = compaction_filter.get();
+    ReopenWithCompactionService(&options);
+    ASSERT_EQ(GetPrimaryStatistics()->getTickerCount(
+                  REMOTE_COMPACT_BLOB_RESULT_DECLINED_COUNT),
+              0);
+
+    const std::string value(4096, 'a');
+    ASSERT_OK(Put("key", value));
+    ASSERT_OK(Flush());
+    ColumnFamilyMetaData metadata;
+    db_->GetColumnFamilyMetaData(&metadata);
+    ASSERT_EQ(metadata.levels[0].files.size(), 1);
+    const SstFileMetaData& input_sst = metadata.levels[0].files.front();
+
+    SyncPoint::GetInstance()->SetCallBack(
+        "CompactionServiceCompactionJob::Run:0", [&](void* arg) {
+          auto** result_ptr = static_cast<CompactionServiceResult**>(arg);
+          ASSERT_NE(result_ptr, nullptr);
+          ASSERT_NE(*result_ptr, nullptr);
+          test_case.mutate(*result_ptr);
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    const Status status = db_->CompactFiles(
+        CompactionOptions(), {input_sst.db_path + "/" + input_sst.name}, 1);
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    ASSERT_OK(status);
+    EXPECT_EQ(GetCompactionService()->GetFinalCompactionServiceJobStatus(),
+              CompactionServiceJobStatus::kUseLocal);
+    EXPECT_EQ(GetCompactionService()->GetUseLocalInstallationCount(), 1);
+    EXPECT_EQ(GetPrimaryStatistics()->getTickerCount(
+                  REMOTE_COMPACT_BLOB_RESULT_DECLINED_COUNT),
+              1);
+    ASSERT_OK(dbfull()->TEST_GetBGError());
+    std::string expected = value;
+    expected[0] = 'z';
+    EXPECT_EQ(Get("key"), expected);
+    ASSERT_OK(Put("post-fallback", "writable"));
+  }
+}
+
+TEST_F(CompactionServiceTest, ServiceFailurePreservesWorkerIncompleteStatus) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = false;
+  options.min_blob_size = 0;
+  std::unique_ptr<CompactionFilter> compaction_filter(
+      new ChangeAllBlobValuesCompactionFilter());
+  options.compaction_filter = compaction_filter.get();
+  ReopenWithCompactionService(&options);
+
+  MyTestCompactionService* const compaction_service = GetCompactionService();
+  compaction_service->ReturnIncompleteAsFailure(true);
+  compaction_service->SetWorkerOptionOverride("enable_blob_files", "true");
+  const std::string value(4096, 'a');
+  ASSERT_OK(Put("key", value));
+  ASSERT_OK(Flush());
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(metadata.levels[0].files.size(), 1);
+  const SstFileMetaData& input_sst = metadata.levels[0].files.front();
+
+  const Status status = db_->CompactFiles(
+      CompactionOptions(), {input_sst.db_path + "/" + input_sst.name}, 1);
+
+  ASSERT_TRUE(status.IsIncomplete()) << status.ToString();
+  EXPECT_EQ(compaction_service->GetUseLocalInstallationCount(), 0);
+  EXPECT_EQ(compaction_service->GetOnInstallationCount(), 0);
+  CompactionServiceResult result;
+  compaction_service->GetResult(&result);
+  ASSERT_TRUE(result.status.IsIncomplete()) << result.status.ToString();
+  EXPECT_TRUE(result.blob_file_additions.empty());
+  EXPECT_EQ(Get("key"), value);
+  EXPECT_TRUE(GetBlobFileNumbers().empty());
+}
+
+TEST_F(CompactionServiceTest, RemoteBlobWorkerDisablesBlobOutputSafely) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  std::unique_ptr<CompactionFilter> compaction_filter(
+      new ChangeAllBlobValuesCompactionFilter());
+  options.compaction_filter = compaction_filter.get();
+  ReopenWithCompactionService(&options);
+
+  MyTestCompactionService* const compaction_service = GetCompactionService();
+  compaction_service->SetWorkerOptionOverride("enable_blob_files", "false");
+  const std::string value(4096, 'a');
+  ASSERT_OK(Put("key", value));
+  ASSERT_OK(Flush());
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(metadata.levels[0].files.size(), 1);
+  const SstFileMetaData& input_sst = metadata.levels[0].files.front();
+
+  ASSERT_OK(db_->CompactFiles(CompactionOptions(),
+                              {input_sst.db_path + "/" + input_sst.name}, 1));
+  EXPECT_EQ(compaction_service->GetFinalCompactionServiceJobStatus(),
+            CompactionServiceJobStatus::kSuccess);
+  EXPECT_EQ(compaction_service->GetUseLocalInstallationCount(), 0);
+  CompactionServiceResult result;
+  compaction_service->GetResult(&result);
+  EXPECT_EQ(result.blob_compaction_version, kCompactionServiceBlobVersion);
+  EXPECT_TRUE(result.blob_file_additions.empty());
+  EXPECT_FALSE(result.blob_file_garbages.empty());
+  std::string expected = value;
+  expected[0] = 'z';
+  EXPECT_EQ(Get("key"), expected);
+}
+
+TEST_F(CompactionServiceTest, RemoteCompactionFiltersAndCreatesBlobFiles) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.blob_file_size = 1;
+  options.max_subcompactions = 1;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 1.0;
+  options.sst_file_manager.reset(NewSstFileManager(env_));
+  auto* const sfm =
+      static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
+  auto blob_listener = std::make_shared<RecordingBlobCreationListener>();
+  options.listeners.push_back(blob_listener);
+  std::unique_ptr<CompactionFilter> compaction_filter(
+      new ChangeBlobValueCompactionFilter());
+  options.compaction_filter = compaction_filter.get();
+  ReopenWithCompactionService(&options);
+
+  const std::vector<std::pair<std::string, std::string>> first_values{
+      {"key1", std::string(4096, 'a')},
+      {"key2", std::string(4096, 'b')},
+      {"key3", std::string(4096, 'c')}};
+  for (const auto& [key, value] : first_values) {
+    ASSERT_OK(Put(key, value));
+  }
+  ASSERT_OK(Flush());
+
+  const std::string updated_value(4096, 'd');
+  ASSERT_OK(Put("key1", updated_value));
+  ASSERT_OK(Flush());
+
+  const std::vector<uint64_t> original_blob_files = GetBlobFileNumbers();
+  ASSERT_GE(original_blob_files.size(), 2);
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  const Status compact_status =
+      db_->CompactRange(compact_options, nullptr, nullptr);
+
+  ASSERT_OK(compact_status);
+
+  CompactionServiceInput input;
+  GetCompactionService()->GetInput(&input);
+  ASSERT_FALSE(input.input_blob_files.empty());
+  ASSERT_GT(input.blob_file_number_start, 0);
+  ASSERT_GT(input.blob_file_number_limit, input.blob_file_number_start);
+  for (const auto& blob_file : input.input_blob_files) {
+    ASSERT_EQ(blob_file.substr(blob_file.size() - 5), ".blob");
+  }
+
+  const std::vector<CompactionServiceInput> inputs =
+      GetCompactionService()->GetInputs();
+  const std::vector<CompactionServiceResult> results =
+      GetCompactionService()->GetResults();
+  ASSERT_EQ(results.size(), inputs.size());
+  const auto input_it = std::find_if(
+      inputs.begin(), inputs.end(), [&](const CompactionServiceInput& item) {
+        return item.blob_file_number_start == input.blob_file_number_start;
+      });
+  ASSERT_NE(input_it, inputs.end());
+  const size_t result_index =
+      static_cast<size_t>(std::distance(inputs.begin(), input_it));
+  const CompactionServiceResult& result = results[result_index];
+  ASSERT_OK(result.status);
+  ASSERT_GE(result.blob_file_additions.size(), 2);
+  ASSERT_FALSE(result.blob_file_garbages.empty());
+  const std::unordered_map<std::string, uint64_t> tracked_files =
+      sfm->GetTrackedFiles();
+
+  std::vector<uint64_t> added_blob_files;
+  added_blob_files.reserve(result.blob_file_additions.size());
+  for (size_t i = 0; i < result.blob_file_additions.size(); ++i) {
+    const auto& addition = result.blob_file_additions[i];
+    ASSERT_EQ(addition.GetBlobFileNumber(), input.blob_file_number_start + i);
+    ASSERT_LT(addition.GetBlobFileNumber(), input.blob_file_number_limit);
+    const std::string installed_path =
+        BlobFileName(dbname_, addition.GetBlobFileNumber());
+    const auto tracked = tracked_files.find(installed_path);
+    ASSERT_NE(tracked, tracked_files.end());
+    EXPECT_EQ(std::count(blob_listener->created_files.begin(),
+                         blob_listener->created_files.end(), installed_path),
+              1);
+    uint64_t physical_size = 0;
+    ASSERT_OK(env_->GetFileSize(installed_path, &physical_size));
+    EXPECT_EQ(tracked->second, physical_size);
+    added_blob_files.push_back(addition.GetBlobFileNumber());
+  }
+  ASSERT_EQ(GetBlobFileNumbers(), added_blob_files);
+  ASSERT_GE(dbfull()->TEST_Current_Next_FileNo(), input.blob_file_number_limit);
+
+  std::vector<uint64_t> garbage_blob_files;
+  garbage_blob_files.reserve(result.blob_file_garbages.size());
+  for (const auto& garbage : result.blob_file_garbages) {
+    garbage_blob_files.push_back(garbage.GetBlobFileNumber());
+    EXPECT_GT(garbage.GetGarbageBlobCount(), 0);
+    EXPECT_GT(garbage.GetGarbageBlobBytes(), 0);
+  }
+  std::sort(garbage_blob_files.begin(), garbage_blob_files.end());
+  ASSERT_EQ(
+      std::adjacent_find(garbage_blob_files.begin(), garbage_blob_files.end()),
+      garbage_blob_files.end());
+
+  std::string filtered_value = updated_value;
+  filtered_value[0] = 'z';
+  ASSERT_EQ(Get("key1"), filtered_value);
+  ASSERT_EQ(Get("key2"), "NOT_FOUND");
+  ASSERT_EQ(Get("key3"), first_values[2].second);
+}
+
+TEST_F(CompactionServiceTest,
+       RemoteCompactionUsesPrimaryBlobGarbageCollectionCutoff) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.blob_file_size = 1;
+  options.max_subcompactions = 1;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 0.75;
+  ReopenWithCompactionService(&options);
+
+  const std::string value(4096, 'a');
+  ASSERT_OK(Put("key1", value));
+  ASSERT_OK(Put("key2", value));
+  ASSERT_OK(Flush());
+  const std::vector<uint64_t> primary_blob_files = GetBlobFileNumbers();
+  ASSERT_EQ(primary_blob_files.size(), 2);
+
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(metadata.levels[0].files.size(), 1);
+  const SstFileMetaData& input_sst = metadata.levels[0].files.front();
+
+  uint64_t scheduled_cutoff = 0;
+  uint64_t worker_cutoff = 0;
+  std::vector<uint64_t> worker_blob_files;
+  bool worker_view_skewed = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceJob::ProcessKeyValueCompactionWithCompactionService",
+      [&](void* arg) {
+        const auto* input = static_cast<CompactionServiceInput*>(arg);
+        ASSERT_TRUE(input->has_blob_gc_cutoff_file_number);
+        scheduled_cutoff = input->blob_gc_cutoff_file_number;
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "MyTestCompactionService::Wait:BeforeOpenAndCompact", [&](void*) {
+        ASSERT_OK(Put("key3", value));
+        ASSERT_OK(Flush());
+        worker_blob_files = GetBlobFileNumbers();
+        worker_view_skewed = true;
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::BlobGarbageCollectionCutoffFileNumber",
+      [&](void* arg) {
+        if (worker_view_skewed) {
+          worker_cutoff = *static_cast<uint64_t*>(arg);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const Status status = db_->CompactFiles(
+      CompactionOptions(), {input_sst.db_path + "/" + input_sst.name}, 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(status);
+  ASSERT_EQ(worker_blob_files.size(), 3);
+  const uint64_t recomputed_worker_cutoff = worker_blob_files[2];
+  ASSERT_EQ(scheduled_cutoff, primary_blob_files[1]);
+  ASSERT_NE(scheduled_cutoff, recomputed_worker_cutoff);
+  EXPECT_EQ(worker_cutoff, scheduled_cutoff);
+  EXPECT_EQ(Get("key1"), value);
+  EXPECT_EQ(Get("key2"), value);
+  EXPECT_EQ(Get("key3"), value);
+}
+
+TEST_F(CompactionServiceTest,
+       RemoteCompactionWithoutBlobGarbageCollectionCutoffDisablesGC) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.blob_file_size = 1;
+  options.max_subcompactions = 1;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 1.0;
+  ReopenWithCompactionService(&options);
+
+  const std::string value(4096, 'a');
+  ASSERT_OK(Put("key", value));
+  ASSERT_OK(Flush());
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(metadata.levels[0].files.size(), 1);
+  const SstFileMetaData& input_sst = metadata.levels[0].files.front();
+
+  uint64_t worker_cutoff = kInvalidBlobFileNumber;
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceJob::ProcessKeyValueCompactionWithCompactionService",
+      [](void* arg) {
+        auto* input = static_cast<CompactionServiceInput*>(arg);
+        input->has_blob_gc_cutoff_file_number = false;
+        input->blob_gc_cutoff_file_number = 0;
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::BlobGarbageCollectionCutoffFileNumber",
+      [&](void* arg) { worker_cutoff = *static_cast<uint64_t*>(arg); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const Status status = db_->CompactFiles(
+      CompactionOptions(), {input_sst.db_path + "/" + input_sst.name}, 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(status);
+  EXPECT_EQ(worker_cutoff, 0);
+  CompactionServiceInput input;
+  GetCompactionService()->GetInput(&input);
+  EXPECT_FALSE(input.has_blob_gc_cutoff_file_number);
+  CompactionServiceResult result;
+  GetCompactionService()->GetResult(&result);
+  ASSERT_OK(result.status);
+  EXPECT_TRUE(result.blob_file_garbages.empty());
+  EXPECT_EQ(Get("key"), value);
+}
+
+TEST_F(CompactionServiceTest, RemoteBlobGarbageIsInstalledExactlyOnce) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.blob_file_size = 1 << 20;
+  options.max_subcompactions = 1;
+  std::unique_ptr<CompactionFilter> compaction_filter(
+      new ChangeBlobValueCompactionFilter());
+  options.compaction_filter = compaction_filter.get();
+  ReopenWithCompactionService(&options);
+
+  const std::string value(4096, 'a');
+  ASSERT_OK(Put("key1", value));
+  ASSERT_OK(Put("key2", value));
+  ASSERT_OK(Put("key3", value));
+  ASSERT_OK(Flush());
+  const std::vector<uint64_t> original_blob_files = GetBlobFileNumbers();
+  ASSERT_EQ(original_blob_files.size(), 1);
+  const uint64_t original_blob_file = original_blob_files.front();
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(metadata.levels[0].files.size(), 1);
+  const SstFileMetaData& input_sst = metadata.levels[0].files.front();
+  ASSERT_OK(db_->CompactFiles(CompactionOptions(),
+                              {input_sst.db_path + "/" + input_sst.name}, 1));
+
+  CompactionServiceResult result;
+  GetCompactionService()->GetResult(&result);
+  ASSERT_OK(result.status);
+  const auto garbage_it = std::find_if(
+      result.blob_file_garbages.begin(), result.blob_file_garbages.end(),
+      [original_blob_file](const BlobFileGarbage& garbage) {
+        return garbage.GetBlobFileNumber() == original_blob_file;
+      });
+  ASSERT_NE(garbage_it, result.blob_file_garbages.end());
+
+  VersionSet* const versions = dbfull()->GetVersionSet();
+  ASSERT_NE(versions, nullptr);
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  ASSERT_NE(cfd, nullptr);
+  const std::shared_ptr<BlobFileMetaData> installed_blob =
+      cfd->current()->storage_info()->GetBlobFileMetaData(original_blob_file);
+  ASSERT_NE(installed_blob, nullptr);
+  EXPECT_EQ(installed_blob->GetGarbageBlobCount(),
+            garbage_it->GetGarbageBlobCount());
+  EXPECT_EQ(installed_blob->GetGarbageBlobBytes(),
+            garbage_it->GetGarbageBlobBytes());
+  EXPECT_EQ(Get("key2"), "NOT_FOUND");
+  EXPECT_EQ(Get("key3"), value);
+}
+
+TEST_F(CompactionServiceTest, PartialBlobRenameFailureRollsBackFiles) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.blob_file_size = 1;
+  options.max_subcompactions = 1;
+  options.sst_file_manager.reset(NewSstFileManager(env_));
+  auto* const sfm =
+      static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
+  std::unique_ptr<CompactionFilter> compaction_filter(
+      new ChangeAllBlobValuesCompactionFilter());
+  options.compaction_filter = compaction_filter.get();
+  ReopenWithCompactionService(&options);
+
+  ASSERT_OK(Put("key1", std::string(4096, 'a')));
+  ASSERT_OK(Put("key2", std::string(4096, 'b')));
+  ASSERT_OK(Flush());
+  const size_t tracked_file_count_before_import = sfm->GetTrackedFiles().size();
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(metadata.levels[0].files.size(), 1);
+  const SstFileMetaData& input_sst = metadata.levels[0].files.front();
+
+  size_t rename_count = 0;
+  bool rollback_observed = false;
+  bool garbage_prevalidation_observed = false;
+  SyncPoint* const sync_point = SyncPoint::GetInstance();
+  if (sync_point == nullptr) {
+    FAIL() << "SyncPoint is unavailable";
+  }
+  sync_point->SetCallBack(
+      "CompactionJob::ProcessKeyValueCompactionWithCompactionService:"
+      "AfterRemoteBlobGarbagePrevalidation",
+      [&](void* arg) {
+        if (arg == nullptr) {
+          ADD_FAILURE() << "Missing aggregate state";
+          return;
+        }
+        const bool* const aggregate_is_empty = static_cast<const bool*>(arg);
+        EXPECT_TRUE(*aggregate_is_empty);
+        garbage_prevalidation_observed = true;
+      });
+  sync_point->SetCallBack(
+      "CompactionJob::ProcessKeyValueCompactionWithCompactionService:"
+      "AfterBlobFileRename",
+      [&](void* arg) {
+        Status* const status = static_cast<Status*>(arg);
+        if (++rename_count == 2) {
+          *status = Status::IOError("injected blob rename failure");
+        }
+      });
+  sync_point->SetCallBack(
+      "CompactionJob::ProcessKeyValueCompactionWithCompactionService:"
+      "AfterBlobFileRollback",
+      [&](void* arg) {
+        CompactionOutputs* const outputs = static_cast<CompactionOutputs*>(arg);
+        EXPECT_TRUE(outputs->GetBlobFileAdditions().empty());
+        EXPECT_TRUE(outputs->GetOutputFilePaths().empty());
+        rollback_observed = true;
+      });
+  sync_point->EnableProcessing();
+
+  const Status status = db_->CompactFiles(
+      CompactionOptions(), {input_sst.db_path + "/" + input_sst.name}, 1);
+
+  sync_point->DisableProcessing();
+  sync_point->ClearAllCallBacks();
+
+  ASSERT_TRUE(status.IsIOError()) << status.ToString();
+  ASSERT_GE(rename_count, 2);
+  ASSERT_TRUE(rollback_observed);
+  ASSERT_TRUE(garbage_prevalidation_observed);
+  EXPECT_EQ(sfm->GetTrackedFiles().size(), tracked_file_count_before_import);
+  EXPECT_EQ(GetCompactionService()->GetFinalCompactionServiceJobStatus(),
+            CompactionServiceJobStatus::kFailure);
+  CompactionServiceResult result;
+  GetCompactionService()->GetResult(&result);
+  ASSERT_OK(result.status);
+  ASSERT_FALSE(result.blob_file_garbages.empty());
+  ASSERT_GE(result.blob_file_additions.size(), 2);
+  for (const BlobFileAddition& addition : result.blob_file_additions) {
+    const Status exists =
+        env_->FileExists(BlobFileName(dbname_, addition.GetBlobFileNumber()));
+    EXPECT_TRUE(exists.IsNotFound()) << exists.ToString();
+  }
+}
+
+TEST_F(CompactionServiceTest, RemoteBlobStructuralValidationIOFailsInstall) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.max_subcompactions = 1;
+  std::unique_ptr<CompactionFilter> compaction_filter(
+      new ChangeAllBlobValuesCompactionFilter());
+  options.compaction_filter = compaction_filter.get();
+  ReopenWithCompactionService(&options);
+
+  const std::string value(4096, 'a');
+  ASSERT_OK(Put("key", value));
+  ASSERT_OK(Flush());
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(metadata.levels[0].files.size(), 1);
+  const SstFileMetaData& input_sst = metadata.levels[0].files.front();
+
+  size_t injected_errors = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "ValidateRemoteBlobFile:AfterGetFileSize", [&](void* arg) {
+        auto* const status = static_cast<IOStatus*>(arg);
+        if (injected_errors++ == 0) {
+          *status = IOStatus::IOError("injected structural validation error");
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const Status status = db_->CompactFiles(
+      CompactionOptions(), {input_sst.db_path + "/" + input_sst.name}, 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_TRUE(status.IsIOError()) << status.ToString();
+  ASSERT_NE(status.ToString().find("injected structural validation error"),
+            std::string::npos);
+  EXPECT_EQ(GetCompactionService()->GetFinalCompactionServiceJobStatus(),
+            CompactionServiceJobStatus::kFailure);
+  EXPECT_EQ(GetCompactionService()->GetUseLocalInstallationCount(), 0);
+  EXPECT_EQ(GetPrimaryStatistics()->getTickerCount(
+                REMOTE_COMPACT_BLOB_RESULT_DECLINED_COUNT),
+            0);
+  EXPECT_EQ(GetBlobFileNumbers().size(), 1);
+  EXPECT_EQ(Get("key"), value);
+}
+
+TEST_F(CompactionServiceTest, BlobRollbackDeleteFailureRemainsTracked) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.blob_file_size = 1;
+  options.max_subcompactions = 1;
+  options.sst_file_manager.reset(NewSstFileManager(env_));
+  auto* const sfm =
+      static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
+  std::unique_ptr<CompactionFilter> compaction_filter(
+      new ChangeAllBlobValuesCompactionFilter());
+  options.compaction_filter = compaction_filter.get();
+  ReopenWithCompactionService(&options);
+
+  ASSERT_OK(Put("key1", std::string(4096, 'a')));
+  ASSERT_OK(Put("key2", std::string(4096, 'b')));
+  ASSERT_OK(Flush());
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(metadata.levels[0].files.size(), 1);
+  const SstFileMetaData& input_sst = metadata.levels[0].files.front();
+
+  size_t rename_count = 0;
+  size_t delete_count = 0;
+  bool failed_delete_was_still_tracked = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::ProcessKeyValueCompactionWithCompactionService:"
+      "AfterBlobFileRename",
+      [&](void* arg) {
+        if (++rename_count == 2) {
+          *static_cast<Status*>(arg) =
+              Status::IOError("injected blob rename failure");
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::ProcessKeyValueCompactionWithCompactionService:"
+      "BeforeBlobFileDelete",
+      [&](void* arg) {
+        if (delete_count++ == 0) {
+          *static_cast<IOStatus*>(arg) =
+              IOStatus::IOError("injected blob delete failure");
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::ProcessKeyValueCompactionWithCompactionService:"
+      "AfterBlobFileRollback",
+      [&](void*) {
+        CompactionServiceResult result;
+        GetCompactionService()->GetResult(&result);
+        const auto tracked_files = sfm->GetTrackedFiles();
+        for (const BlobFileAddition& addition : result.blob_file_additions) {
+          const std::string path =
+              BlobFileName(dbname_, addition.GetBlobFileNumber());
+          if (env_->FileExists(path).ok() &&
+              tracked_files.find(path) != tracked_files.end()) {
+            failed_delete_was_still_tracked = true;
+          }
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const Status status = db_->CompactFiles(
+      CompactionOptions(), {input_sst.db_path + "/" + input_sst.name}, 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_TRUE(status.IsIOError()) << status.ToString();
+  ASSERT_NE(status.ToString().find("injected blob delete failure"),
+            std::string::npos);
+  ASSERT_GE(rename_count, 2);
+  ASSERT_GE(delete_count, 1);
+  ASSERT_TRUE(failed_delete_was_still_tracked);
+  EXPECT_EQ(GetCompactionService()->GetFinalCompactionServiceJobStatus(),
+            CompactionServiceJobStatus::kFailure);
+  EXPECT_EQ(GetPrimaryStatistics()->getTickerCount(
+                REMOTE_COMPACT_BLOB_RESULT_DECLINED_COUNT),
+            0);
+}
+
+TEST_F(CompactionServiceTest, RemoteBlobImportSpaceLimitFallsBackLocally) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.blob_file_size = 1;
+  options.max_subcompactions = 1;
+  options.sst_file_manager.reset(NewSstFileManager(env_));
+  auto* const sfm =
+      static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
+  std::unique_ptr<CompactionFilter> compaction_filter(
+      new ChangeAllBlobValuesCompactionFilter());
+  options.compaction_filter = compaction_filter.get();
+  ReopenWithCompactionService(&options);
+
+  const std::string value(4096, 'a');
+  ASSERT_OK(Put("key", value));
+  ASSERT_OK(Flush());
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(metadata.levels[0].files.size(), 1);
+  const SstFileMetaData& input_sst = metadata.levels[0].files.front();
+
+  const uint64_t max_allowed_space = sfm->GetTotalSize() + 1;
+  size_t max_space_hits = 0;
+  size_t registration_attempts = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::ProcessKeyValueCompactionWithCompactionService:"
+      "BeforeBlobFileRegistration",
+      [&](void*) {
+        if (++registration_attempts == 1) {
+          sfm->SetMaxAllowedSpaceUsage(max_allowed_space);
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobFileCompletionCallback::CallBack::MaxAllowedSpaceReached",
+      [&](void*) {
+        ++max_space_hits;
+        sfm->SetMaxAllowedSpaceUsage(0);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const Status status = db_->CompactFiles(
+      CompactionOptions(), {input_sst.db_path + "/" + input_sst.name}, 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(status);
+  ASSERT_EQ(max_space_hits, 1);
+  EXPECT_EQ(GetCompactionService()->GetFinalCompactionServiceJobStatus(),
+            CompactionServiceJobStatus::kUseLocal);
+  EXPECT_EQ(GetCompactionService()->GetUseLocalInstallationCount(), 1);
+  EXPECT_EQ(GetPrimaryStatistics()->getTickerCount(
+                REMOTE_COMPACT_BLOB_RESULT_DECLINED_COUNT),
+            1);
+  std::string expected = value;
+  expected[0] = 'z';
+  EXPECT_EQ(Get("key"), expected);
+  ASSERT_OK(Put("post-fallback", "writable"));
+}
+
+TEST_F(CompactionServiceTest,
+       CorruptedRemoteBlobChecksumFailsBeforeSstInstallation) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.blob_file_size = 1;
+  options.max_subcompactions = 1;
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  options.verify_output_flags = VerifyOutputFlags::kEnableForRemoteCompaction |
+                                VerifyOutputFlags::kVerifyFileChecksum;
+  std::unique_ptr<CompactionFilter> compaction_filter(
+      new ChangeAllBlobValuesCompactionFilter());
+  options.compaction_filter = compaction_filter.get();
+  ReopenWithCompactionService(&options);
+
+  const std::string first_value(4096, 'a');
+  const std::string second_value(4096, 'b');
+  ASSERT_OK(Put("key1", first_value));
+  ASSERT_OK(Put("key2", second_value));
+  ASSERT_OK(Flush());
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceCompactionJob::Run:0", [&](void* arg) {
+        auto** result_ptr = static_cast<CompactionServiceResult**>(arg);
+        ASSERT_NE(result_ptr, nullptr);
+        ASSERT_NE(*result_ptr, nullptr);
+        ASSERT_FALSE((*result_ptr)->blob_file_additions.empty());
+        const uint64_t file_number =
+            (*result_ptr)->blob_file_additions.front().GetBlobFileNumber();
+        ASSERT_OK(test::CorruptFile(
+            env_, BlobFileName((*result_ptr)->output_path, file_number), 0, 1,
+            false /* verifyChecksum */));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const Status status =
+      db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(status);
+  EXPECT_EQ(GetCompactionService()->GetFinalCompactionServiceJobStatus(),
+            CompactionServiceJobStatus::kUseLocal);
+  EXPECT_EQ(GetCompactionService()->GetUseLocalInstallationCount(), 1);
+  std::string expected_first = first_value;
+  std::string expected_second = second_value;
+  expected_first[0] = 'z';
+  expected_second[0] = 'z';
+  EXPECT_EQ(Get("key1"), expected_first);
+  EXPECT_EQ(Get("key2"), expected_second);
+  ASSERT_OK(Put("post-fallback", "writable"));
+  CompactionServiceResult result;
+  GetCompactionService()->GetResult(&result);
+  ASSERT_OK(result.status);
+  for (const BlobFileAddition& addition : result.blob_file_additions) {
+    const Status exists =
+        env_->FileExists(BlobFileName(dbname_, addition.GetBlobFileNumber()));
+    EXPECT_TRUE(exists.IsNotFound()) << exists.ToString();
+  }
+}
+
+TEST_F(CompactionServiceTest,
+       RemoteBlobChecksumCapabilityIsDeclinedRecoverably) {
+  enum class ChecksumMetadata {
+    kMissing,
+    kUnsupportedMethod,
+  };
+
+  for (const ChecksumMetadata checksum_metadata :
+       {ChecksumMetadata::kMissing, ChecksumMetadata::kUnsupportedMethod}) {
+    SCOPED_TRACE(static_cast<int>(checksum_metadata));
+    Options options = CurrentOptions();
+    options.disable_auto_compactions = true;
+    options.enable_blob_files = true;
+    options.min_blob_size = 0;
+    options.blob_file_size = 1;
+    options.max_subcompactions = 1;
+    options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+    options.verify_output_flags =
+        VerifyOutputFlags::kEnableForRemoteCompaction |
+        VerifyOutputFlags::kVerifyFileChecksum;
+    std::unique_ptr<CompactionFilter> compaction_filter(
+        new ChangeAllBlobValuesCompactionFilter());
+    options.compaction_filter = compaction_filter.get();
+    ReopenWithCompactionService(&options);
+
+    const std::string value(4096, 'a');
+    ASSERT_OK(Put("key", value));
+    ASSERT_OK(Flush());
+    SyncPoint::GetInstance()->SetCallBack(
+        "CompactionServiceCompactionJob::Run:0", [&](void* arg) {
+          auto** result_ptr = static_cast<CompactionServiceResult**>(arg);
+          ASSERT_NE(result_ptr, nullptr);
+          ASSERT_NE(*result_ptr, nullptr);
+          ASSERT_FALSE((*result_ptr)->blob_file_additions.empty());
+          const BlobFileAddition& addition =
+              (*result_ptr)->blob_file_additions.front();
+          const std::string checksum_method =
+              checksum_metadata == ChecksumMetadata::kMissing
+                  ? ""
+                  : "UnsupportedChecksum";
+          const std::string checksum_value =
+              checksum_metadata == ChecksumMetadata::kMissing
+                  ? ""
+                  : addition.GetChecksumValue();
+          (*result_ptr)->blob_file_additions.front() = BlobFileAddition(
+              addition.GetBlobFileNumber(), addition.GetTotalBlobCount(),
+              addition.GetTotalBlobBytes(), checksum_method, checksum_value);
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    const Status status =
+        db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    ASSERT_OK(status);
+    EXPECT_EQ(GetCompactionService()->GetFinalCompactionServiceJobStatus(),
+              CompactionServiceJobStatus::kUseLocal);
+    EXPECT_EQ(GetCompactionService()->GetUseLocalInstallationCount(), 1);
+    std::string expected = value;
+    expected[0] = 'z';
+    EXPECT_EQ(Get("key"), expected);
+    ASSERT_OK(Put("post-fallback", "writable"));
+    Close();
+  }
+}
+
+TEST_F(CompactionServiceTest,
+       RemoteBlobFileRangeDoesNotRaceWithPrimaryAllocation) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.blob_file_size = 1;
+  options.max_subcompactions = 1;
+  std::unique_ptr<CompactionFilter> compaction_filter(
+      new ChangeBlobValueCompactionFilter());
+  options.compaction_filter = compaction_filter.get();
+  ReopenWithCompactionService(&options);
+
+  const std::string value(4096, 'a');
+  ASSERT_OK(Put("key1", value));
+  ASSERT_OK(Put("key3", value));
+  ASSERT_OK(Flush());
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"MyTestCompactionService::Wait:BeforeOpenAndCompact",
+        "CompactionServiceTest::RemoteRangeReserved"},
+       {"CompactionServiceTest::PrimaryFlushFinished",
+        "MyTestCompactionService::Wait:Continue"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status compact_status;
+  std::thread compaction_thread([&] {
+    CompactRangeOptions compact_options;
+    compact_options.bottommost_level_compaction =
+        BottommostLevelCompaction::kForce;
+    compact_options.max_subcompactions = 1;
+    compact_status = db_->CompactRange(compact_options, nullptr, nullptr);
+  });
+
+  TEST_SYNC_POINT("CompactionServiceTest::RemoteRangeReserved");
+  CompactionServiceInput input;
+  GetCompactionService()->GetInput(&input);
+  const uint64_t next_file_number_before_flush =
+      dbfull()->TEST_Current_Next_FileNo();
+  const Status put_status = Put("concurrent", std::string(4096, 'c'));
+  const Status flush_status = Flush();
+  const uint64_t next_file_number_after_flush =
+      dbfull()->TEST_Current_Next_FileNo();
+  TEST_SYNC_POINT("CompactionServiceTest::PrimaryFlushFinished");
+  compaction_thread.join();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(put_status);
+  ASSERT_OK(flush_status);
+  ASSERT_OK(compact_status);
+  ASSERT_GT(input.blob_file_number_start, 0);
+  ASSERT_GT(input.blob_file_number_limit, input.blob_file_number_start);
+  ASSERT_GE(next_file_number_before_flush, input.blob_file_number_limit);
+  ASSERT_GT(next_file_number_after_flush, next_file_number_before_flush);
+
+  const std::vector<CompactionServiceInput> inputs =
+      GetCompactionService()->GetInputs();
+  const std::vector<CompactionServiceResult> results =
+      GetCompactionService()->GetResults();
+  ASSERT_EQ(results.size(), inputs.size());
+  const auto input_it = std::find_if(
+      inputs.begin(), inputs.end(), [&](const CompactionServiceInput& item) {
+        return item.blob_file_number_start == input.blob_file_number_start;
+      });
+  ASSERT_NE(input_it, inputs.end());
+  const size_t result_index =
+      static_cast<size_t>(std::distance(inputs.begin(), input_it));
+  const CompactionServiceResult& result = results[result_index];
+  ASSERT_OK(result.status);
+  ASSERT_FALSE(result.blob_file_additions.empty());
+  for (const auto& addition : result.blob_file_additions) {
+    EXPECT_GE(addition.GetBlobFileNumber(), input.blob_file_number_start);
+    EXPECT_LT(addition.GetBlobFileNumber(), input.blob_file_number_limit);
+    EXPECT_LT(addition.GetBlobFileNumber(), next_file_number_before_flush);
+  }
+  std::string filtered_value = value;
+  filtered_value[0] = 'z';
+  ASSERT_EQ(Get("key1"), filtered_value);
+  ASSERT_EQ(Get("concurrent"), std::string(4096, 'c'));
+}
+
+TEST_F(CompactionServiceTest, RemoteBlobRangeExhaustionFallsBackLocally) {
+  constexpr size_t kValueSize = 1 << 20;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.blob_file_size = kValueSize;
+  options.max_subcompactions = 1;
+  std::unique_ptr<CompactionFilter> compaction_filter(
+      new ChangeAllBlobValuesCompactionFilter());
+  options.compaction_filter = compaction_filter.get();
+  ReopenWithCompactionService(&options);
+
+  auto* const compaction_service = GetCompactionService();
+  ASSERT_OK(Put("key1", std::string(kValueSize, 'a')));
+  ASSERT_OK(Put("key2", std::string(kValueSize, 'b')));
+  ASSERT_OK(Flush());
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceJob::ProcessKeyValueCompactionWithCompactionService",
+      [](void* arg) {
+        auto* input = static_cast<CompactionServiceInput*>(arg);
+        ASSERT_GT(input->blob_file_number_start, 0);
+        ASSERT_GT(input->blob_file_number_limit - input->blob_file_number_start,
+                  2);
+        input->blob_file_number_limit = input->blob_file_number_start + 1;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  compact_options.max_subcompactions = 1;
+  const Status compact_status =
+      db_->CompactRange(compact_options, nullptr, nullptr);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(compact_status);
+  ASSERT_EQ(compaction_service->GetUseLocalInstallationCount(), 0);
+  EXPECT_EQ(GetPrimaryStatistics()->getTickerCount(
+                REMOTE_COMPACT_BLOB_RESULT_DECLINED_COUNT),
+            0);
+  const std::vector<CompactionServiceResult> results =
+      compaction_service->GetResults();
+  ASSERT_TRUE(std::any_of(results.begin(), results.end(), [](const auto& item) {
+    return item.status.IsIncomplete();
+  }));
+  std::string expected1(kValueSize, 'a');
+  std::string expected2(kValueSize, 'b');
+  expected1[0] = 'z';
+  expected2[0] = 'z';
+  ASSERT_EQ(Get("key1"), expected1);
+  ASSERT_EQ(Get("key2"), expected2);
+  ASSERT_OK(Put("post-fallback", "writable"));
+}
+
+TEST_F(CompactionServiceTest, RemoteBlobOptionSkewFallsBackLocally) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.blob_file_size = 1;
+  options.max_subcompactions = 1;
+  std::unique_ptr<CompactionFilter> compaction_filter(
+      new ChangeAllBlobValuesCompactionFilter());
+  options.compaction_filter = compaction_filter.get();
+  ReopenWithCompactionService(&options);
+
+  auto* const compaction_service = GetCompactionService();
+  compaction_service->SetWorkerOptionOverride("enable_blob_files", "true");
+  ASSERT_OK(Put("key1", std::string(4096, 'a')));
+  ASSERT_OK(Put("key2", std::string(4096, 'b')));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->SetOptions({{"enable_blob_files", "false"}}));
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  compact_options.max_subcompactions = 1;
+  const Status compact_status =
+      db_->CompactRange(compact_options, nullptr, nullptr);
+
+  ASSERT_OK(compact_status);
+  ASSERT_EQ(compaction_service->GetUseLocalInstallationCount(), 0);
+  EXPECT_EQ(GetPrimaryStatistics()->getTickerCount(
+                REMOTE_COMPACT_BLOB_RESULT_DECLINED_COUNT),
+            0);
+  const std::vector<CompactionServiceInput> inputs =
+      compaction_service->GetInputs();
+  ASSERT_TRUE(std::any_of(inputs.begin(), inputs.end(), [](const auto& item) {
+    return !item.input_blob_files.empty() &&
+           item.blob_file_number_start == kInvalidBlobFileNumber &&
+           item.blob_file_number_limit == kInvalidBlobFileNumber;
+  }));
+  const std::vector<CompactionServiceResult> results =
+      compaction_service->GetResults();
+  ASSERT_TRUE(std::any_of(results.begin(), results.end(), [](const auto& item) {
+    return item.status.IsIncomplete();
+  }));
+  std::string expected1(4096, 'a');
+  std::string expected2(4096, 'b');
+  expected1[0] = 'z';
+  expected2[0] = 'z';
+  ASSERT_EQ(Get("key1"), expected1);
+  ASSERT_EQ(Get("key2"), expected2);
+  ASSERT_OK(Put("post-fallback", "writable"));
+}
+
+TEST_F(CompactionServiceTest, RejectsMalformedRemoteBlobMetadata) {
+  enum class InvalidMetadata {
+    kOutOfRangeAddition,
+    kDuplicateAddition,
+    kInvalidAddition,
+    kWrongAdditionCount,
+    kWrongAdditionBytes,
+    kUnknownGarbage,
+    kInvalidGarbage,
+    kDuplicateGarbage,
+    kExcessiveGarbage,
+    kSameResultGarbage,
+    kDanglingOldestBlobFile,
+  };
+
+  for (const InvalidMetadata invalid_metadata :
+       {InvalidMetadata::kOutOfRangeAddition,
+        InvalidMetadata::kDuplicateAddition, InvalidMetadata::kInvalidAddition,
+        InvalidMetadata::kWrongAdditionCount,
+        InvalidMetadata::kWrongAdditionBytes, InvalidMetadata::kUnknownGarbage,
+        InvalidMetadata::kInvalidGarbage, InvalidMetadata::kDuplicateGarbage,
+        InvalidMetadata::kExcessiveGarbage, InvalidMetadata::kSameResultGarbage,
+        InvalidMetadata::kDanglingOldestBlobFile}) {
+    SCOPED_TRACE(static_cast<int>(invalid_metadata));
+    Options options = CurrentOptions();
+    options.disable_auto_compactions = true;
+    options.enable_blob_files = true;
+    options.min_blob_size = 0;
+    options.blob_file_size = 1;
+    std::unique_ptr<CompactionFilter> compaction_filter(
+        new ChangeBlobValueCompactionFilter());
+    options.compaction_filter = compaction_filter.get();
+    ReopenWithCompactionService(&options);
+
+    ASSERT_OK(Put("key1", std::string(4096, 'a')));
+    ASSERT_OK(Put("key3", std::string(4096, 'c')));
+    ASSERT_OK(Flush());
+
+    SyncPoint::GetInstance()->SetCallBack(
+        "CompactionServiceCompactionJob::Run:0", [&](void* arg) {
+          auto** result_ptr = static_cast<CompactionServiceResult**>(arg);
+          ASSERT_NE(result_ptr, nullptr);
+          CompactionServiceResult* const result = *result_ptr;
+          ASSERT_NE(result, nullptr);
+          ASSERT_FALSE(result->blob_file_additions.empty());
+
+          CompactionServiceInput input;
+          GetCompactionService()->GetInput(&input);
+          const BlobFileAddition& addition =
+              result->blob_file_additions.front();
+          ASSERT_FALSE(result->blob_file_garbages.empty());
+          const uint64_t existing_blob_file_number =
+              result->blob_file_garbages.front().GetBlobFileNumber();
+          switch (invalid_metadata) {
+            case InvalidMetadata::kOutOfRangeAddition:
+              result->blob_file_additions.front() = BlobFileAddition(
+                  input.blob_file_number_limit, addition.GetTotalBlobCount(),
+                  addition.GetTotalBlobBytes(), addition.GetChecksumMethod(),
+                  addition.GetChecksumValue());
+              break;
+            case InvalidMetadata::kDuplicateAddition:
+              result->blob_file_additions.push_back(addition);
+              break;
+            case InvalidMetadata::kInvalidAddition:
+              result->blob_file_additions.front() = BlobFileAddition(
+                  addition.GetBlobFileNumber(), 0, addition.GetTotalBlobBytes(),
+                  addition.GetChecksumMethod(), addition.GetChecksumValue());
+              break;
+            case InvalidMetadata::kWrongAdditionCount:
+              result->blob_file_additions.front() = BlobFileAddition(
+                  addition.GetBlobFileNumber(),
+                  addition.GetTotalBlobCount() + 1,
+                  addition.GetTotalBlobBytes(), addition.GetChecksumMethod(),
+                  addition.GetChecksumValue());
+              break;
+            case InvalidMetadata::kWrongAdditionBytes:
+              result->blob_file_additions.front() = BlobFileAddition(
+                  addition.GetBlobFileNumber(), addition.GetTotalBlobCount(),
+                  addition.GetTotalBlobBytes() + 1,
+                  addition.GetChecksumMethod(), addition.GetChecksumValue());
+              break;
+            case InvalidMetadata::kUnknownGarbage:
+              result->blob_file_garbages.emplace_back(
+                  input.blob_file_number_limit, 1, 1);
+              break;
+            case InvalidMetadata::kInvalidGarbage:
+              result->blob_file_garbages.emplace_back(existing_blob_file_number,
+                                                      0, 1);
+              break;
+            case InvalidMetadata::kDuplicateGarbage:
+              result->blob_file_garbages.emplace_back(existing_blob_file_number,
+                                                      1, 1);
+              result->blob_file_garbages.emplace_back(existing_blob_file_number,
+                                                      1, 1);
+              break;
+            case InvalidMetadata::kExcessiveGarbage:
+              result->blob_file_garbages.emplace_back(
+                  existing_blob_file_number,
+                  std::numeric_limits<uint64_t>::max(),
+                  std::numeric_limits<uint64_t>::max());
+              break;
+            case InvalidMetadata::kSameResultGarbage:
+              result->blob_file_garbages.emplace_back(
+                  addition.GetBlobFileNumber(), 1, 1);
+              break;
+            case InvalidMetadata::kDanglingOldestBlobFile:
+              ASSERT_FALSE(result->output_files.empty());
+              result->output_files.front().oldest_blob_file_number =
+                  input.blob_file_number_limit;
+              break;
+          }
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    CompactRangeOptions compact_options;
+    compact_options.bottommost_level_compaction =
+        BottommostLevelCompaction::kForce;
+    const Status status = db_->CompactRange(compact_options, nullptr, nullptr);
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    ASSERT_OK(status);
+    ASSERT_EQ(GetCompactionService()->GetFinalCompactionServiceJobStatus(),
+              CompactionServiceJobStatus::kUseLocal);
+    ASSERT_GE(GetCompactionService()->GetUseLocalInstallationCount(), 1);
+    std::string expected_key1(4096, 'a');
+    expected_key1[0] = 'z';
+    ASSERT_EQ(Get("key1"), expected_key1);
+    ASSERT_EQ(Get("key3"), std::string(4096, 'c'));
+    ASSERT_OK(Put("post-fallback", "writable"));
+    Close();
+  }
+}
+
+TEST_F(CompactionServiceTest, RejectsGarbageForUntransportedBlobFile) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.blob_file_size = 1 << 20;
+  std::unique_ptr<CompactionFilter> compaction_filter(
+      new ChangeBlobValueCompactionFilter());
+  options.compaction_filter = compaction_filter.get();
+  ReopenWithCompactionService(&options);
+
+  ASSERT_OK(Put("a", std::string(4096, 'a')));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  const std::vector<uint64_t> existing_blob_files = GetBlobFileNumbers();
+  ASSERT_FALSE(existing_blob_files.empty());
+  const uint64_t unrelated_blob_file = existing_blob_files.front();
+
+  ASSERT_OK(Put("z", std::string(4096, 'z')));
+  ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceCompactionJob::Run:0", [&](void* arg) {
+        auto** result_ptr = static_cast<CompactionServiceResult**>(arg);
+        ASSERT_NE(result_ptr, nullptr);
+        CompactionServiceResult* const result = *result_ptr;
+        ASSERT_NE(result, nullptr);
+        CompactionServiceInput input;
+        GetCompactionService()->GetInput(&input);
+        EXPECT_EQ(std::find(input.input_blob_files.begin(),
+                            input.input_blob_files.end(),
+                            BlobFileName(unrelated_blob_file)),
+                  input.input_blob_files.end());
+        result->blob_file_garbages.emplace_back(unrelated_blob_file, 1, 1);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const Slice begin("z");
+  const Status status =
+      db_->CompactRange(CompactRangeOptions(), &begin, nullptr);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_OK(status);
+  ASSERT_EQ(GetCompactionService()->GetFinalCompactionServiceJobStatus(),
+            CompactionServiceJobStatus::kUseLocal);
+  ASSERT_GE(GetCompactionService()->GetUseLocalInstallationCount(), 1);
+  ASSERT_EQ(Get("a"), std::string(4096, 'a'));
+  std::string expected_z(4096, 'z');
+  expected_z[0] = 'z';
+  ASSERT_EQ(Get("z"), expected_z);
+  ASSERT_OK(Put("post-fallback", "writable"));
+}
+
+TEST_F(CompactionServiceTest, BlobFileCollisionIsDeclinedRecoverably) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.blob_file_size = 1;
+  std::unique_ptr<CompactionFilter> compaction_filter(
+      new ChangeBlobValueCompactionFilter());
+  options.compaction_filter = compaction_filter.get();
+  ReopenWithCompactionService(&options);
+
+  const std::string value(4096, 'a');
+  ASSERT_OK(Put("key1", value));
+  ASSERT_OK(Flush());
+
+  std::string collision_path;
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceCompactionJob::Run:0", [&](void* arg) {
+        auto** result_ptr = static_cast<CompactionServiceResult**>(arg);
+        ASSERT_NE(result_ptr, nullptr);
+        ASSERT_NE(*result_ptr, nullptr);
+        ASSERT_FALSE((*result_ptr)->blob_file_additions.empty());
+        collision_path = BlobFileName(
+            dbname_,
+            (*result_ptr)->blob_file_additions.front().GetBlobFileNumber());
+        std::unique_ptr<WritableFile> file;
+        ASSERT_OK(env_->NewWritableFile(collision_path, &file, EnvOptions()));
+        ASSERT_OK(file->Append("collision"));
+        ASSERT_OK(file->Close());
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  const Status status = db_->CompactRange(compact_options, nullptr, nullptr);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(status);
+  ASSERT_EQ(GetCompactionService()->GetFinalCompactionServiceJobStatus(),
+            CompactionServiceJobStatus::kUseLocal);
+  ASSERT_GE(GetCompactionService()->GetUseLocalInstallationCount(), 1);
+  std::string expected = value;
+  expected[0] = 'z';
+  ASSERT_EQ(Get("key1"), expected);
+  ASSERT_OK(Put("post-fallback", "writable"));
+  if (!collision_path.empty()) {
+    env_->DeleteFile(collision_path).PermitUncheckedError();
+  }
+}
+
+TEST_F(CompactionServiceTest, RemoteBlobCompactionInstallsEmptyResult) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  std::unique_ptr<CompactionFilter> compaction_filter(
+      new RemoveAllBlobValuesCompactionFilter());
+  options.compaction_filter = compaction_filter.get();
+  ReopenWithCompactionService(&options);
+
+  ASSERT_OK(Put("key", std::string(4096, 'a')));
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+
+  CompactionServiceInput input;
+  GetCompactionService()->GetInput(&input);
+  ASSERT_GT(input.blob_file_number_start, 0);
+  ASSERT_GT(input.blob_file_number_limit, input.blob_file_number_start);
+
+  CompactionServiceResult result;
+  GetCompactionService()->GetResult(&result);
+  ASSERT_OK(result.status);
+  ASSERT_TRUE(result.output_files.empty());
+  ASSERT_TRUE(result.blob_file_additions.empty());
+  ASSERT_FALSE(result.blob_file_garbages.empty());
+  ASSERT_EQ(Get("key"), "NOT_FOUND");
 }
 
 TEST_F(CompactionServiceTest, StandaloneDeleteRangeTombstoneOptimization) {
@@ -1788,7 +3755,7 @@ TEST_F(CompactionServiceTest, CancelCompactionOnRemoteSide) {
   // Test cancel compaction at the beginning
   my_cs->SetCanceled(true);
   auto s = db_->CompactRange(CompactRangeOptions(), &start, &end);
-  ASSERT_TRUE(s.IsIncomplete());
+  ASSERT_TRUE(s.IsIncomplete()) << s.ToString();
   // compaction number is not increased
   ASSERT_GE(my_cs->GetCompactionNum(), comp_num);
   VerifyTestData();
@@ -1809,7 +3776,7 @@ TEST_F(CompactionServiceTest, CancelCompactionOnRemoteSide) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   s = db_->CompactRange(CompactRangeOptions(), &start, &end);
-  ASSERT_TRUE(s.IsIncomplete());
+  ASSERT_TRUE(s.IsIncomplete()) << s.ToString();
   ASSERT_TRUE(cancel_issued);
   // compaction number is not increased
   ASSERT_GE(my_cs->GetCompactionNum(), comp_num);
@@ -1843,7 +3810,7 @@ TEST_F(CompactionServiceTest, CancelCompactionOnPrimarySide) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   Status s = db_->CompactRange(CompactRangeOptions(), &start, &end);
-  ASSERT_TRUE(s.IsIncomplete());
+  ASSERT_TRUE(s.IsIncomplete()) << s.ToString();
 
   // Check canceled_ was set to true by CancelAwaitingJobs()
   ASSERT_TRUE(my_cs->GetCanceled());
@@ -1867,10 +3834,10 @@ TEST_F(CompactionServiceTest, FailedToStart) {
   Slice start(start_str);
   Slice end(end_str);
   Status s = db_->CompactRange(CompactRangeOptions(), &start, &end);
-  ASSERT_TRUE(s.IsIncomplete());
+  ASSERT_TRUE(s.IsIncomplete()) << s.ToString();
 }
 
-TEST_F(CompactionServiceTest, InvalidResultFallsBackToLocal) {
+TEST_F(CompactionServiceTest, InvalidResultIsDeclinedRecoverably) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   ReopenWithCompactionService(&options);
@@ -1880,21 +3847,23 @@ TEST_F(CompactionServiceTest, InvalidResultFallsBackToLocal) {
   auto my_cs = GetCompactionService();
   ASSERT_EQ(0, my_cs->GetOnInstallationCount());
   my_cs->OverrideWaitResult("Invalid Str");
-  int compaction_num_before = my_cs->GetCompactionNum();
+  const int compaction_num_before = my_cs->GetCompactionNum();
 
   std::string start_str = Key(15);
   std::string end_str = Key(45);
   Slice start(start_str);
   Slice end(end_str);
-  // The remote result is malformed before any installation starts, so the
-  // primary should recover by rerunning the compaction locally for this job.
-  Status s = db_->CompactRange(CompactRangeOptions(), &start, &end);
+  // The remote result is malformed before any installation starts, so RocksDB
+  // reruns the compaction locally.
+  const Status s = db_->CompactRange(CompactRangeOptions(), &start, &end);
   ASSERT_OK(s);
   ASSERT_GE(my_cs->GetCompactionNum(), compaction_num_before + 1);
   VerifyTestData();
   ASSERT_EQ(1, my_cs->GetOnInstallationCount());
   ASSERT_EQ(CompactionServiceJobStatus::kUseLocal,
             my_cs->GetFinalCompactionServiceJobStatus());
+  ASSERT_EQ(my_cs->GetUseLocalInstallationCount(), 1);
+  ASSERT_OK(Put("post-fallback", "writable"));
 }
 
 TEST_F(CompactionServiceTest, CompatCheckCountsWidthTolerance) {
@@ -1964,6 +3933,8 @@ TEST_F(CompactionServiceTest, SubCompaction) {
   options.max_subcompactions = 10;
   options.target_file_size_base = 1 << 10;  // 1KB
   options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
   ReopenWithCompactionService(&options);
 
   GenerateTestData();
@@ -1980,6 +3951,146 @@ TEST_F(CompactionServiceTest, SubCompaction) {
   int compaction_num = my_cs->GetCompactionNum() - compaction_num_before;
   // make sure there's sub-compaction by checking the compaction number
   ASSERT_GE(compaction_num, 2);
+
+  std::vector<CompactionServiceInput> inputs = my_cs->GetInputs();
+  ASSERT_EQ(inputs.size(), static_cast<size_t>(compaction_num));
+  std::sort(
+      inputs.begin(), inputs.end(),
+      [](const CompactionServiceInput& lhs, const CompactionServiceInput& rhs) {
+        return lhs.blob_file_number_start < rhs.blob_file_number_start;
+      });
+  std::set<std::vector<std::string>> distinct_blob_manifests;
+  std::set<std::string> distinct_blob_files;
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    EXPECT_GT(inputs[i].blob_file_number_start, 0);
+    EXPECT_GT(inputs[i].blob_file_number_limit,
+              inputs[i].blob_file_number_start);
+    EXPECT_FALSE(inputs[i].input_blob_files.empty());
+    distinct_blob_manifests.insert(inputs[i].input_blob_files);
+    distinct_blob_files.insert(inputs[i].input_blob_files.begin(),
+                               inputs[i].input_blob_files.end());
+    if (i > 0) {
+      EXPECT_LE(inputs[i - 1].blob_file_number_limit,
+                inputs[i].blob_file_number_start);
+    }
+  }
+  EXPECT_GT(distinct_blob_manifests.size(), 1);
+  EXPECT_EQ(GetPrimaryStatistics()->getTickerCount(
+                REMOTE_COMPACT_INPUT_BLOB_FILE_COUNT),
+            distinct_blob_files.size());
+}
+
+TEST_F(CompactionServiceTest, BlobManifestTickerIgnoresReservationFallback) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  ReopenWithCompactionService(&options);
+
+  ASSERT_OK(Put("key", std::string(4096, 'a')));
+  ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::ProcessKeyValueCompactionWithCompactionService:"
+      "BlobFileNumberRangeSize",
+      [](void* arg) {
+        *static_cast<uint64_t*>(arg) = std::numeric_limits<uint64_t>::max();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  EXPECT_EQ(GetPrimaryStatistics()->getTickerCount(
+                REMOTE_COMPACT_INPUT_BLOB_FILE_COUNT),
+            0);
+  EXPECT_EQ(GetCompactionService()->GetCompactionNum(), 0);
+  ASSERT_OK(Put("post-fallback", "writable"));
+}
+
+TEST_F(CompactionServiceTest, RejectsExcessiveCrossSubcompactionBlobGarbage) {
+  Options options = CurrentOptions();
+  options.max_subcompactions = 10;
+  options.target_file_size_base = 1 << 10;
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.blob_file_size = 1 << 30;
+  ReopenWithCompactionService(&options);
+
+  GenerateTestData(/*move_files_manually=*/true);
+  VerifyTestData();
+
+  constexpr int kBlobKeys = 3;
+  const std::string blob_value(4096, 'b');
+  const std::array<std::string, kBlobKeys> blob_keys = {
+      "0000_blob", "5000_blob", "9999_blob"};
+  for (const std::string& key : blob_keys) {
+    ASSERT_OK(Put(key, blob_value));
+  }
+  ASSERT_OK(Flush());
+
+  const std::vector<uint64_t> blob_file_numbers = GetBlobFileNumbers();
+  ASSERT_FALSE(blob_file_numbers.empty());
+  const uint64_t blob_file_number = blob_file_numbers.back();
+  VersionSet* const versions = dbfull()->GetVersionSet();
+  ASSERT_NE(versions, nullptr);
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  ASSERT_NE(cfd, nullptr);
+  const std::shared_ptr<BlobFileMetaData> blob_file =
+      cfd->current()->storage_info()->GetBlobFileMetaData(blob_file_number);
+  ASSERT_NE(blob_file, nullptr);
+  ASSERT_EQ(blob_file->GetTotalBlobCount(), kBlobKeys);
+  ASSERT_EQ(blob_file->GetGarbageBlobCount(), 0);
+  ASSERT_EQ(blob_file->GetGarbageBlobBytes(), 0);
+
+  port::Mutex callback_mutex;
+  port::CondVar callback_cv(&callback_mutex);
+  int callbacks_ready = 0;
+  std::atomic<size_t> modified_results{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceCompactionJob::Run:0", [&](void* arg) {
+        int callback_index = 0;
+        {
+          MutexLock lock(&callback_mutex);
+          callback_index = callbacks_ready++;
+          if (callbacks_ready < 2) {
+            while (callbacks_ready < 2) {
+              callback_cv.Wait();
+            }
+          } else {
+            callback_cv.SignalAll();
+          }
+        }
+        if (callback_index >= 2) {
+          return;
+        }
+        auto** result_ptr = static_cast<CompactionServiceResult**>(arg);
+        ASSERT_NE(result_ptr, nullptr);
+        CompactionServiceResult* const result = *result_ptr;
+        ASSERT_NE(result, nullptr);
+        result->blob_file_garbages.clear();
+        result->blob_file_garbages.emplace_back(
+            blob_file_number, blob_file->GetTotalBlobCount() - 1, 1);
+        ++modified_results;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  CompactRangeOptions compact_options;
+  compact_options.max_subcompactions = 10;
+  const Status status = db_->CompactRange(compact_options, nullptr, nullptr);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(status);
+  ASSERT_EQ(modified_results.load(), 2);
+  ASSERT_EQ(GetCompactionService()->GetUseLocalInstallationCount(), 1);
+  VerifyTestData();
+  for (const std::string& key : blob_keys) {
+    ASSERT_EQ(Get(key), blob_value);
+  }
+  ASSERT_OK(Put("post-fallback", "writable"));
 }
 
 class PropertySamplingCompactionService : public MyTestCompactionService {
@@ -2765,7 +4876,7 @@ TEST_F(CompactionServiceTest, CanDisableSecondaryOpenRetry) {
   const int compactions = cs->GetCompactionNum();
   Close();
 
-  ASSERT_TRUE(compact_s.IsIncomplete());
+  ASSERT_TRUE(compact_s.IsIncomplete()) << compact_s.ToString();
   ASSERT_EQ(1, injected_failures);
   ASSERT_EQ(1, compactions);
 }
@@ -3251,21 +5362,34 @@ class ResumableCompactionService : public MyTestCompactionService {
     // - Phase 3: Resume with resumption support (loads Phase 1's progress) and
     // complete
     // Validates: Resumption state can be toggled;
-    kMultipleCancelToggleResumption
+    kMultipleCancelToggleResumption,
+
+    // Test scenario 4: Resume with the pre-allocated blob range exhausted.
+    // Validates: The worker returns Incomplete and the primary falls back to
+    // local compaction without installing partial remote output.
+    kResumeRangeExhaustion
   };
 
   ResumableCompactionService(const std::string& db_path, Options& options,
                              std::shared_ptr<Statistics> statistics,
-                             TestScenario scenario)
+                             TestScenario scenario,
+                             size_t output_file_key_interval = 1,
+                             bool merge_resumed_output = false)
       : MyTestCompactionService(db_path, options, statistics,
                                 {} /* listeners */,
                                 {} /* table_properties_collector_factories */),
-        scenario_(scenario) {}
+        scenario_(scenario),
+        output_file_key_interval_(output_file_key_interval),
+        merge_resumed_output_(merge_resumed_output) {}
 
   // Set the user key where cancellation should happen.
   void SetCancelAtKey(const std::string& key, SequenceNumber seqno) {
     cancel_at_key_ = key;
     cancel_at_seqno_ = seqno;
+  }
+
+  void CaptureVerifiedInputRecords(std::atomic<uint64_t>* records) {
+    verified_input_records_ = records;
   }
 
   CompactionServiceJobStatus Wait(const std::string& scheduled_job_id,
@@ -3283,7 +5407,11 @@ class ResumableCompactionService : public MyTestCompactionService {
         "CompactionOutputs::ShouldStopBefore::manual_decision",
         [this](void* p) {
           auto* pair = static_cast<std::pair<bool*, const Slice>*>(p);
-          *(pair->first) = true;  // Force file cut at every key
+          if (output_file_key_interval_ > 0 &&
+              !(merge_resumed_output_ && already_canceled_)) {
+            *(pair->first) = output_key_count_ % output_file_key_interval_ == 0;
+            ++output_key_count_;
+          }
 
           // If cancel_at_key_ is set, cancel when we encounter that key
           if (!cancel_at_key_.empty() && !already_canceled_) {
@@ -3323,10 +5451,14 @@ class ResumableCompactionService : public MyTestCompactionService {
     open_and_compaction_options.canceled = &canceled_;
     already_canceled_ = false;
     canceled_ = false;
+    output_key_count_ = 0;
 
     auto phase1_stats =
         RunCancelledCompaction(open_and_compaction_options, scheduled_job_id,
                                compaction_input, override_options);
+    std::string output_path = GetOutputPath(scheduled_job_id);
+    TEST_SYNC_POINT_CALLBACK(
+        "ResumableCompactionService::AfterCancelledCompaction", &output_path);
 
     HistogramData phase2_stats;
 
@@ -3346,6 +5478,7 @@ class ResumableCompactionService : public MyTestCompactionService {
 
       already_canceled_ = false;
       canceled_ = false;
+      output_key_count_ = 0;
 
       phase2_stats =
           RunCancelledCompaction(open_and_compaction_options, scheduled_job_id,
@@ -3362,7 +5495,8 @@ class ResumableCompactionService : public MyTestCompactionService {
     if (scenario_ == TestScenario::kMultipleCancelToggleResumption) {
       // Attempt to resume but it ends up starting fresh
       open_and_compaction_options.allow_resumption = true;
-    } else if (scenario_ == TestScenario::kCancelThenResume) {
+    } else if (scenario_ == TestScenario::kCancelThenResume ||
+               scenario_ == TestScenario::kResumeRangeExhaustion) {
       // Resume from Phase 1's saved progress
       open_and_compaction_options.allow_resumption = true;
     } else {  // kCancelThenFreshStart
@@ -3381,6 +5515,24 @@ class ResumableCompactionService : public MyTestCompactionService {
         "DBImplSecondary::CompactWithoutInstallation::End");
     already_canceled_ = true;
     canceled_ = false;
+    output_key_count_ = 0;
+
+    TEST_SYNC_POINT_CALLBACK(
+        "ResumableCompactionService::BeforeFinalCompaction", &compaction_input);
+
+    if (scenario_ == TestScenario::kResumeRangeExhaustion) {
+      Status s = DB::OpenAndCompact(open_and_compaction_options, db_path_,
+                                    scheduled_job_id, compaction_input, result,
+                                    override_options);
+      StoreResult(*result);
+      SyncPoint::GetInstance()->DisableProcessing();
+      SyncPoint::GetInstance()->ClearAllCallBacks();
+      EXPECT_TRUE(s.IsIncomplete());
+      EXPECT_NE(s.ToString().find("Blob file number range exhausted"),
+                std::string::npos)
+          << s.ToString();
+      return CompactionServiceJobStatus::kUseLocal;
+    }
 
     auto final_phase_stats =
         RunCompaction(open_and_compaction_options, scheduled_job_id,
@@ -3388,6 +5540,13 @@ class ResumableCompactionService : public MyTestCompactionService {
 
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
+    if (verified_input_records_ != nullptr) {
+      auto* const records = verified_input_records_;
+      SyncPoint::GetInstance()->SetCallBack(
+          "CompactionJob::VerifyInputRecordCount:Actual",
+          [records](void* arg) { *records = *static_cast<uint64_t*>(arg); });
+      SyncPoint::GetInstance()->EnableProcessing();
+    }
 
     // Validate statistics based on scenario (only when cancelling at end)
     if (cancel_at_key_.empty()) {
@@ -3476,7 +5635,7 @@ class ResumableCompactionService : public MyTestCompactionService {
     Status s = DB::OpenAndCompact(options, db_path_, scheduled_job_id,
                                   compaction_input, result, override_options);
 
-    EXPECT_TRUE(s.ok());
+    EXPECT_TRUE(s.ok()) << s.ToString();
 
     HistogramData stats;
     statistics_->histogramData(FILE_WRITE_COMPACTION_MICROS, &stats);
@@ -3489,14 +5648,181 @@ class ResumableCompactionService : public MyTestCompactionService {
   }
 
   TestScenario scenario_;
+  const size_t output_file_key_interval_;
+  const bool merge_resumed_output_;
+  size_t output_key_count_ = 0;
   std::string cancel_at_key_;
   SequenceNumber cancel_at_seqno_ = kMaxSequenceNumber;
   std::atomic<bool> already_canceled_{false};
+  std::atomic<uint64_t>* verified_input_records_ = nullptr;
 };
 
 class ResumableCompactionServiceTest : public CompactionServiceTest {
  public:
   explicit ResumableCompactionServiceTest() : CompactionServiceTest() {}
+
+  uint64_t CountPrimaryPointInputRecords() {
+    TablePropertiesCollection properties;
+    EXPECT_OK(db_->GetPropertiesOfAllTables(&properties));
+    uint64_t input_records = 0;
+    for (const auto& entry : properties) {
+      input_records +=
+          entry.second->num_entries - entry.second->num_range_deletions;
+    }
+    return input_records;
+  }
+
+  void AssertDroppedNewerVersionScenarioPointInputTotal() {
+    // Before compaction, the three input files contain four point entries:
+    // j@1 and k@2 in the first file, k@3 and l@4 in the second, plus a range
+    // tombstone [a, kk) in the third. This only verifies that the fixture built
+    // the intended scenario and is independent of option A.
+    EXPECT_EQ(CountPrimaryPointInputRecords(), 4);
+  }
+
+  void AssertDroppedNewerVersionRecordCounts(
+      const CompactionServiceResult& result, uint64_t verified_input_records) {
+    // The range tombstone drops k@3 while j@1, k@2, and l@4 remain as point
+    // outputs. Both VerifyInputRecordCount's installed-worker value and
+    // result.stats cover the resumed scan of k@3, k@2, and l@4. The result's
+    // output count covers all point outputs returned for installation.
+    constexpr uint64_t kExpectedInputRecordsAfterResume = 3;
+    EXPECT_EQ(verified_input_records, kExpectedInputRecordsAfterResume);
+    EXPECT_EQ(result.stats.num_input_records, kExpectedInputRecordsAfterResume);
+    EXPECT_EQ(result.stats.num_output_records, 3);
+  }
+
+  void RunBlobCompactionResumeAfterDroppedNewerVersion(
+      bool verify_record_count, bool merge_resumed_output) {
+    Options options = CurrentOptions();
+    options.disable_auto_compactions = true;
+    options.enable_blob_files = true;
+    options.min_blob_size = 0;
+    options.compaction_verify_record_count = verify_record_count;
+    std::shared_ptr<Statistics> statistics = CreateDBStatistics();
+
+    auto resume_cs = std::make_shared<ResumableCompactionService>(
+        dbname_, options, statistics,
+        ResumableCompactionService::TestScenario::kCancelThenResume,
+        /*output_file_key_interval=*/1, merge_resumed_output);
+    resume_cs->SetCancelAtKey("k", kMaxSequenceNumber);
+    resume_cs->SetWorkerOptionOverride("compaction_verify_record_count",
+                                       verify_record_count ? "true" : "false");
+    options.compaction_service = resume_cs;
+
+    DestroyAndReopen(options);
+    const std::string value(100, 'v');
+    ASSERT_OK(Put("j", value));
+    ASSERT_OK(Put("k", value));
+    ASSERT_OK(Flush());
+    ASSERT_EQ(GetBlobFileNumbers().size(), 1);
+
+    const Snapshot* snapshot = db_->GetSnapshot();
+    ASSERT_OK(Put("k", value));
+    ASSERT_OK(Put("l", value));
+    ASSERT_OK(Flush());
+    const std::vector<uint64_t> blob_files = GetBlobFileNumbers();
+    ASSERT_EQ(blob_files.size(), 2);
+    const uint64_t second_blob_file = blob_files.back();
+
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a",
+                               "kk"));
+    ASSERT_OK(Flush());
+    AssertDroppedNewerVersionScenarioPointInputTotal();
+
+    std::atomic<size_t> persisted_progress{0};
+    std::atomic<uint64_t> verified_input_records{0};
+    resume_cs->CaptureVerifiedInputRecords(&verified_input_records);
+    SyncPoint::GetInstance()->SetCallBack(
+        "CompactionJob::PersistSubcompactionProgress:Complete",
+        [&](void*) { ++persisted_progress; });
+
+    CompactRangeOptions compact_options;
+    compact_options.bottommost_level_compaction =
+        BottommostLevelCompaction::kForce;
+    const Status status = db_->CompactRange(compact_options, nullptr, nullptr);
+    db_->ReleaseSnapshot(snapshot);
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    EXPECT_OK(status);
+    CompactionServiceResult result;
+    resume_cs->GetResult(&result);
+    AssertDroppedNewerVersionRecordCounts(result,
+                                          verified_input_records.load());
+    EXPECT_TRUE(statistics->getTickerCount(REMOTE_COMPACT_RESUMED_BYTES) > 0 ||
+                persisted_progress.load() > 0);
+    ASSERT_OK(result.status);
+
+    ColumnFamilyMetaData metadata;
+    db_->GetColumnFamilyMetaData(&metadata);
+    const auto blob_meta =
+        std::find_if(metadata.blob_files.begin(), metadata.blob_files.end(),
+                     [second_blob_file](const BlobMetaData& item) {
+                       return item.blob_file_number == second_blob_file;
+                     });
+    ASSERT_NE(blob_meta, metadata.blob_files.end());
+    EXPECT_EQ(blob_meta->total_blob_count, 2);
+    EXPECT_EQ(blob_meta->garbage_blob_count, 1);
+    EXPECT_EQ(Get("l"), value);
+  }
+
+  void RunCompactionResumeAfterDroppedNewerVersion() {
+    Options options = CurrentOptions();
+    options.disable_auto_compactions = true;
+    options.enable_blob_files = false;
+    options.compaction_verify_record_count = true;
+    std::shared_ptr<Statistics> statistics = CreateDBStatistics();
+
+    auto resume_cs = std::make_shared<ResumableCompactionService>(
+        dbname_, options, statistics,
+        ResumableCompactionService::TestScenario::kCancelThenResume,
+        /*output_file_key_interval=*/1, /*merge_resumed_output=*/true);
+    resume_cs->SetCancelAtKey("k", kMaxSequenceNumber);
+    resume_cs->SetWorkerOptionOverride("compaction_verify_record_count",
+                                       "true");
+    options.compaction_service = resume_cs;
+
+    DestroyAndReopen(options);
+    const std::string value(100, 'v');
+    ASSERT_OK(Put("j", value));
+    ASSERT_OK(Put("k", value));
+    ASSERT_OK(Flush());
+
+    const Snapshot* snapshot = db_->GetSnapshot();
+    ASSERT_OK(Put("k", value));
+    ASSERT_OK(Put("l", value));
+    ASSERT_OK(Flush());
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a",
+                               "kk"));
+    ASSERT_OK(Flush());
+    AssertDroppedNewerVersionScenarioPointInputTotal();
+
+    std::atomic<size_t> persisted_progress{0};
+    std::atomic<uint64_t> verified_input_records{0};
+    resume_cs->CaptureVerifiedInputRecords(&verified_input_records);
+    SyncPoint::GetInstance()->SetCallBack(
+        "CompactionJob::PersistSubcompactionProgress:Complete",
+        [&](void*) { ++persisted_progress; });
+
+    CompactRangeOptions compact_options;
+    compact_options.bottommost_level_compaction =
+        BottommostLevelCompaction::kForce;
+    const Status status = db_->CompactRange(compact_options, nullptr, nullptr);
+    db_->ReleaseSnapshot(snapshot);
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    EXPECT_OK(status);
+    CompactionServiceResult result;
+    resume_cs->GetResult(&result);
+    AssertDroppedNewerVersionRecordCounts(result,
+                                          verified_input_records.load());
+    EXPECT_EQ(Get("l"), value);
+    EXPECT_TRUE(statistics->getTickerCount(REMOTE_COMPACT_RESUMED_BYTES) > 0 ||
+                persisted_progress.load() > 0);
+    ASSERT_OK(result.status);
+  }
 
   void RunCompactionCancelTest(
       ResumableCompactionService::TestScenario scenario) {
@@ -3597,6 +5923,615 @@ TEST_F(ResumableCompactionServiceTest,
        CompactionMultipleCancelToggleResumption) {
   RunCompactionCancelTest(ResumableCompactionService::TestScenario::
                               kMultipleCancelToggleResumption);
+}
+
+TEST_F(ResumableCompactionServiceTest, BlobCompactionCancelThenResume) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.blob_file_starting_level = 1;
+  // Keep a blob file open across the forced SST boundary. The resumable path
+  // must close it before checkpointing the SST that references it.
+  options.blob_file_size = 1024;
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  std::shared_ptr<Statistics> statistics = CreateDBStatistics();
+
+  auto resume_cs = std::make_shared<ResumableCompactionService>(
+      dbname_, options, statistics,
+      ResumableCompactionService::TestScenario::kCancelThenResume);
+  options.compaction_service = resume_cs;
+
+  std::vector<uint64_t> allocated_blob_numbers;
+  std::set<uint64_t> deleted_blob_numbers;
+  size_t phase1_allocation_count = 0;
+  constexpr uint64_t orphan_blob_number = 999999999;
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceCompactionJob::NewBlobFileNumber", [&](void* arg) {
+        allocated_blob_numbers.push_back(*static_cast<uint64_t*>(arg));
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::CleanupPhysicalCompactionOutputFiles::BlobFile",
+      [&](void* arg) {
+        deleted_blob_numbers.insert(*static_cast<uint64_t*>(arg));
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "ResumableCompactionService::AfterCancelledCompaction", [&](void* arg) {
+        phase1_allocation_count = allocated_blob_numbers.size();
+        const auto* output_path = static_cast<std::string*>(arg);
+        std::unique_ptr<WritableFile> orphan;
+        ASSERT_OK(env_->NewWritableFile(
+            BlobFileName(*output_path, orphan_blob_number), &orphan,
+            EnvOptions()));
+        ASSERT_OK(orphan->Append("uncheckpointed"));
+        ASSERT_OK(orphan->Close());
+      });
+
+  DestroyAndReopen(options);
+  GenerateTestData();
+  ASSERT_OK(statistics->Reset());
+
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  VerifyTestData();
+  ASSERT_OK(db_->VerifyChecksum());
+  ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
+
+  CompactionServiceInput input;
+  resume_cs->GetInput(&input);
+  CompactionServiceResult result;
+  resume_cs->GetResult(&result);
+  ASSERT_OK(result.status);
+  ASSERT_FALSE(result.blob_file_additions.empty());
+  ASSERT_GT(phase1_allocation_count, 0);
+  ASSERT_LT(phase1_allocation_count, allocated_blob_numbers.size());
+  ASSERT_EQ(deleted_blob_numbers.count(orphan_blob_number), 1);
+
+  std::set<uint64_t> checkpointed_phase1_numbers(
+      allocated_blob_numbers.begin(),
+      allocated_blob_numbers.begin() + phase1_allocation_count);
+  for (const uint64_t deleted : deleted_blob_numbers) {
+    checkpointed_phase1_numbers.erase(deleted);
+  }
+  for (size_t i = phase1_allocation_count; i < allocated_blob_numbers.size();
+       ++i) {
+    EXPECT_EQ(checkpointed_phase1_numbers.count(allocated_blob_numbers[i]), 0);
+  }
+
+  for (size_t i = 0; i < result.blob_file_additions.size(); ++i) {
+    const uint64_t file_number =
+        result.blob_file_additions[i].GetBlobFileNumber();
+    EXPECT_EQ(file_number, input.blob_file_number_start + i);
+    EXPECT_LT(file_number, input.blob_file_number_limit);
+  }
+  ASSERT_GT(statistics->getTickerCount(REMOTE_COMPACT_RESUMED_BYTES), 0);
+}
+
+TEST_F(ResumableCompactionServiceTest,
+       BuilderRequestedRotationCrashResumeDoesNotDuplicateBlob) {
+  const std::string boundary_key = "key4";
+  auto factory_state = std::make_shared<RetryCloseTableFactoryState>();
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.blob_file_starting_level = 1;
+  options.blob_file_size = 1 << 20;
+  options.table_factory =
+      std::make_shared<RetryCloseTableFactory>(boundary_key, factory_state);
+  std::shared_ptr<Statistics> statistics = CreateDBStatistics();
+
+  auto resume_cs = std::make_shared<ResumableCompactionService>(
+      dbname_, options, statistics,
+      ResumableCompactionService::TestScenario::kCancelThenResume,
+      /*output_file_key_interval=*/2);
+  options.compaction_service = resume_cs;
+
+  size_t suppressed_progress_updates = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::FinishCompactionOutputFile:"
+      "PostPrepareRetryShouldUpdateProgress",
+      [&](void* arg) {
+        EXPECT_FALSE(*static_cast<bool*>(arg));
+        ++suppressed_progress_updates;
+        resume_cs->SetCanceled(true);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  DestroyAndReopen(options);
+  const std::string value(4096, 'a');
+  for (const char* const key : {"key1", "key2", "key3", "key4", "key5"}) {
+    ASSERT_OK(Put(key, value));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_TRUE(GetBlobFileNumbers().empty());
+  factory_state->enabled = true;
+
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(metadata.levels[0].files.size(), 1);
+  const SstFileMetaData& input_sst = metadata.levels[0].files.front();
+  ASSERT_OK(db_->CompactFiles(CompactionOptions(),
+                              {input_sst.db_path + "/" + input_sst.name}, 1));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ(factory_state->cut_requests.load(), 1);
+  ASSERT_EQ(suppressed_progress_updates, 1);
+  EXPECT_GT(statistics->getTickerCount(REMOTE_COMPACT_RESUMED_BYTES), 0);
+  for (const char* const key : {"key1", "key2", "key3", "key4", "key5"}) {
+    EXPECT_EQ(Get(key), value);
+  }
+
+  db_->GetColumnFamilyMetaData(&metadata);
+  size_t physical_record_count = 0;
+  size_t boundary_record_count = 0;
+  uint64_t garbage_blob_count = 0;
+  for (const BlobMetaData& blob_meta : metadata.blob_files) {
+    std::vector<BlobLogRecord> records;
+    ASSERT_OK(ReadBlobFileRecords(blob_meta.blob_file_number,
+                                  blob_meta.total_blob_count, &records));
+    physical_record_count += records.size();
+    boundary_record_count += static_cast<size_t>(std::count_if(
+        records.begin(), records.end(), [&](const BlobLogRecord& record) {
+          return record.key == boundary_key;
+        }));
+    garbage_blob_count += blob_meta.garbage_blob_count;
+  }
+  EXPECT_EQ(physical_record_count, 5);
+  EXPECT_EQ(boundary_record_count, 1);
+  EXPECT_EQ(garbage_blob_count, 0);
+}
+
+TEST_F(ResumableCompactionServiceTest,
+       BlobCompactionResumeDoesNotDoubleCountBoundaryKey) {
+  for (const bool inline_boundary_key : {false, true}) {
+    SCOPED_TRACE(inline_boundary_key);
+    Options options = CurrentOptions();
+    options.disable_auto_compactions = true;
+    options.enable_blob_files = true;
+    options.min_blob_size = 1024;
+    options.blob_file_starting_level = 0;
+    options.blob_file_size = 1 << 20;
+    std::unique_ptr<CompactionFilter> compaction_filter(
+        new ChangeBlobValueCompactionFilter());
+    options.compaction_filter = compaction_filter.get();
+    std::shared_ptr<Statistics> statistics = CreateDBStatistics();
+
+    auto resume_cs = std::make_shared<ResumableCompactionService>(
+        dbname_, options, statistics,
+        ResumableCompactionService::TestScenario::kCancelThenResume);
+    resume_cs->SetCancelAtKey(inline_boundary_key ? "key4" : "key3",
+                              kMaxSequenceNumber);
+    options.compaction_service = resume_cs;
+
+    DestroyAndReopen(options);
+    const std::string value(4096, 'a');
+    for (const char* const key : {"key1", "key2", "key3"}) {
+      ASSERT_OK(Put(key, value));
+    }
+    const std::string inline_value("inline");
+    if (inline_boundary_key) {
+      ASSERT_OK(Put("key4", inline_value));
+    }
+    ASSERT_OK(Flush());
+    const std::vector<uint64_t> original_blob_files = GetBlobFileNumbers();
+    ASSERT_EQ(original_blob_files.size(), 1);
+    const uint64_t original_blob_file = original_blob_files.front();
+    ColumnFamilyMetaData metadata;
+    db_->GetColumnFamilyMetaData(&metadata);
+    ASSERT_EQ(metadata.levels[0].files.size(), 1);
+    const SstFileMetaData& input_sst = metadata.levels[0].files.front();
+    ASSERT_OK(db_->CompactFiles(CompactionOptions(),
+                                {input_sst.db_path + "/" + input_sst.name}, 1));
+    EXPECT_EQ(resume_cs->GetUseLocalInstallationCount(), 0);
+    EXPECT_EQ(resume_cs->GetFinalCompactionServiceJobStatus(),
+              CompactionServiceJobStatus::kSuccess);
+    CompactionServiceInput input;
+    resume_cs->GetInput(&input);
+    ASSERT_FALSE(input.input_blob_files.empty());
+
+    CompactionServiceResult result;
+    resume_cs->GetResult(&result);
+    ASSERT_OK(result.status);
+    const std::vector<BlobFileGarbage>::const_iterator garbage = std::find_if(
+        result.blob_file_garbages.begin(), result.blob_file_garbages.end(),
+        [original_blob_file](const BlobFileGarbage& item) {
+          return item.GetBlobFileNumber() == original_blob_file;
+        });
+    ASSERT_NE(garbage, result.blob_file_garbages.end());
+    EXPECT_EQ(garbage->GetGarbageBlobCount(), 2);
+    std::string changed_value = value;
+    changed_value[0] = 'z';
+    EXPECT_EQ(Get("key1"), changed_value);
+    EXPECT_EQ(Get("key2"), "NOT_FOUND");
+    EXPECT_EQ(Get("key3"), value);
+    if (inline_boundary_key) {
+      EXPECT_EQ(Get("key4"), inline_value);
+    }
+    EXPECT_GT(statistics->getTickerCount(REMOTE_COMPACT_RESUMED_BYTES), 0);
+    Close();
+  }
+}
+
+TEST_F(ResumableCompactionServiceTest,
+       BlobCompactionResumeAfterDroppedNewerVersionWithRecordVerification) {
+  RunBlobCompactionResumeAfterDroppedNewerVersion(
+      /*verify_record_count=*/true, /*merge_resumed_output=*/true);
+}
+
+TEST_F(ResumableCompactionServiceTest,
+       BlobCompactionResumeAfterDroppedNewerVersionWithLinkedBlobFile) {
+  RunBlobCompactionResumeAfterDroppedNewerVersion(
+      /*verify_record_count=*/false, /*merge_resumed_output=*/false);
+}
+
+TEST_F(ResumableCompactionServiceTest,
+       BlobCompactionResumeAfterDroppedNewerVersionWithMergedOutput) {
+  RunBlobCompactionResumeAfterDroppedNewerVersion(
+      /*verify_record_count=*/false, /*merge_resumed_output=*/true);
+}
+
+TEST_F(ResumableCompactionServiceTest,
+       CompactionResumeAfterDroppedNewerVersionWithRecordVerification) {
+  RunCompactionResumeAfterDroppedNewerVersion();
+}
+
+TEST_F(ResumableCompactionServiceTest,
+       MultiVersionOverwritePersistsProgressAtMultipleBoundaries) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  std::shared_ptr<Statistics> statistics = CreateDBStatistics();
+
+  auto resume_cs = std::make_shared<ResumableCompactionService>(
+      dbname_, options, statistics,
+      ResumableCompactionService::TestScenario::kCancelThenResume,
+      /*output_file_key_interval=*/1);
+  options.compaction_service = resume_cs;
+
+  DestroyAndReopen(options);
+  for (const char* const key : {"a", "b", "c", "d", "e"}) {
+    ASSERT_OK(Put(key, "old"));
+  }
+  ASSERT_OK(Flush());
+  for (const char* const key : {"a", "b", "c", "d", "e"}) {
+    ASSERT_OK(Put(key, "new"));
+  }
+  ASSERT_OK(Flush());
+
+  std::atomic<size_t> persisted_progress{0};
+  std::atomic<size_t> phase_one_persisted_progress{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::PersistSubcompactionProgress:Complete",
+      [&](void*) { ++persisted_progress; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "ResumableCompactionService::AfterCancelledCompaction",
+      [&](void*) { phase_one_persisted_progress = persisted_progress.load(); });
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+
+  EXPECT_GE(phase_one_persisted_progress.load(), 2);
+  EXPECT_GT(statistics->getTickerCount(REMOTE_COMPACT_RESUMED_BYTES), 0);
+  for (const char* const key : {"a", "b", "c", "d", "e"}) {
+    EXPECT_EQ(Get(key), "new");
+  }
+}
+
+TEST_F(ResumableCompactionServiceTest,
+       BlobPerKeyPlacementDoesNotPersistProgress) {
+  const auto run_compaction = [&](bool supports_per_key_placement,
+                                  size_t* persisted_progress_count) {
+    Options options = CurrentOptions();
+    options.disable_auto_compactions = true;
+    options.enable_blob_files = true;
+    options.min_blob_size = 0;
+    options.blob_file_starting_level = 0;
+    std::shared_ptr<Statistics> statistics = CreateDBStatistics();
+
+    auto resume_cs = std::make_shared<ResumableCompactionService>(
+        dbname_, options, statistics,
+        ResumableCompactionService::TestScenario::kCancelThenResume,
+        /*output_file_key_interval=*/1);
+    resume_cs->SetCancelAtKey("c", kMaxSequenceNumber);
+    options.compaction_service = resume_cs;
+
+    DestroyAndReopen(options);
+    for (const char* const key : {"a", "b", "c", "d"}) {
+      ASSERT_OK(Put(key, std::string(100, key[0])));
+    }
+    ASSERT_OK(Flush());
+
+    std::atomic<size_t> persisted_progress{0};
+    if (supports_per_key_placement) {
+      SyncPoint::GetInstance()->SetCallBack(
+          "CompactionJob::ShouldUpdateSubcompactionProgress:"
+          "SupportsPerKeyPlacement",
+          [&](void* arg) { *static_cast<bool*>(arg) = true; });
+    }
+    SyncPoint::GetInstance()->SetCallBack(
+        "CompactionJob::PersistSubcompactionProgress:Complete",
+        [&](void*) { ++persisted_progress; });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    CompactRangeOptions compact_options;
+    compact_options.bottommost_level_compaction =
+        BottommostLevelCompaction::kForce;
+    ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+
+    for (const char* const key : {"a", "b", "c", "d"}) {
+      EXPECT_EQ(Get(key), std::string(100, key[0]));
+    }
+    // Wait clears callbacks before the resumed phase, so this counter measures
+    // phase-one checkpointing. The control proves that phase one reaches an
+    // otherwise eligible checkpoint boundary.
+    *persisted_progress_count = persisted_progress.load();
+  };
+
+  size_t control_persisted_progress = 0;
+  run_compaction(/*supports_per_key_placement=*/false,
+                 &control_persisted_progress);
+  EXPECT_GT(control_persisted_progress, 0);
+
+  size_t per_key_placement_persisted_progress = 0;
+  run_compaction(/*supports_per_key_placement=*/true,
+                 &per_key_placement_persisted_progress);
+  EXPECT_EQ(per_key_placement_persisted_progress, 0);
+}
+
+TEST_F(ResumableCompactionServiceTest,
+       BlobCompactionResumePreservesFilteredBoundaryInflow) {
+  for (const BoundaryFilterDecision decision :
+       {BoundaryFilterDecision::kChangeValue, BoundaryFilterDecision::kRemove,
+        BoundaryFilterDecision::kChangeWideColumnEntity}) {
+    SCOPED_TRACE(static_cast<int>(decision));
+    Options options = CurrentOptions();
+    options.disable_auto_compactions = true;
+    options.enable_blob_files = true;
+    options.min_blob_size = 1024;
+    options.blob_file_starting_level = 0;
+    options.blob_file_size = 1 << 20;
+    std::unique_ptr<CompactionFilter> compaction_filter(
+        new BoundaryBlobValueCompactionFilter(decision));
+    options.compaction_filter = compaction_filter.get();
+    std::shared_ptr<Statistics> statistics = CreateDBStatistics();
+
+    auto resume_cs = std::make_shared<ResumableCompactionService>(
+        dbname_, options, statistics,
+        ResumableCompactionService::TestScenario::kCancelThenResume);
+    resume_cs->SetCancelAtKey(
+        decision == BoundaryFilterDecision::kRemove ? "key4" : "key3",
+        kMaxSequenceNumber);
+    options.compaction_service = resume_cs;
+
+    DestroyAndReopen(options);
+    const std::string value(4096, 'a');
+    ASSERT_OK(Put("key1", value));
+    ASSERT_OK(Put("key2", value));
+    if (decision == BoundaryFilterDecision::kChangeWideColumnEntity) {
+      const std::string attribute_value(4096, 'b');
+      const WideColumns columns{{kDefaultWideColumnName, value},
+                                {"attribute", attribute_value}};
+      ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                               "key3", columns));
+    } else {
+      ASSERT_OK(Put("key3", value));
+    }
+    ASSERT_OK(Put("key4", value));
+    ASSERT_OK(Flush());
+    const std::vector<uint64_t> original_blob_files = GetBlobFileNumbers();
+    ASSERT_EQ(original_blob_files.size(), 1);
+    const uint64_t original_blob_file = original_blob_files.front();
+
+    ColumnFamilyMetaData metadata;
+    db_->GetColumnFamilyMetaData(&metadata);
+    ASSERT_EQ(metadata.levels[0].files.size(), 1);
+    const SstFileMetaData& input_sst = metadata.levels[0].files.front();
+    ASSERT_OK(db_->CompactFiles(CompactionOptions(),
+                                {input_sst.db_path + "/" + input_sst.name}, 1));
+
+    CompactionServiceResult result;
+    resume_cs->GetResult(&result);
+    ASSERT_OK(result.status);
+    const std::vector<BlobFileGarbage>::const_iterator garbage = std::find_if(
+        result.blob_file_garbages.begin(), result.blob_file_garbages.end(),
+        [original_blob_file](const BlobFileGarbage& item) {
+          return item.GetBlobFileNumber() == original_blob_file;
+        });
+    ASSERT_NE(garbage, result.blob_file_garbages.end());
+    EXPECT_EQ(
+        garbage->GetGarbageBlobCount(),
+        decision == BoundaryFilterDecision::kChangeWideColumnEntity ? 2 : 1);
+    EXPECT_GT(statistics->getTickerCount(REMOTE_COMPACT_RESUMED_BYTES), 0);
+
+    if (decision == BoundaryFilterDecision::kChangeValue) {
+      std::string changed_value = value;
+      changed_value[0] = 'z';
+      EXPECT_EQ(Get("key3"), changed_value);
+    } else if (decision == BoundaryFilterDecision::kRemove) {
+      EXPECT_EQ(Get("key3"), "NOT_FOUND");
+    } else {
+      PinnableWideColumns columns;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               "key3", &columns));
+      const WideColumns expected{{kDefaultWideColumnName, "changed_default"},
+                                 {"attribute", "changed_attribute"}};
+      EXPECT_EQ(columns.columns(), expected);
+    }
+    Close();
+  }
+}
+
+TEST_F(ResumableCompactionServiceTest,
+       BlobReservationCoversNaturalOutputCheckpoints) {
+  constexpr int kTestNumKeys = 1024;
+  constexpr size_t kValueSize = 4096;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = false;
+  options.min_blob_size = 0;
+  options.blob_file_starting_level = 1;
+  options.blob_file_size = 64 << 20;
+  options.target_file_size_base = 512;
+  options.target_file_size_multiplier = 1;
+  options.compression = kNoCompression;
+  std::shared_ptr<Statistics> statistics = CreateDBStatistics();
+
+  auto resume_cs = std::make_shared<ResumableCompactionService>(
+      dbname_, options, statistics,
+      ResumableCompactionService::TestScenario::kCancelThenResume,
+      /*output_file_key_interval=*/0);
+  resume_cs->SetWorkerOptionOverride("enable_blob_files", "true");
+  options.compaction_service = resume_cs;
+
+  DestroyAndReopen(options);
+  for (int i = 0; i < kTestNumKeys; ++i) {
+    ASSERT_OK(Put(Key(i), std::string(kValueSize, 'a' + i % 26)));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->SetOptions({{"enable_blob_files", "true"}}));
+
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(metadata.levels[0].files.size(), 1);
+  const SstFileMetaData& input_sst = metadata.levels[0].files.front();
+  CompactionOptions compaction_options;
+  compaction_options.output_file_size_limit = options.target_file_size_base;
+  ASSERT_OK(db_->CompactFiles(compaction_options,
+                              {input_sst.db_path + "/" + input_sst.name}, 1));
+
+  CompactionServiceInput input;
+  resume_cs->GetInput(&input);
+  CompactionServiceResult result;
+  resume_cs->GetResult(&result);
+  ASSERT_OK(result.status);
+  ASSERT_GE(result.output_files.size(), 3);
+  ASSERT_EQ(result.blob_file_additions.size(), result.output_files.size());
+  uint64_t output_blob_count = 0;
+  for (const BlobFileAddition& addition : result.blob_file_additions) {
+    output_blob_count += addition.GetTotalBlobCount();
+  }
+  EXPECT_EQ(output_blob_count, kTestNumKeys);
+  EXPECT_GE(input.blob_file_number_limit - input.blob_file_number_start,
+            result.blob_file_additions.size());
+  EXPECT_EQ(resume_cs->GetUseLocalInstallationCount(), 0);
+  EXPECT_GT(statistics->getTickerCount(REMOTE_COMPACT_RESUMED_BYTES), 0);
+  for (int i = 0; i < kTestNumKeys; ++i) {
+    ASSERT_EQ(Get(Key(i)), std::string(kValueSize, 'a' + i % 26));
+  }
+}
+
+TEST_F(ResumableCompactionServiceTest,
+       BlobReservationAddsSizeRotationsAndCheckpointTails) {
+  constexpr int kTestNumKeys = 20;
+  constexpr size_t kBlobFileSize = 64 << 10;
+  constexpr size_t kSmallValueSize = 1024;
+  constexpr size_t kKeysPerOutputFile = 2;
+  constexpr uint64_t kExpectedOutputFileCount =
+      kTestNumKeys / kKeysPerOutputFile;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = false;
+  options.min_blob_size = 0;
+  options.blob_file_starting_level = 1;
+  options.blob_file_size = kBlobFileSize;
+  options.compression = kNoCompression;
+  std::shared_ptr<Statistics> statistics = CreateDBStatistics();
+
+  auto resume_cs = std::make_shared<ResumableCompactionService>(
+      dbname_, options, statistics,
+      ResumableCompactionService::TestScenario::kCancelThenResume,
+      kKeysPerOutputFile);
+  resume_cs->SetWorkerOptionOverride("enable_blob_files", "true");
+  options.compaction_service = resume_cs;
+
+  DestroyAndReopen(options);
+  uint64_t raw_value_bytes = 0;
+  for (int i = 0; i < kTestNumKeys; ++i) {
+    const size_t value_size = i % 2 == 0 ? kBlobFileSize : kSmallValueSize;
+    raw_value_bytes += value_size;
+    ASSERT_OK(Put(Key(i), std::string(value_size, 'a' + i)));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->SetOptions({{"enable_blob_files", "true"}}));
+
+  ColumnFamilyMetaData metadata;
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(metadata.levels[0].files.size(), 1);
+  const SstFileMetaData& input_sst = metadata.levels[0].files.front();
+  CompactionOptions compaction_options;
+  compaction_options.output_file_size_limit =
+      input_sst.size / kExpectedOutputFileCount + 1;
+  ASSERT_OK(db_->CompactFiles(compaction_options,
+                              {input_sst.db_path + "/" + input_sst.name}, 1));
+
+  CompactionServiceInput input;
+  resume_cs->GetInput(&input);
+  CompactionServiceResult result;
+  resume_cs->GetResult(&result);
+  ASSERT_OK(result.status);
+  ASSERT_EQ(result.output_files.size(), kExpectedOutputFileCount);
+  const uint64_t expected_data_files =
+      raw_value_bytes / kBlobFileSize +
+      (raw_value_bytes % kBlobFileSize != 0 ? 1 : 0);
+  EXPECT_GT(result.blob_file_additions.size(),
+            std::max(expected_data_files, kExpectedOutputFileCount));
+  EXPECT_GE(input.blob_file_number_limit - input.blob_file_number_start,
+            expected_data_files + kExpectedOutputFileCount + 2);
+  EXPECT_EQ(resume_cs->GetUseLocalInstallationCount(), 0);
+  EXPECT_GT(statistics->getTickerCount(REMOTE_COMPACT_RESUMED_BYTES), 0);
+  for (int i = 0; i < kTestNumKeys; ++i) {
+    const size_t value_size = i % 2 == 0 ? kBlobFileSize : kSmallValueSize;
+    ASSERT_EQ(Get(Key(i)), std::string(value_size, 'a' + i));
+  }
+}
+
+TEST_F(ResumableCompactionServiceTest,
+       BlobCompactionResumeRangeExhaustionFallsBackLocally) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.blob_file_starting_level = 1;
+  options.blob_file_size = 1024;
+  std::shared_ptr<Statistics> statistics = CreateDBStatistics();
+
+  auto resume_cs = std::make_shared<ResumableCompactionService>(
+      dbname_, options, statistics,
+      ResumableCompactionService::TestScenario::kResumeRangeExhaustion);
+  options.compaction_service = resume_cs;
+
+  size_t phase1_allocation_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceCompactionJob::NewBlobFileNumber",
+      [&](void*) { ++phase1_allocation_count; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "ResumableCompactionService::BeforeFinalCompaction", [&](void* arg) {
+        ASSERT_GT(phase1_allocation_count, 1);
+        auto* serialized_input = static_cast<std::string*>(arg);
+        CompactionServiceInput input;
+        ASSERT_OK(CompactionServiceInput::Read(*serialized_input, &input));
+        input.blob_file_number_limit =
+            input.blob_file_number_start + phase1_allocation_count - 1;
+        serialized_input->clear();
+        ASSERT_OK(input.Write(serialized_input));
+      });
+
+  DestroyAndReopen(options);
+  GenerateTestData();
+
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  const Status status = db_->CompactRange(cro, nullptr, nullptr);
+
+  ASSERT_OK(status);
+  ASSERT_EQ(resume_cs->GetUseLocalInstallationCount(), 0);
+  VerifyTestData();
 }
 
 class ResumableCompactionKeyTypeTest : public CompactionServiceTest {

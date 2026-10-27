@@ -1566,6 +1566,23 @@ class VersionSet {
     return next_file_number_.fetch_add(n);
   }
 
+  // Atomically allocate `count` consecutive file numbers for a caller that
+  // needs to hand a collision-free range to another process. Returns false if
+  // the range would overflow.
+  bool TryAllocateFileNumberRange(uint64_t count, uint64_t* first) {
+    if (count == 0 || first == nullptr) {
+      return false;
+    }
+    uint64_t next = next_file_number_.load();
+    while (next <= std::numeric_limits<uint64_t>::max() - count) {
+      if (next_file_number_.compare_exchange_weak(next, next + count)) {
+        *first = next;
+        return true;
+      }
+    }
+    return false;
+  }
+
   // Return the last sequence number.
   uint64_t LastSequence() const {
     return last_sequence_.load(std::memory_order_acquire);
