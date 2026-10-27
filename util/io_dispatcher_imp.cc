@@ -56,7 +56,7 @@ static bool BlockIndicesAreSortedByOffset(
   }
   return true;
 }
-#endif  // NDEBUG
+#endif
 
 // Helper function to create and pin a block from a buffer
 // Used by both ReadSet::PollAndProcessAsyncIO and IODispatcherImpl::Impl
@@ -234,8 +234,8 @@ struct AsyncIOState {
 
   AsyncIOState(const AsyncIOState&) = delete;
   AsyncIOState& operator=(const AsyncIOState&) = delete;
-  AsyncIOState(AsyncIOState&&) = default;
-  AsyncIOState& operator=(AsyncIOState&&) = default;
+  AsyncIOState(AsyncIOState&&) = delete;
+  AsyncIOState& operator=(AsyncIOState&&) = delete;
 
   ReadScopedBlockBufferProvider::Lease read_scoped_buf_lease;
   std::unique_ptr<char[]> buf;
@@ -253,11 +253,16 @@ struct AsyncIOState {
   SystemClock* clock = nullptr;
   Statistics* statistics = nullptr;
   uint64_t submit_time_us = 0;
+  std::atomic<bool> completed{false};
 };
 
 static uint64_t GetIODispatcherNowMicros(SystemClock* clock) {
   return clock != nullptr ? clock->NowMicros() : 0;
 }
+
+// Poll reaps POSIX CQEs even when they are ready, so ignore short reap
+// overhead rather than treating every POSIX completion as a foreground stall.
+constexpr uint64_t kRollingPrefetchPollStallNanos = 50 * 1000;
 
 static void RecordIODispatcherTime(Statistics* statistics,
                                    uint32_t histogram_type,
@@ -328,6 +333,12 @@ Status ReadSet::ReadIndex(size_t block_index, CachableEntry<Block>* out) {
     return Status::InvalidArgument("Block index out of range");
   }
 
+  if (prefetch_scheduler_) {
+    Status scheduling_status =
+        prefetch_scheduler_->OnBlockRequired(block_index);
+    scheduling_status.PermitUncheckedError();
+  }
+
   // Case 1: Block is already available (from cache or sync read during
   // SubmitJob)
   if (pinned_blocks_[block_index].GetValue()) {
@@ -336,6 +347,9 @@ Status ReadSet::ReadIndex(size_t block_index, CachableEntry<Block>* out) {
     // out, ReleaseBlock() and the destructor check pinned_blocks_.GetValue()
     // which will be null, so they won't release memory again.
     ReleasePrefetchMemory(block_index);
+    if (prefetch_scheduler_) {
+      prefetch_scheduler_->OnBlockHandedOff(block_index);
+    }
     // Note: Statistics for this block were already counted during SubmitJob
     // (either as cache hit or sync read)
     return Status::OK();
@@ -345,12 +359,18 @@ Status ReadSet::ReadIndex(size_t block_index, CachableEntry<Block>* out) {
   if (job_->job_options.read_options.async_io) {
     auto it = async_io_map_.find(block_index);
     if (it != async_io_map_.end()) {
+      auto async_state = it->second;
       // Get the number of blocks in this coalesced async request BEFORE polling
       // (since PollAndProcessAsyncIO will remove entries from the map)
-      size_t num_blocks_in_request = it->second->block_indices.size();
-
-      if (Status s = PollAndProcessAsyncIO(it->second); !s.ok()) {
+      size_t num_blocks_in_request = async_state->block_indices.size();
+      bool poll_stalled = false;
+      if (Status s =
+              PollAndProcessAsyncIO(std::move(async_state), &poll_stalled);
+          !s.ok()) {
         return s;
+      }
+      if (poll_stalled && prefetch_scheduler_) {
+        prefetch_scheduler_->OnForegroundStall(block_index);
       }
       // Count all blocks that were read in this async request
       num_async_reads_ += num_blocks_in_request;
@@ -360,6 +380,9 @@ Status ReadSet::ReadIndex(size_t block_index, CachableEntry<Block>* out) {
         *out = std::move(pinned_blocks_[block_index]);
         // Release memory accounting (same as case 1 above)
         ReleasePrefetchMemory(block_index);
+        if (prefetch_scheduler_) {
+          prefetch_scheduler_->OnBlockHandedOff(block_index);
+        }
         return Status::OK();
       }
       // A block-construction error is a prefetch miss. Fall through to the
@@ -440,7 +463,8 @@ void ReadSet::ReleaseBlock(size_t block_index) {
 }
 
 void ReadSet::ReleasePrefetchMemory(size_t block_index) {
-  if (block_index >= block_sizes_.size() || block_sizes_[block_index] == 0) {
+  if (!prefetch_scheduler_ || block_index >= block_sizes_.size() ||
+      block_sizes_[block_index] == 0) {
     return;
   }
 
@@ -500,18 +524,30 @@ bool ReadSet::IsBlockAvailable(size_t block_index) const {
 }
 
 // Poll and process async IO for a specific block
-Status ReadSet::PollAndProcessAsyncIO(
-    std::shared_ptr<AsyncIOState> async_state) {
+Status ReadSet::PollAndProcessAsyncIO(std::shared_ptr<AsyncIOState> async_state,
+                                      bool* poll_stalled) {
   auto* rep = job_->table->get_rep();
 
   // Poll for IO completion using FileSystem Poll API
   std::vector<void*> io_handles = {async_state->io_handle};
+  const bool completed_before_poll =
+      async_state->completed.load(std::memory_order_acquire);
+  const uint64_t poll_start_time_ns =
+      async_state->clock != nullptr ? async_state->clock->NowNanos() : 0;
   const uint64_t poll_start_time_us =
       GetIODispatcherNowMicros(async_state->clock);
   RecordIODispatcherTime(async_state->statistics,
                          IO_DISPATCHER_ASYNC_READ_PREFETCH_LEAD_MICROS,
                          async_state->submit_time_us, poll_start_time_us);
   IOStatus io_s = rep->ioptions.env->GetFileSystem()->Poll(io_handles, 1);
+  const uint64_t poll_end_time_ns =
+      async_state->clock != nullptr ? async_state->clock->NowNanos() : 0;
+  if (poll_stalled != nullptr) {
+    *poll_stalled =
+        !completed_before_poll && poll_start_time_ns != 0 &&
+        poll_end_time_ns >= poll_start_time_ns &&
+        poll_end_time_ns - poll_start_time_ns >= kRollingPrefetchPollStallNanos;
+  }
   RecordIODispatcherTime(
       async_state->statistics, IO_DISPATCHER_ASYNC_READ_POLL_WAIT_MICROS,
       poll_start_time_us, GetIODispatcherNowMicros(async_state->clock));
@@ -644,7 +680,8 @@ struct IODispatcherImpl::Impl : public PrefetchDispatchTarget,
   // Materializes the block selection made by a scheduling policy.
   Status DispatchPrefetch(const std::shared_ptr<ReadSet>& read_set,
                           const std::shared_ptr<IOJob>& job,
-                          const std::vector<size_t>& block_indices) override;
+                          const std::vector<size_t>& block_indices,
+                          bool require_async_io) override;
 
   std::shared_ptr<PrefetchSchedulerFactory> scheduler_factory_;
 };
@@ -657,22 +694,16 @@ IODispatcherImpl::Impl::~Impl() {}
 void IODispatcherImpl::Impl::ReleaseFailedSyncPrefetchMemory(
     const std::shared_ptr<ReadSet>& read_set,
     const std::vector<size_t>& block_indices) {
-  size_t bytes_to_release = 0;
   for (const size_t block_index : block_indices) {
-    if (read_set->pinned_blocks_[block_index].GetValue() == nullptr &&
-        read_set->block_sizes_[block_index] != 0) {
-      bytes_to_release += read_set->block_sizes_[block_index];
-      read_set->block_sizes_[block_index] = 0;
+    if (read_set->pinned_blocks_[block_index].GetValue() == nullptr) {
+      read_set->ReleasePrefetchMemory(block_index);
     }
-  }
-  if (bytes_to_release != 0) {
-    read_set->prefetch_scheduler_->ReleaseMemory(bytes_to_release);
   }
 }
 
 Status IODispatcherImpl::Impl::DispatchPrefetch(
     const std::shared_ptr<ReadSet>& read_set, const std::shared_ptr<IOJob>& job,
-    const std::vector<size_t>& block_indices) {
+    const std::vector<size_t>& block_indices, bool require_async_io) {
   // Sync point for testing partial prefetch - passes number of blocks being
   // dispatched
   TEST_SYNC_POINT_CALLBACK("IODispatcherImpl::DispatchPrefetch:BlockCount",
@@ -720,8 +751,16 @@ Status IODispatcherImpl::Impl::DispatchPrefetch(
       s.PermitUncheckedError();
       read_set->num_sync_reads_ += fallback_indices.size();
     }
-    // Async errors are also ignored - user will get the error when reading
-    async_status.PermitUncheckedError();
+    if (!async_status.ok()) {
+      if (require_async_io) {
+        return async_status;
+      }
+      // Async errors are also ignored - user will get the error when reading
+      async_status.PermitUncheckedError();
+    }
+    if (require_async_io && !fallback_indices.empty()) {
+      return Status::NotSupported("rolling prefetch requires async I/O");
+    }
   } else {
     // Prefetch errors are ignored - user will get the error when reading
     Status s = ExecuteSyncIO(job, read_set, read_reqs, coalesced_block_indices);
@@ -754,7 +793,12 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
   for (size_t i = 0; i < job->block_handles.size(); ++i) {
     rs->sorted_block_indices_[i] = i;
   }
-  if (!job->job_options.block_handles_are_sorted) {
+  const bool block_handles_are_sorted =
+      job->job_options.block_handles_are_sorted;
+  assert(!block_handles_are_sorted ||
+         BlockIndicesAreSortedByOffset(job->block_handles,
+                                       rs->sorted_block_indices_));
+  if (!block_handles_are_sorted) {
     TEST_SYNC_POINT("IODispatcherImpl::SubmitJob:SortBlockHandles");
     std::sort(rs->sorted_block_indices_.begin(),
               rs->sorted_block_indices_.end(), [&job](size_t a, size_t b) {
@@ -810,8 +854,8 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
     rs->block_sizes_[idx] = block_size;
   }
 
-  rs->prefetch_scheduler_ =
-      scheduler_factory_->Create(shared_from_this(), rs, job);
+  rs->prefetch_scheduler_ = scheduler_factory_->Create(
+      shared_from_this(), rs, job, block_handles_are_sorted);
   Status status = rs->prefetch_scheduler_->Start(block_indices_to_read);
   status.PermitUncheckedError();
 
@@ -972,6 +1016,7 @@ std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
       auto* state = static_cast<AsyncIOState*>(cb_arg);
       state->read_req.result = req.result;
       state->read_req.status = req.status;
+      state->completed.store(true, std::memory_order_release);
       RecordIODispatcherTime(
           state->statistics,
           IO_DISPATCHER_ASYNC_READ_OBSERVED_COMPLETION_MICROS,
