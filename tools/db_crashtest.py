@@ -1591,10 +1591,6 @@ def finalize_and_sanitize(src_params):
 
     # Remote Compaction Incompatible Tests and Features
     if dest_params.get("remote_compaction_worker_threads", 0) > 0:
-        # TODO Fix races when both Remote Compaction + BlobDB enabled
-        dest_params["enable_blob_files"] = 0
-        dest_params["enable_blob_garbage_collection"] = 0
-        dest_params["allow_setting_blob_options_dynamically"] = 0
         # Disable Incompatible Ones
         dest_params["inplace_update_support"] = 0
         dest_params["checkpoint_one_in"] = 0

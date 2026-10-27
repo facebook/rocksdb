@@ -1374,6 +1374,8 @@ Status DBImplSecondary::ScanCompactionProgressFiles(
     } else if (type == kTableFile) {
       // Collect table file numbers for CleanupPhysicalCompactionOutputFiles
       scan_result->table_file_numbers.push_back(number);
+    } else if (type == kBlobFile) {
+      scan_result->blob_file_numbers.push_back(number);
     }
   }
 
@@ -1424,9 +1426,9 @@ Status DBImplSecondary::CleanupOldAndTemporaryCompactionProgressFiles(
 
 // Loads compaction progress from a file and cleans up extra output
 // files. After loading the progress, this function identifies and deletes any
-// SST files in the output folder that are NOT tracked in the
-// progress. This ensures consistency between the progress file and
-// actual output files on disk.
+// SST and blob files in the output folder that are NOT tracked in the progress.
+// This ensures consistency between the progress file and actual output files
+// on disk.
 Status DBImplSecondary::LoadCompactionProgressAndCleanupExtraOutputFiles(
     const std::string& compaction_progress_file_path,
     const CompactionProgressFilesScan& scan_result) {
@@ -1535,18 +1537,22 @@ Status DBImplSecondary::RenameCompactionProgressFile(
 Status DBImplSecondary::CleanupPhysicalCompactionOutputFiles(
     bool preserve_tracked_files,
     const CompactionProgressFilesScan& scan_result) {
-  std::unordered_set<uint64_t> files_to_preserve;
+  std::unordered_set<uint64_t> table_files_to_preserve;
+  std::unordered_set<uint64_t> blob_files_to_preserve;
 
   if (preserve_tracked_files) {
     for (const auto& subcompaction_progress : compaction_progress_) {
       for (const auto& file_metadata :
            subcompaction_progress.output_level_progress.GetOutputFiles()) {
-        files_to_preserve.insert(file_metadata.fd.GetNumber());
+        table_files_to_preserve.insert(file_metadata.fd.GetNumber());
       }
       for (const auto& file_metadata :
            subcompaction_progress.proximal_output_level_progress
                .GetOutputFiles()) {
-        files_to_preserve.insert(file_metadata.fd.GetNumber());
+        table_files_to_preserve.insert(file_metadata.fd.GetNumber());
+      }
+      for (const auto& addition : subcompaction_progress.blob_file_additions) {
+        blob_files_to_preserve.insert(addition.GetBlobFileNumber());
       }
     }
   }
@@ -1560,11 +1566,28 @@ Status DBImplSecondary::CleanupPhysicalCompactionOutputFiles(
 
   for (uint64_t file_number : scan_result.table_file_numbers) {
     bool should_delete =
-        !preserve_tracked_files ||
-        (files_to_preserve.find(file_number) == files_to_preserve.end());
+        !preserve_tracked_files || (table_files_to_preserve.find(file_number) ==
+                                    table_files_to_preserve.end());
 
     if (should_delete) {
       std::string file_path = MakeTableFileName(secondary_path_, file_number);
+      Status delete_status =
+          fs_->DeleteFile(file_path, opts, nullptr /* dbg */);
+      if (!delete_status.ok()) {
+        return delete_status;
+      }
+    }
+  }
+
+  for (uint64_t file_number : scan_result.blob_file_numbers) {
+    const bool should_delete =
+        !preserve_tracked_files || blob_files_to_preserve.find(file_number) ==
+                                       blob_files_to_preserve.end();
+    if (should_delete) {
+      TEST_SYNC_POINT_CALLBACK(
+          "DBImplSecondary::CleanupPhysicalCompactionOutputFiles::BlobFile",
+          &file_number);
+      const std::string file_path = BlobFileName(secondary_path_, file_number);
       Status delete_status =
           fs_->DeleteFile(file_path, opts, nullptr /* dbg */);
       if (!delete_status.ok()) {
@@ -1666,7 +1689,7 @@ Status DBImplSecondary::InitializeCompactionWorkspace(
 Status DBImplSecondary::PrepareCompactionProgressState() {
   Status s;
 
-  // STEP 1: Scan directory ONCE (includes progress files + table files)
+  // STEP 1: Scan directory ONCE (includes progress, table, and blob files)
   CompactionProgressFilesScan scan_result;
   s = ScanCompactionProgressFiles(&scan_result);
   if (!s.ok()) {
@@ -1890,7 +1913,8 @@ Status DBImplSecondary::CompactWithoutInstallation(
   JobContext job_context(job_id, true /*create_superversion*/);
   std::vector<SequenceNumber> snapshots = input.snapshots;
 
-  // TODO - snapshot_checker support in Remote Compaction
+  // TODO - snapshot_checker support in Remote Compaction. When implemented,
+  // add a resumable remote test for kKeepSDAndClearPut.
   job_context.InitSnapshotContext(/*checker=*/nullptr,
                                   /*managed_snapshot=*/nullptr,
                                   kMaxSequenceNumber, std::move(snapshots));
@@ -2246,12 +2270,13 @@ Status DBImplSecondary::CreateCompactionProgressWriter(
 
 Status DBImplSecondary::PersistInitialCompactionProgress(
     log::Writer* compaction_progress_writer,
-    const CompactionProgress& compaction_progress) {
+    CompactionProgress* compaction_progress) {
   assert(compaction_progress_writer);
+  assert(compaction_progress);
 
   // LIMITATION: Only supports resuming single subcompaction
-  assert(compaction_progress.size() == 1);
-  const SubcompactionProgress& subcompaction_progress = compaction_progress[0];
+  assert(compaction_progress->size() == 1);
+  SubcompactionProgress& subcompaction_progress = (*compaction_progress)[0];
 
   VersionEdit edit;
   edit.SetSubcompactionProgress(subcompaction_progress);
@@ -2275,6 +2300,14 @@ Status DBImplSecondary::PersistInitialCompactionProgress(
   s = immutable_db_options_.use_fsync
           ? compaction_progress_writer->file()->Fsync(opts)
           : compaction_progress_writer->file()->Sync(opts);
+
+  if (s.ok()) {
+    subcompaction_progress.output_level_progress
+        .UpdateLastPersistedOutputFilesCount();
+    subcompaction_progress.proximal_output_level_progress
+        .UpdateLastPersistedOutputFilesCount();
+    subcompaction_progress.UpdateLastPersistedBlobFileAdditionsCount();
+  }
 
   return s;
 }
@@ -2328,7 +2361,7 @@ Status DBImplSecondary::FinalizeCompactionProgressWriter(
 
   if (!compaction_progress_.empty()) {
     s = PersistInitialCompactionProgress(compaction_progress_writer->get(),
-                                         compaction_progress_);
+                                         &compaction_progress_);
     if (!s.ok()) {
       ROCKS_LOG_WARN(immutable_db_options_.info_log,
                      "Failed to persist the initial copmaction "

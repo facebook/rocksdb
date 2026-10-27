@@ -553,9 +553,9 @@ class CompactionService : public Customizable {
   // the worker's DB::OpenAndCompact.
   //
   // DB::OpenAndCompact may return Status::Incomplete to *decline* a scheduled
-  // job rather than fail it -- currently when the MANIFEST floor check finds
-  // the worker recovered an older/stale view of the DB than the primary
-  // scheduled from (see DBOptions::remote_compaction_manifest_floor). Whether
+  // job rather than fail it -- for example, when the MANIFEST floor check finds
+  // a stale worker view, the reserved BlobDB file-number range is exhausted, or
+  // the worker's BlobDB capability/options do not match the primary's. Whether
   // to map that to kUseLocal (fall back to a local compaction) or kFailure
   // (surface it) is up to the integrator; both are valid. (Cancellation also
   // surfaces as Status::Incomplete, distinguishable by SubCode
