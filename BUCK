@@ -281,6 +281,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "util/file_checksum_helper.cc",
         "util/hash.cc",
         "util/io_dispatcher_imp.cc",
+        "util/io_prefetch_scheduler.cc",
         "util/murmurhash.cc",
         "util/random.cc",
         "util/rate_limiter.cc",
