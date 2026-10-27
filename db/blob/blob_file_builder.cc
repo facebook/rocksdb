@@ -353,7 +353,8 @@ Status BlobFileBuilder::CloseBlobFile() {
     s = blob_callback_->OnBlobFileCompleted(
         GetBlobFilePath(blob_file_number), column_family_name_, job_id_,
         blob_file_number, creation_reason_, s, checksum_value, checksum_method,
-        blob_count_, blob_bytes_);
+        blob_count_, blob_bytes_, /*set_bg_error=*/true,
+        /*file_size=*/std::nullopt);
   }
 
   assert(blob_file_additions_);
@@ -400,7 +401,8 @@ void BlobFileBuilder::Abandon(const Status& s) {
         ->OnBlobFileCompleted(GetBlobFilePath(blob_file_number),
                               column_family_name_, job_id_, blob_file_number,
                               creation_reason_, s, "", "", blob_count_,
-                              blob_bytes_)
+                              blob_bytes_, /*set_bg_error=*/true,
+                              /*file_size=*/std::nullopt)
         .PermitUncheckedError();
   }
 

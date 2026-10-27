@@ -3582,6 +3582,7 @@ Status DBImpl::SwitchMemtableImpl(ColumnFamilyData* cfd, WriteContext* context,
   }
 
   if (cfd->blob_partition_manager() != nullptr) {
+    TEST_SYNC_POINT("DBImpl::SwitchMemtable:BeforeRotateBlobGeneration");
     cfd->blob_partition_manager()->RotateCurrentGeneration();
   }
 
