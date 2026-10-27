@@ -3567,7 +3567,7 @@ Status DBImpl::SwitchMemtableImpl(ColumnFamilyData* cfd, WriteContext* context,
   }
 
   if (cfd->blob_partition_manager() != nullptr) {
-    cfd->blob_partition_manager()->RotateCurrentGeneration();
+    cfd->blob_partition_manager()->RotateCurrentGeneration(cfd->mem()->GetID());
   }
 
   cfd->mem()->SetNextLogNumber(cur_wal_number_);
