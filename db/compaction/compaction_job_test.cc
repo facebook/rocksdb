@@ -1887,6 +1887,7 @@ TEST_F(CompactionJobTest, ResultSerialization) {
   ASSERT_TRUE(deserialized_old_result.blob_file_garbages.empty());
   ASSERT_EQ(deserialized_old_result.blob_compaction_version, 0);
   ASSERT_EQ(deserialized_old_result.blob_gc_cutoff_version, 0);
+  deserialized_old_result.status.PermitUncheckedError();
 
   // Test missing field
   CompactionServiceResult deserialized3;

@@ -429,7 +429,8 @@ Status CompactionOutputs::AddToOutput(
 
   c_iter.PrepareOutputIfNeeded();
   if (!c_iter.status().ok() || !c_iter.Valid()) {
-    return c_iter.status();
+    s = c_iter.status();
+    return s;
   }
   const Slice& key = c_iter.key();
 

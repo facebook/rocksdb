@@ -514,6 +514,7 @@ class MyTestCompactionService : public CompactionService {
       results.emplace_back();
       CompactionServiceResult::Read(serialized, &results.back())
           .PermitUncheckedError();
+      results.back().status.PermitUncheckedError();
     }
     return results;
   }
@@ -1597,6 +1598,7 @@ TEST_F(CompactionServiceTest, RemoteBlobWorkerDisablesBlobOutputSafely) {
   EXPECT_EQ(compaction_service->GetUseLocalInstallationCount(), 0);
   CompactionServiceResult result;
   compaction_service->GetResult(&result);
+  EXPECT_OK(result.status);
   EXPECT_EQ(result.blob_compaction_version, kCompactionServiceBlobVersion);
   EXPECT_TRUE(result.blob_file_additions.empty());
   EXPECT_FALSE(result.blob_file_garbages.empty());
@@ -2073,6 +2075,7 @@ TEST_F(CompactionServiceTest, BlobRollbackDeleteFailureRemainsTracked) {
       [&](void*) {
         CompactionServiceResult result;
         GetCompactionService()->GetResult(&result);
+        result.status.PermitUncheckedError();
         const auto tracked_files = sfm->GetTrackedFiles();
         for (const BlobFileAddition& addition : result.blob_file_additions) {
           const std::string path =
@@ -6455,7 +6458,7 @@ TEST_F(ResumableCompactionServiceTest,
   for (int i = 0; i < kTestNumKeys; ++i) {
     const size_t value_size = i % 2 == 0 ? kBlobFileSize : kSmallValueSize;
     raw_value_bytes += value_size;
-    ASSERT_OK(Put(Key(i), std::string(value_size, 'a' + i)));
+    ASSERT_OK(Put(Key(i), std::string(value_size, static_cast<char>('a' + i))));
   }
   ASSERT_OK(Flush());
   ASSERT_OK(db_->SetOptions({{"enable_blob_files", "true"}}));
@@ -6487,7 +6490,7 @@ TEST_F(ResumableCompactionServiceTest,
   EXPECT_GT(statistics->getTickerCount(REMOTE_COMPACT_RESUMED_BYTES), 0);
   for (int i = 0; i < kTestNumKeys; ++i) {
     const size_t value_size = i % 2 == 0 ? kBlobFileSize : kSmallValueSize;
-    ASSERT_EQ(Get(Key(i)), std::string(value_size, 'a' + i));
+    ASSERT_EQ(Get(Key(i)), std::string(value_size, static_cast<char>('a' + i)));
   }
 }
 
