@@ -8970,6 +8970,7 @@ void DisableThreadLocalStatsForAsyncRead() {
   get_iostats_context()->disable_iostats = true;
 #endif
   SetPerfLevel(PerfLevel::kDisable);
+  SetAsyncReadCPUTimeEnabled(false);
 }
 
 class AsyncReadStatsScope {
