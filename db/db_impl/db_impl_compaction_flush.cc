@@ -62,6 +62,15 @@ void RecordAtomicFlushRequestReason(Statistics* stats,
   }
 }
 
+std::vector<uint64_t> MemTableIds(const autovector<ReadOnlyMemTable*>& mems) {
+  std::vector<uint64_t> ids;
+  ids.reserve(mems.size());
+  for (const ReadOnlyMemTable* mem : mems) {
+    ids.push_back(mem->GetID());
+  }
+  return ids;
+}
+
 }  // namespace
 
 bool DBImpl::EnoughRoomForCompaction(
@@ -305,8 +314,7 @@ Status DBImpl::FlushMemTableToOutputFile(
                      flush_reason);
 
   bool switched_to_mempurge = false;
-  size_t prepared_blob_generations = 0;
-  std::vector<uint64_t> sealed_blob_numbers;
+  std::vector<uint64_t> prepared_blob_memtable_ids;
   // Within flush_job.Run, rocksdb may call event listener to notify
   // file creation and deletion.
   //
@@ -317,17 +325,17 @@ Status DBImpl::FlushMemTableToOutputFile(
     auto mgr_handle = cfd->blob_partition_manager_handle();
     auto* mgr = mgr_handle.get();
     if (mgr != nullptr) {
-      prepared_blob_generations = flush_job.GetMemTables().size();
+      prepared_blob_memtable_ids = MemTableIds(flush_job.GetMemTables());
       std::vector<BlobFileAddition> write_path_additions;
       std::vector<BlobFileGarbage> write_path_garbages;
       std::vector<std::vector<uint64_t>> generation_blob_file_numbers;
       mutex_.Unlock();
       s = mgr->PrepareFlushAdditions(
-          write_options, prepared_blob_generations, &write_path_additions,
+          write_options, prepared_blob_memtable_ids, &write_path_additions,
           &write_path_garbages, &generation_blob_file_numbers);
       mutex_.Lock();
       if (!s.ok()) {
-        prepared_blob_generations = 0;
+        prepared_blob_memtable_ids.clear();
       } else if (!write_path_additions.empty()) {
         const auto& memtables = flush_job.GetMemTables();
         assert(generation_blob_file_numbers.size() == memtables.size());
@@ -337,9 +345,6 @@ Status DBImpl::FlushMemTableToOutputFile(
           // from obsolete-file purge until the memtable is finally released.
           memtables[i]->ProtectSealedBlobFiles(mgr_handle,
                                                generation_blob_file_numbers[i]);
-        }
-        for (const auto& addition : write_path_additions) {
-          sealed_blob_numbers.push_back(addition.GetBlobFileNumber());
         }
         flush_job.AddExternalBlobFileAdditions(std::move(write_path_additions));
         flush_job.AddExternalBlobFileGarbages(std::move(write_path_garbages));
@@ -384,7 +389,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   });
 
   if (cfd->blob_partition_manager() != nullptr &&
-      prepared_blob_generations > 0) {
+      !prepared_blob_memtable_ids.empty()) {
     auto unconsumed_additions = flush_job.TakeExternalBlobFileAdditions();
     auto unconsumed_garbages = flush_job.TakeExternalBlobFileGarbages();
     if (!s.ok() || !unconsumed_additions.empty() ||
@@ -393,8 +398,7 @@ Status DBImpl::FlushMemTableToOutputFile(
       // in pending_generations_. The same immutable memtables still reference
       // these sealed blob files, so a later flush retry must publish the exact
       // same additions rather than abandoning them here.
-      prepared_blob_generations = 0;
-      sealed_blob_numbers.clear();
+      prepared_blob_memtable_ids.clear();
     }
   }
 
@@ -402,12 +406,9 @@ Status DBImpl::FlushMemTableToOutputFile(
     flush_job.Cancel();
   }
 
-  if (s.ok() && prepared_blob_generations > 0) {
-    auto* mgr = cfd->blob_partition_manager();
-    mgr->CommitPreparedGenerations(prepared_blob_generations);
-    if (!sealed_blob_numbers.empty()) {
-      mgr->RemoveFilePartitionMappings(sealed_blob_numbers);
-    }
+  if (s.ok() && !prepared_blob_memtable_ids.empty()) {
+    cfd->blob_partition_manager()->CommitFlushedGenerations(
+        cfd->imm()->GetEarliestMemTableID());
   }
 
   if (s.ok()) {
@@ -651,13 +652,12 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   // <bool /* executed */, Status /* status code */>
   autovector<std::pair<bool, Status>> exec_status;
   std::vector<bool> pick_status;
-  std::vector<size_t> prepared_blob_generations(num_cfs, 0);
+  std::vector<std::vector<uint64_t>> prepared_blob_memtable_ids(num_cfs);
   for (int i = 0; i != num_cfs; ++i) {
     // Initially all jobs are not executed, with status OK.
     exec_status.emplace_back(false, Status::OK());
     pick_status.push_back(false);
   }
-  std::unordered_map<int, std::vector<uint64_t>> sealed_blob_numbers_by_cf;
 
   bool flush_for_recovery =
       bg_flush_args[0].flush_reason_ == FlushReason::kErrorRecovery ||
@@ -689,17 +689,17 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         continue;
       }
 
-      prepared_blob_generations[i] = jobs[i]->GetMemTables().size();
+      prepared_blob_memtable_ids[i] = MemTableIds(jobs[i]->GetMemTables());
       std::vector<BlobFileAddition> write_path_additions;
       std::vector<BlobFileGarbage> write_path_garbages;
       std::vector<std::vector<uint64_t>> generation_blob_file_numbers;
       mutex_.Unlock();
       s = mgr->PrepareFlushAdditions(
-          write_options, prepared_blob_generations[i], &write_path_additions,
+          write_options, prepared_blob_memtable_ids[i], &write_path_additions,
           &write_path_garbages, &generation_blob_file_numbers);
       mutex_.Lock();
       if (!s.ok()) {
-        prepared_blob_generations[i] = 0;
+        prepared_blob_memtable_ids[i].clear();
         break;
       }
       if (!write_path_additions.empty()) {
@@ -708,10 +708,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         for (size_t j = 0; j < generation_blob_file_numbers.size(); ++j) {
           memtables[j]->ProtectSealedBlobFiles(mgr_handle,
                                                generation_blob_file_numbers[j]);
-        }
-        auto& sealed_blob_numbers = sealed_blob_numbers_by_cf[i];
-        for (const auto& addition : write_path_additions) {
-          sealed_blob_numbers.push_back(addition.GetBlobFileNumber());
         }
         jobs[i]->AddExternalBlobFileAdditions(std::move(write_path_additions));
       }
@@ -982,7 +978,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
   for (int i = 0; i != num_cfs; ++i) {
     auto* mgr = cfds[i]->blob_partition_manager();
-    if (mgr == nullptr || prepared_blob_generations[i] == 0) {
+    if (mgr == nullptr || prepared_blob_memtable_ids[i].empty()) {
       continue;
     }
 
@@ -993,15 +989,11 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       // Same retry semantics as the single-CF flush path above: do not
       // consume these prepared generations yet, because the rolled-back
       // memtables still need to reuse the same sealed blob files on retry.
-      prepared_blob_generations[i] = 0;
+      prepared_blob_memtable_ids[i].clear();
       continue;
     }
 
-    mgr->CommitPreparedGenerations(prepared_blob_generations[i]);
-    auto it = sealed_blob_numbers_by_cf.find(i);
-    if (it != sealed_blob_numbers_by_cf.end() && !it->second.empty()) {
-      mgr->RemoveFilePartitionMappings(it->second);
-    }
+    mgr->CommitFlushedGenerations(cfds[i]->imm()->GetEarliestMemTableID());
   }
 
   if (s.ok()) {
