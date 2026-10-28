@@ -1941,7 +1941,7 @@ Status DBImplSecondary::CompactWithoutInstallation(
   assert(cfd->compaction_picker());
   std::optional<SequenceNumber> earliest_snapshot = std::nullopt;
   // Standalone Range Deletion Optimization is only supported in Universal
-  // Compactions - https://github.com/facebook/rocksdb/pull/13078
+  // Compactions - https://github.com/meta/rocksdb/pull/13078
   if (cfd->GetLatestCFOptions().compaction_style ==
       CompactionStyle::kCompactionStyleUniversal) {
     earliest_snapshot = !job_context.snapshot_seqs.empty()

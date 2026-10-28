@@ -2317,7 +2317,7 @@ TEST_F(DBWALTest, RaceInstallFlushResultsWithWalObsoletion) {
           // We set up the dependency between sync points for two threads that
           // will be executing the same code.
           // For the interleaving of events, see
-          // https://github.com/facebook/rocksdb/pull/9715.
+          // https://github.com/meta/rocksdb/pull/9715.
           // bg flush thread1 will release the db mutex while in the MANIFEST
           // write queue. In the meantime, bg flush thread2 locks db mutex and
           // computes the min_wal_number_to_keep (before thread1 writes to
@@ -3225,7 +3225,7 @@ TEST_F(DBWALTest, WalInManifestButNotInSortedWals) {
   CreateAndReopenWithCF({"blah"}, options);
 
   // Currently necessary to get a WAL tracked in manifest; see
-  // https://github.com/facebook/rocksdb/issues/10080
+  // https://github.com/meta/rocksdb/issues/10080
   ASSERT_OK(Put(0, "x", "y"));
   ASSERT_OK(db_->SyncWAL());
   ASSERT_OK(Put(1, "x", "y"));

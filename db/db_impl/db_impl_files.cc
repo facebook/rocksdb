@@ -313,7 +313,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
         // schedule for purge, we also skip it if we
         // are doing full scan in order to avoid double deletion of the same
         // file under race conditions. See
-        // https://github.com/facebook/rocksdb/issues/3573
+        // https://github.com/meta/rocksdb/issues/3573
         if (!ParseFileName(file, &number, info_log_prefix.prefix, &type) ||
             !ShouldPurge(number)) {
           continue;

@@ -5755,7 +5755,7 @@ void VersionSet::Reset() {
     }
 
     // db_id becomes the source of truth after DBImpl::Recover():
-    // https://github.com/facebook/rocksdb/blob/v7.3.1/db/db_impl/db_impl_open.cc#L527
+    // https://github.com/meta/rocksdb/blob/v7.3.1/db/db_impl/db_impl_open.cc#L527
     // Note: we may not be able to recover db_id from MANIFEST if
     // options.write_dbid_to_manifest is false (default).
     column_family_set_.reset(

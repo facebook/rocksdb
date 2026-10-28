@@ -100,7 +100,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Universal style compaction is focused on reducing Write Amplification
   // Factor for big data sets, but increases Space Amplification. You can learn
   // more about the different styles here:
-  // https://github.com/facebook/rocksdb/wiki/Rocksdb-Architecture-Guide
+  // https://github.com/meta/rocksdb/wiki/Rocksdb-Architecture-Guide
   // Make sure to also call IncreaseParallelism(), which will provide the
   // biggest performance gains.
   // Note: we might use more memory than memtable_memory_budget during high
@@ -841,7 +841,7 @@ struct DBOptions {
   //
   // The RocksDB wiki has some discussion about how the WAL interacts
   // with memtables and flushing of column families.
-  // https://github.com/facebook/rocksdb/wiki/Column-Families
+  // https://github.com/meta/rocksdb/wiki/Column-Families
   //
   // This option takes effect only when there are more than one column
   // family as otherwise the wal size is dictated by the write_buffer_size.
@@ -1870,7 +1870,7 @@ struct DBOptions {
   // will be removed in a future release.
   // Warning: do not set to false unless you are trying to migrate existing
   // data in which the contract of single delete
-  // (https://github.com/facebook/rocksdb/wiki/Single-Delete) is not enforced,
+  // (https://github.com/meta/rocksdb/wiki/Single-Delete) is not enforced,
   // thus has Delete mixed with SingleDelete for the same user key. Violation
   // of the contract leads to undefined behaviors with high possibility of data
   // inconsistency, e.g. deleted old data become visible again, etc.

@@ -12590,7 +12590,7 @@ TEST_F(DBCompactionTest, VerifyOutputRecordCountPlainTable) {
 
 TEST_F(DBCompactionTest, ErrorWhenReadFileHead) {
   // This is to test a bug that is fixed in
-  // https://github.com/facebook/rocksdb/pull/11782.
+  // https://github.com/meta/rocksdb/pull/11782.
   //
   // Ingest error when reading from a file with offset = 0,
   // See if compaction handles it correctly.
