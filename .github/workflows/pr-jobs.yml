@@ -66,8 +66,8 @@ jobs:
         clang-format --version
     - name: Download clang-format-diff.py
       # Mirrored on the "third-party-deps" GitHub release; add/update via
-      # https://github.com/facebook/rocksdb/releases/edit/third-party-deps
-      run: wget --tries=3 --retry-on-host-error https://github.com/facebook/rocksdb/releases/download/third-party-deps/clang-format-diff.py
+      # https://github.com/meta/rocksdb/releases/edit/third-party-deps
+      run: wget --tries=3 --retry-on-host-error https://github.com/meta/rocksdb/releases/download/third-party-deps/clang-format-diff.py
     - name: Check format
       run: VERBOSE_CHECK=1 make check-format
     - name: Compare buckify output
@@ -91,7 +91,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
+      image: ghcr.io/meta/rocksdb_ubuntu:22.1
       options: --shm-size=32gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -109,7 +109,7 @@ jobs:
     runs-on:
       labels: 4-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:24.1
+      image: ghcr.io/meta/rocksdb_ubuntu:24.1
       options: --shm-size=8gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -134,7 +134,7 @@ jobs:
     runs-on:
       labels: 32-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
+      image: ghcr.io/meta/rocksdb_ubuntu:22.1
       options: --shm-size=64gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -159,7 +159,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
+      image: ghcr.io/meta/rocksdb_ubuntu:22.1
       options: --shm-size=32gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -179,7 +179,7 @@ jobs:
     runs-on:
       labels: 32-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
+      image: ghcr.io/meta/rocksdb_ubuntu:22.1
       options: --shm-size=64gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -208,7 +208,7 @@ jobs:
       matrix:
         shard: [0, 1, 2, 3]
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
+      image: ghcr.io/meta/rocksdb_ubuntu:22.1
       options: --shm-size=32gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -231,7 +231,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
+      image: ghcr.io/meta/rocksdb_ubuntu:22.1
       options: --shm-size=32gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -251,7 +251,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
+      image: ghcr.io/meta/rocksdb_ubuntu:22.1
       options: --shm-size=32gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -283,7 +283,7 @@ jobs:
     runs-on:
       labels: 8-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
+      image: ghcr.io/meta/rocksdb_ubuntu:22.1
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -305,7 +305,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:24.1
+      image: ghcr.io/meta/rocksdb_ubuntu:24.1
       options: --shm-size=32gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -372,7 +372,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:24.1
+      image: ghcr.io/meta/rocksdb_ubuntu:24.1
       options: --shm-size=32gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -421,7 +421,7 @@ jobs:
         - crash_test_target: blackbox_crash_test
           crash_duration: 240
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
+      image: ghcr.io/meta/rocksdb_ubuntu:22.1
       options: --shm-size=8gb --ulimit nofile=1048576:1048576
     steps:
     - uses: actions/checkout@v4.1.0
@@ -456,7 +456,7 @@ jobs:
       matrix:
         shard: [0, 1, 2]
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:24.1
+      image: ghcr.io/meta/rocksdb_ubuntu:24.1
       options: --shm-size=64gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -483,7 +483,7 @@ jobs:
       matrix:
         shard: [0, 1, 2]
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:24.1
+      image: ghcr.io/meta/rocksdb_ubuntu:24.1
       options: --shm-size=64gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -506,7 +506,7 @@ jobs:
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
+      image: ghcr.io/meta/rocksdb_ubuntu:22.1
       options: --shm-size=32gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -613,7 +613,7 @@ jobs:
     runs-on:
       labels: 4-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
+      image: ghcr.io/meta/rocksdb_ubuntu:22.1
       options: --shm-size=8gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -636,7 +636,7 @@ jobs:
     runs-on:
       labels: 4-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
+      image: ghcr.io/meta/rocksdb_ubuntu:22.1
       options: --shm-size=8gb
     steps:
     - uses: actions/checkout@v4.1.0
