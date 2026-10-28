@@ -1,8 +1,9 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
-## 11.13.2 (10/21/2026)
+## 11.13.2 (10/28/2026)
 ### Bug Fixes
+* Fixed a secondary instance with `open_files_async = true` getting stuck after `TryCatchUpWithPrimary()` returned `PathNotFound` for a table file that the primary deleted before the background opener reached it.
 * Fixed blob direct write with more than one concurrent flush of a column family: a later flush sealed and published the blob files of the oldest pending memtable instead of its own, so flushes failed with `Corruption: VersionBuilder: Blob file #N already added` and the database stopped.
 
 ## 11.13.1 (10/23/2026)
