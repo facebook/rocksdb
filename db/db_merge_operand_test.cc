@@ -49,13 +49,14 @@ class DBMergeOperandTest : public DBTestBase {
       : DBTestBase("db_merge_operand_test", /*env_do_fsync=*/true) {}
 
  protected:
-  // Exercise the contract shared by DB modes that override DBImpl::GetImpl.
+  // Exercise the output contract shared by every DB mode. Expects "k1" to hold
+  // the merge operands "a" through "d".
   void VerifyGetMergeOperandsCapacityContract(DB* db) {
     constexpr int kNumOperands = 4;
     constexpr int kCapacity = 3;
     std::array<PinnableSlice, kNumOperands> values;
-    // Seed every writable slot to prove a reused output array is cleared before
-    // an insufficient-capacity result is returned.
+    // Seed every writable slot to prove an insufficient-capacity result leaves
+    // a reused output array untouched.
     for (int i = 0; i < kCapacity; ++i) {
       values[i].PinSelf(Slice("stale"));
     }
@@ -73,12 +74,12 @@ class DBMergeOperandTest : public DBTestBase {
     ASSERT_EQ(Status::SubCode::KMergeOperandsInsufficientCapacity, s.subcode());
     ASSERT_EQ(kNumOperands, num_operands);
     for (int i = 0; i < kCapacity; ++i) {
-      ASSERT_TRUE(values[i].empty());
+      ASSERT_EQ("stale", values[i]);
     }
     ASSERT_EQ("guard", values.back());
 
     // continue_cb observes operands newest-first. Stopping after two must
-    // return that suffix in logical order without touching the guard slot.
+    // return that suffix in logical order and leave the remaining slots alone.
     constexpr int kShortCircuitOperands = 2;
     GetMergeOperandsOptions short_circuit_info;
     short_circuit_info.expected_max_number_of_operands = kShortCircuitOperands;
@@ -94,6 +95,7 @@ class DBMergeOperandTest : public DBTestBase {
     ASSERT_EQ(kShortCircuitOperands, num_operands);
     ASSERT_EQ("c", values[0]);
     ASSERT_EQ("d", values[1]);
+    ASSERT_EQ("stale", values[2]);
     ASSERT_EQ("guard", values.back());
   }
 
@@ -115,6 +117,39 @@ class DBMergeOperandTest : public DBTestBase {
   }
 
   std::string SecondaryPath() const { return dbname_ + "_secondary"; }
+
+  void VerifyGetMergeOperands(DB* db, const Slice& key,
+                              const std::vector<std::string>& expected_operands,
+                              bool expect_pinned,
+                              std::vector<PinnableSlice>* operands) {
+    ASSERT_NE(nullptr, operands);
+    operands->resize(expected_operands.size());
+    GetMergeOperandsOptions options;
+    options.expected_max_number_of_operands =
+        static_cast<int>(expected_operands.size());
+    int number_of_operands = 0;
+    ASSERT_OK(db->GetMergeOperands(ReadOptions(), db->DefaultColumnFamily(),
+                                   key, operands->data(), &options,
+                                   &number_of_operands));
+    ASSERT_EQ(expected_operands.size(),
+              static_cast<size_t>(number_of_operands));
+    for (size_t i = 0; i < expected_operands.size(); ++i) {
+      ASSERT_EQ(expected_operands[i], (*operands)[i]);
+      ASSERT_EQ(expect_pinned, (*operands)[i].IsPinned());
+    }
+  }
+
+  Options GetCacheEvictionOptions() {
+    Options options = CurrentOptions();
+    options.merge_operator = MergeOperators::CreateStringAppendOperator();
+    options.disable_auto_compactions = true;
+    BlockBasedTableOptions table_options;
+    // Make each newly read block evict the preceding block unless the lookup's
+    // PinnedIteratorsManager still owns its iterator cleanup.
+    table_options.block_cache = NewLRUCache(1);
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    return options;
+  }
 };
 
 TEST_F(DBMergeOperandTest, CacheEvictedMergeOperandReadAfterFreeBug) {
@@ -709,6 +744,16 @@ TEST_F(DBMergeOperandTest, GetMergeOperandCallbackStopAtImm) {
   ASSERT_EQ("v2", merge_operands[1]);
 }
 
+TEST_F(DBMergeOperandTest, GetMergeOperandsPrimaryInsufficientCapacity) {
+  Options options = CurrentOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  DestroyAndReopen(options);
+  for (const auto& v : {"a", "b", "c", "d"}) {
+    ASSERT_OK(Merge("k1", v));
+  }
+  VerifyGetMergeOperandsCapacityContract(db_.get());
+}
+
 // GetMergeOperands on a read-only or secondary DB must honor
 // expected_max_number_of_operands the way the primary does, returning
 // Incomplete rather than writing PinnableSlices past the caller's array.
@@ -790,73 +835,106 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsSecondaryCatchUpDuringCallback) {
 // holds their blocks. With a cache too small to keep any unpinned block,
 // releasing those pins before copying would free the operands first.
 TEST_F(DBMergeOperandTest, GetMergeOperandsSecondaryCacheEvictedSstOperands) {
-  Options options = CurrentOptions();
-  options.merge_operator = MergeOperators::CreateStringAppendOperator();
-  BlockBasedTableOptions table_options;
-  table_options.block_cache = NewLRUCache(1);
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Options options = GetCacheEvictionOptions();
   DestroyAndReopen(options);
-  const std::vector<std::string> operands = {"v1", "v2", "v3"};
-  for (const auto& v : operands) {
-    ASSERT_OK(Merge("k1", v));
+  const std::vector<std::string> expected_operands{"v1", "v2", "v3", "v4"};
+  for (const std::string& operand : expected_operands) {
+    ASSERT_OK(Merge("k1", operand));
     ASSERT_OK(Flush());
   }
 
   std::unique_ptr<DB> secondary_db;
   OpenCaughtUpSecondary(options, &secondary_db);
-
-  std::vector<PinnableSlice> values(operands.size());
-  GetMergeOperandsOptions info;
-  info.expected_max_number_of_operands = static_cast<int>(operands.size());
-  int num_operands = 0;
-  ASSERT_OK(secondary_db->GetMergeOperands(
-      ReadOptions(), secondary_db->DefaultColumnFamily(), "k1", values.data(),
-      &info, &num_operands));
-  ASSERT_EQ(static_cast<int>(operands.size()), num_operands);
-  std::vector<std::string> actual;
-  actual.reserve(values.size());
-  for (const auto& v : values) {
-    actual.push_back(v.ToString());
-  }
-  ASSERT_EQ(operands, actual);
-
-  values.clear();
+  std::vector<PinnableSlice> operands;
+  VerifyGetMergeOperands(secondary_db.get(), "k1", expected_operands,
+                         /*expect_pinned=*/false, &operands);
+  operands.clear();
   DestroySecondary(options, &secondary_db);
 }
 
 // The same requirement holds on a read-only DB.
 TEST_F(DBMergeOperandTest,
        GetMergeOperandsReadOnlyFlushedOperandsSurviveCacheEviction) {
-  Options options = CurrentOptions();
-  options.merge_operator = MergeOperators::CreateStringAppendOperator();
-  BlockBasedTableOptions table_options;
-  table_options.block_cache = NewLRUCache(1);
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Options options = GetCacheEvictionOptions();
   DestroyAndReopen(options);
-  const std::vector<std::string> operands = {"v1", "v2", "v3"};
-  for (const auto& v : operands) {
-    ASSERT_OK(Merge("k1", v));
+  const std::vector<std::string> expected_operands{"v1", "v2", "v3", "v4"};
+  for (const std::string& operand : expected_operands) {
+    ASSERT_OK(Merge("k1", operand));
     ASSERT_OK(Flush());
   }
   Close();
 
   std::unique_ptr<DB> readonly_db;
   ASSERT_OK(DB::OpenForReadOnly(options, dbname_, &readonly_db));
+  std::vector<PinnableSlice> operands;
+  VerifyGetMergeOperands(readonly_db.get(), "k1", expected_operands,
+                         /*expect_pinned=*/false, &operands);
+}
 
-  std::vector<PinnableSlice> values(operands.size());
-  GetMergeOperandsOptions info;
-  info.expected_max_number_of_operands = static_cast<int>(operands.size());
-  int num_operands = 0;
-  ASSERT_OK(readonly_db->GetMergeOperands(
-      ReadOptions(), readonly_db->DefaultColumnFamily(), "k1", values.data(),
-      &info, &num_operands));
-  ASSERT_EQ(static_cast<int>(operands.size()), num_operands);
-  std::vector<std::string> actual;
-  actual.reserve(values.size());
-  for (const auto& v : values) {
-    actual.push_back(v.ToString());
+TEST_F(DBMergeOperandTest, GetMergeOperandsReadOnlyPinsLargeResult) {
+  constexpr int kNumOperands = 128;
+  constexpr int kOperandLen = 512;
+
+  Options options = CurrentOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.avoid_flush_during_shutdown = true;
+  DestroyAndReopen(options);
+
+  std::vector<std::string> expected_operands;
+  expected_operands.reserve(kNumOperands);
+  for (int i = 0; i < kNumOperands; ++i) {
+    expected_operands.emplace_back(kOperandLen,
+                                   static_cast<char>('a' + i % 26));
+    ASSERT_OK(Merge("k1", expected_operands.back()));
   }
-  ASSERT_EQ(operands, actual);
+  Close();
+
+  std::unique_ptr<DB> readonly_db;
+  ASSERT_OK(DB::OpenForReadOnly(options, dbname_, &readonly_db));
+  std::vector<PinnableSlice> operands;
+  // The shared finalizer should use the same no-copy resource bundle as the
+  // primary path once the result exceeds its size thresholds.
+  VerifyGetMergeOperands(readonly_db.get(), "k1", expected_operands,
+                         /*expect_pinned=*/true, &operands);
+  // Reading into the same, still-pinned slots requires each one to be reset
+  // before it is pinned again.
+  VerifyGetMergeOperands(readonly_db.get(), "k1", expected_operands,
+                         /*expect_pinned=*/true, &operands);
+}
+
+TEST_F(DBMergeOperandTest, GetMergeOperandsSecondaryPinsLargeResult) {
+  constexpr int kNumOperands = 128;
+  constexpr int kOperandLen = 512;
+
+  Options options = CurrentOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  DestroyAndReopen(options);
+
+  std::vector<std::string> expected_operands;
+  expected_operands.reserve(kNumOperands);
+  for (int i = 0; i < kNumOperands; ++i) {
+    expected_operands.emplace_back(kOperandLen,
+                                   static_cast<char>('a' + i % 26));
+    ASSERT_OK(Merge("k1", expected_operands.back()));
+  }
+  ASSERT_OK(db_->FlushWAL(/*sync=*/true));
+
+  std::unique_ptr<DB> secondary_db;
+  OpenCaughtUpSecondary(options, &secondary_db);
+  std::vector<PinnableSlice> operands;
+  VerifyGetMergeOperands(secondary_db.get(), "k1", expected_operands,
+                         /*expect_pinned=*/true, &operands);
+
+  // Install another SuperVersion before the returned PinnableSlices are reset.
+  // Their shared cleanup must retain the version that owns the operands.
+  ASSERT_OK(Put("other", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(secondary_db->TryCatchUpWithPrimary());
+  for (size_t i = 0; i < expected_operands.size(); ++i) {
+    ASSERT_EQ(expected_operands[i], operands[i]);
+  }
+  operands.clear();
+  DestroySecondary(options, &secondary_db);
 }
 }  // namespace ROCKSDB_NAMESPACE
 

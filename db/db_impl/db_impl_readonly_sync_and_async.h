@@ -85,16 +85,8 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplReadOnly::GetImpl)
     }
   }
 
-  if (get_impl_options.get_merge_operands_options != nullptr) {
-    // Clear the full caller-advertised writable range before data lookup. This
-    // makes reused output arrays deterministic and prevents an
-    // insufficient-capacity result from exposing stale or partial operands.
-    for (int i = 0; i < get_impl_options.get_merge_operands_options
-                            ->expected_max_number_of_operands;
-         ++i) {
-      get_impl_options.merge_operands[i].Reset();
-    }
-  }
+  MergeContext merge_context;
+  PrepareGetMergeOperands(get_impl_options, &merge_context);
 
   // In read-only mode Get(), no super version operation is needed (i.e.
   // GetAndRefSuperVersion and ReturnAndCleanupSuperVersion)
@@ -109,15 +101,6 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplReadOnly::GetImpl)
       CO_RETURN s;
     }
   }
-  // Prepare to store a list of merge operations if merge occurs.
-  MergeContext merge_context;
-  // Operand collection happens below the post-processing layer, so the
-  // collectors need these options in order to honor continue_cb.
-  merge_context.get_merge_operands_options =
-      get_impl_options.get_merge_operands_options;
-  // TODO - Large Result Optimization for Read Only DB
-  // (https://github.com/facebook/rocksdb/pull/10458)
-
   SequenceNumber max_covering_tombstone_seq = 0;
   LookupKey lkey(key, snapshot, read_options.timestamp);
   PERF_TIMER_STOP(get_snapshot_time);
@@ -174,23 +157,8 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplReadOnly::GetImpl)
       } else if (get_impl_options.columns) {
         size = get_impl_options.columns->payload_size();
       } else if (get_impl_options.merge_operands) {
-        *get_impl_options.number_of_operands =
-            static_cast<int>(merge_context.GetNumOperands());
-        // The count reports the required capacity even on Incomplete. Validate
-        // before pinning the first operand so output remains all-or-nothing and
-        // no write can cross the caller-advertised range.
-        if (*get_impl_options.number_of_operands >
-            get_impl_options.get_merge_operands_options
-                ->expected_max_number_of_operands) {
-          s = Status::Incomplete(
-              Status::SubCode::KMergeOperandsInsufficientCapacity);
-        } else {
-          for (const Slice& sl : merge_context.GetOperands()) {
-            size += sl.size();
-            get_impl_options.merge_operands->PinSelf(sl);
-            get_impl_options.merge_operands++;
-          }
-        }
+        s = FinalizeGetMergeOperands(get_impl_options, super_version,
+                                     &merge_context, &pinned_iters_mgr, &size);
       }
       RecordTick(stats_, BYTES_READ, size);
       RecordInHistogram(stats_, BYTES_PER_READ, size);
