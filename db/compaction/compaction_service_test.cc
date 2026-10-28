@@ -16,6 +16,7 @@
 #include "db/blob/blob_log_sequential_reader.h"
 #include "db/compaction/compaction_outputs.h"
 #include "db/db_test_util.h"
+#include "env/composite_env_wrapper.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
@@ -27,6 +28,8 @@
 #include "rocksdb/utilities/options_util.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/unique_id_impl.h"
+#include "test_util/mock_time_env.h"
+#include "util/defer.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -4287,6 +4290,180 @@ TEST_F(CompactionServiceTest, Snapshot) {
   db_->ReleaseSnapshot(s1);
 }
 
+// Later compactions take write times only from their input files, so every
+// output file needs its seqno->time mapping.
+static void AssertFilesHaveSeqnoToTimeMapping(DB* db) {
+  TablePropertiesCollection props;
+  ASSERT_OK(db->GetPropertiesOfAllTables(&props));
+  ASSERT_FALSE(props.empty());
+  for (const auto& [file_name, file_props] : props) {
+    ASSERT_FALSE(file_props->seqno_to_time_mapping.empty()) << file_name;
+  }
+}
+
+// With the real preclude_last_level_data_seconds option, recently written data
+// stays out of the last level, in a remote compaction as in a local one.
+TEST_F(CompactionServiceTest, PrecludeLastLevelKeepsRecentData) {
+  const int kNumTrigger = 4;
+  const int kNumKeys = 100;
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.last_level_temperature = Temperature::kCold;
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.num_levels = 7;
+  options.preclude_last_level_data_seconds = 10000;
+
+  auto write_and_compact = [&]() {
+    for (int i = 0; i < kNumTrigger; i++) {
+      for (int j = 0; j < kNumKeys; j++) {
+        ASSERT_OK(Put(Key(j * kNumTrigger + i), "v" + std::to_string(i)));
+      }
+      ASSERT_OK(Flush());
+    }
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  };
+
+  DestroyAndReopen(options);
+  write_and_compact();
+  ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
+  AssertFilesHaveSeqnoToTimeMapping(db_.get());
+
+  ReopenWithCompactionService(&options);
+  write_and_compact();
+  ASSERT_GE(GetCompactionService()->GetCompactionNum(), 1);
+  // The worker's per-key placement matched the primary's, so the remote
+  // result was installed rather than redone locally.
+  ASSERT_EQ(CompactionServiceJobStatus::kSuccess,
+            GetCompactionService()->GetFinalCompactionServiceJobStatus());
+  ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
+  AssertFilesHaveSeqnoToTimeMapping(db_.get());
+}
+
+// If the worker's per-key placement differs from the primary's, the worker
+// declines the job and the compaction runs locally.
+TEST_F(CompactionServiceTest, PerKeyPlacementMismatchFallsBackToLocal) {
+  const int kNumTrigger = 4;
+  const int kNumKeys = 100;
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.last_level_temperature = Temperature::kCold;
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.num_levels = 7;
+  options.preclude_last_level_data_seconds = 10000;
+  ReopenWithCompactionService(&options);
+
+  std::atomic<int> altered{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceJob::ProcessKeyValueCompactionWithCompactionService",
+      [&](void* arg) {
+        auto* input = static_cast<CompactionServiceInput*>(arg);
+        if (input->proximal_level > 0) {
+          input->keep_in_last_level_through_seqno += 1;
+          altered++;
+        }
+      });
+  std::atomic<int> mismatches{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::CompactWithoutInstallation:PerKeyPlacementCheck",
+      [&](void* arg) {
+        if (*static_cast<bool*>(arg)) {
+          mismatches++;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  for (int i = 0; i < kNumTrigger; i++) {
+    for (int j = 0; j < kNumKeys; j++) {
+      ASSERT_OK(Put(Key(j * kNumTrigger + i), "v" + std::to_string(i)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_GE(altered.load(), 1);
+  ASSERT_EQ(mismatches.load(), altered.load());
+  // Only the jobs that were not altered were installed from the worker.
+  auto* my_cs = GetCompactionService();
+  ASSERT_EQ(my_cs->GetOnInstallationCount(),
+            my_cs->GetCompactionNum() - altered.load());
+  ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
+}
+
+// The primary never installs a proximal-level output for a compaction without
+// a proximal level. It redoes the compaction locally instead.
+TEST_F(CompactionServiceTest, UnexpectedProximalOutputFallsBackToLocal) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  ReopenWithCompactionService(&options);
+  GenerateTestData();
+
+  CompactionServiceResult result;
+  result.status = Status::OK();
+  CompactionServiceOutputFile file;
+  file.file_name = "000123.sst";
+  file.file_size = 1;
+  file.marked_for_compaction = false;
+  file.is_proximal_level_output = true;
+  result.output_files.push_back(file);
+  std::string result_str;
+  ASSERT_OK(result.Write(&result_str));
+  auto my_cs = GetCompactionService();
+  my_cs->OverrideWaitResult(result_str);
+
+  std::string start_str = Key(15);
+  std::string end_str = Key(45);
+  Slice start(start_str);
+  Slice end(end_str);
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, &end));
+  VerifyTestData();
+  ASSERT_EQ(1, my_cs->GetOnInstallationCount());
+  ASSERT_EQ(CompactionServiceJobStatus::kUseLocal,
+            my_cs->GetFinalCompactionServiceJobStatus());
+}
+
+// With preserve_internal_time_seconds, a remote compaction keeps the sequence
+// numbers of recent writes in the bottommost level, as a local one does.
+TEST_F(CompactionServiceTest, PreserveInternalTimeKeepsRecentSeqnos) {
+  Options options = CurrentOptions();
+  options.preserve_internal_time_seconds = 10000;
+
+  auto write_and_compact = [&](SequenceNumber* largest_seqno) {
+    for (int i = 0; i < 10; i++) {
+      ASSERT_OK(Put(Key(i), "value"));
+    }
+    ASSERT_OK(Flush());
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+    std::vector<LiveFileMetaData> files;
+    db_->GetLiveFilesMetaData(&files);
+    *largest_seqno = 0;
+    for (const auto& f : files) {
+      if (f.column_family_name == kDefaultColumnFamilyName) {
+        *largest_seqno = std::max(*largest_seqno, f.largest_seqno);
+      }
+    }
+  };
+
+  DestroyAndReopen(options);
+  SequenceNumber local_largest_seqno = 0;
+  write_and_compact(&local_largest_seqno);
+  ASSERT_GT(local_largest_seqno, 0U);
+  AssertFilesHaveSeqnoToTimeMapping(db_.get());
+
+  ReopenWithCompactionService(&options);
+  SequenceNumber remote_largest_seqno = 0;
+  write_and_compact(&remote_largest_seqno);
+  ASSERT_GE(GetCompactionService()->GetCompactionNum(), 1);
+  ASSERT_GT(remote_largest_seqno, 0U);
+  AssertFilesHaveSeqnoToTimeMapping(db_.get());
+}
+
 TEST_F(CompactionServiceTest, PrecludeLastLevel) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
@@ -7090,6 +7267,89 @@ TEST_F(SessionTmpDirTest, CompactionUsesSessionTmpDir) {
 
   for (int i = 0; i < 20; i++) {
     ASSERT_EQ(Get(Key(i)), (i % 2 ? "value" : "value_new") + std::to_string(i));
+  }
+}
+
+// A bottommost file written before preserve_internal_time_seconds was enabled
+// has an empty seqno->time mapping. Once the DB-wide mapping ages it out of the
+// preserve window, the file is marked for a kBottommostFiles compaction. The
+// remote compaction of it must zero its sequence numbers as a local one does,
+// or the file is marked again after every rewrite.
+TEST_F(CompactionServiceTest, BottommostFileWithEmptySeqnoTimeMapping) {
+  auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+  mock_clock->SetCurrentTime(10000000);
+  mock_clock->InstallTimedWaitFixCallback();
+  std::unique_ptr<Env> mock_env(new CompositeEnvWrapper(env_, mock_clock));
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::StartPeriodicTaskScheduler:Init", [&](void* arg) {
+        static_cast<PeriodicTaskScheduler*>(arg)->TEST_OverrideTimer(
+            mock_clock.get());
+      });
+
+  // Counts executed compactions: with a BOTTOM thread pool, the picker runs
+  // twice for one forwarded bottommost compaction.
+  class BottommostCompactionCounter : public EventListener {
+   public:
+    void OnCompactionCompleted(DB* /*db*/,
+                               const CompactionJobInfo& ci) override {
+      if (ci.compaction_reason == CompactionReason::kBottommostFiles) {
+        count.fetch_add(1);
+      }
+    }
+    std::atomic<int> count{0};
+  };
+  auto bottommost_compactions = std::make_shared<BottommostCompactionCounter>();
+
+  const int kNumLevels = 7;
+  Options options = CurrentOptions();
+  options.env = mock_env.get();
+  options.num_levels = kNumLevels;
+  options.level0_file_num_compaction_trigger = 4;
+  options.listeners.push_back(bottommost_compactions);
+  std::shared_ptr<Statistics> compactor_statistics = CreateDBStatistics();
+  auto compaction_service = std::make_shared<MyTestCompactionService>(
+      dbname_, options, compactor_statistics, remote_listeners,
+      remote_table_properties_collector_factories);
+  options.compaction_service = compaction_service;
+  // The DB uses mock_env and mock_clock, so close it before they go out of
+  // scope, also when an assertion fails.
+  Defer close_db([this]() {
+    Close();
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("keeplow", "v"));
+  const Snapshot* protect = db_->GetSnapshot();
+  ASSERT_OK(Put("aged", "v"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(kNumLevels - 1);
+  ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 1));
+
+  ASSERT_OK(db_->SetOptions({{"preserve_internal_time_seconds", "10000"}}));
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put("hot", "v" + std::to_string(i)));
+    dbfull()->TEST_WaitForPeriodicTaskRun(
+        [&] { mock_clock->MockSleepForSeconds(200); });
+  }
+
+  ASSERT_EQ(bottommost_compactions->count.load(), 0);
+  const int compactions_before = compaction_service->GetCompactionNum();
+  db_->ReleaseSnapshot(protect);
+
+  // A looping file would keep this wait from returning.
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  ASSERT_EQ(bottommost_compactions->count.load(), 1);
+  ASSERT_EQ(compaction_service->GetCompactionNum(), compactions_before + 1);
+  std::vector<LiveFileMetaData> files;
+  db_->GetLiveFilesMetaData(&files);
+  for (const auto& f : files) {
+    if (f.level == kNumLevels - 1) {
+      ASSERT_EQ(f.largest_seqno, 0U);
+    }
   }
 }
 

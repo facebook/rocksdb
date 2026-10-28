@@ -1838,7 +1838,18 @@ Status DBImplSecondary::CompactWithoutInstallation(
   }
   Status s;
 
-  const auto& mutable_cf_options = cfd->GetLatestMutableCFOptions();
+  // DB::OpenAndCompact() runs this compaction in a secondary instance, which
+  // is otherwise read-only, so SanitizeCfOptions() zeroed preserve/preclude.
+  // But this compaction writes output files and decides data placement, so it
+  // needs the primary's values: for per-key placement, for which sequence
+  // numbers may be zeroed, and for the seqno->time mapping written to output
+  // files. Only this local copy is changed; the CF's own options stay
+  // sanitized as a read-only DB requires.
+  MutableCFOptions mutable_cf_options = cfd->GetLatestMutableCFOptions();
+  mutable_cf_options.preserve_internal_time_seconds =
+      input.preserve_internal_time_seconds;
+  mutable_cf_options.preclude_last_level_data_seconds =
+      input.preclude_last_level_data_seconds;
 
   // TODO(hx235): Resuming compaction is currently incompatible with
   // output hash verification (enabled via paranoid_file_checks=true or
@@ -1954,6 +1965,39 @@ Status DBImplSecondary::CompactWithoutInstallation(
       job_context.snapshot_checker));
   assert(c != nullptr);
   c->FinalizeInputInfo(version);
+
+  // The worker re-derives per-key placement from its own MANIFEST view, which
+  // can be newer than the primary's input version. The primary installs
+  // proximal-level outputs according to its own decisions, so decline on any
+  // disagreement and let the CompactionService fall back to local compaction.
+  // A proximal_level of 0 means an older primary that sent no decisions.
+  bool placement_mismatch =
+      input.proximal_level != 0 &&
+      (c->GetProximalLevel() != input.proximal_level ||
+       static_cast<int>(c->GetProximalOutputRangeType()) !=
+           input.proximal_output_range_type ||
+       c->GetKeepInLastLevelThroughSeqno() !=
+           input.keep_in_last_level_through_seqno);
+  TEST_SYNC_POINT_CALLBACK(
+      "DBImplSecondary::CompactWithoutInstallation:PerKeyPlacementCheck",
+      &placement_mismatch);
+  if (placement_mismatch) {
+    ROCKS_LOG_WARN(
+        immutable_db_options_.info_log,
+        "[%s] Remote compaction per-key placement differs from the "
+        "primary's (proximal level %d vs %d, range type %d vs %d, "
+        "keep in last level through seqno %" PRIu64 " vs %" PRIu64
+        "); declining so the job can fall back to local compaction.",
+        cfd->GetName().c_str(), c->GetProximalLevel(), input.proximal_level,
+        static_cast<int>(c->GetProximalOutputRangeType()),
+        input.proximal_output_range_type, c->GetKeepInLastLevelThroughSeqno(),
+        input.keep_in_last_level_through_seqno);
+    s = Status::Incomplete(
+        "Remote compaction worker's per-key placement differs from the "
+        "primary's");
+    c->ReleaseCompactionFiles(s);
+    return s;
+  }
 
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
                        immutable_db_options_.info_log.get());

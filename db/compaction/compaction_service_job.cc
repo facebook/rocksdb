@@ -250,6 +250,17 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   compaction_input.options_file_number = options_file_number_;
   compaction_input.min_manifest_file_number = min_manifest_file_number_;
   compaction_input.min_manifest_file_size = min_manifest_file_size_;
+  compaction_input.preserve_internal_time_seconds =
+      compaction->mutable_cf_options().preserve_internal_time_seconds;
+  compaction_input.preclude_last_level_data_seconds =
+      compaction->mutable_cf_options().preclude_last_level_data_seconds;
+  compaction_input.preserve_time_min_seqno_floor =
+      preserve_time_min_seqno_floor_;
+  compaction_input.proximal_level = compaction->GetProximalLevel();
+  compaction_input.proximal_output_range_type =
+      static_cast<int>(compaction->GetProximalOutputRangeType());
+  compaction_input.keep_in_last_level_through_seqno =
+      compaction->GetKeepInLastLevelThroughSeqno();
 
   TEST_SYNC_POINT_CALLBACK(
       "CompactionServiceJob::ProcessKeyValueCompactionWithCompactionService",
@@ -420,6 +431,28 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
                    "result (%s)",
                    compaction->column_family_data()->GetName().c_str(), job_id_,
                    s.ToString().c_str());
+    compaction_result.status.PermitUncheckedError();
+    db_options_.compaction_service->OnInstallation(
+        response.scheduled_job_id, CompactionServiceJobStatus::kUseLocal);
+    return CompactionServiceJobStatus::kUseLocal;
+  }
+
+  // The worker checks that its per-key placement matches this compaction's.
+  // As a backstop, never install a proximal-level output when this compaction
+  // has no proximal level. Nothing has been imported yet, so fall back to
+  // local compaction as above.
+  if (!compaction->SupportsPerKeyPlacement() &&
+      std::any_of(compaction_result.output_files.begin(),
+                  compaction_result.output_files.end(),
+                  [](const CompactionServiceOutputFile& file) {
+                    return file.is_proximal_level_output;
+                  })) {
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "[%s] [JOB %d] Remote compaction returned proximal-level "
+                   "output, but this compaction has no proximal level; "
+                   "falling back to local compaction",
+                   compaction->column_family_data()->GetName().c_str(),
+                   job_id_);
     compaction_result.status.PermitUncheckedError();
     db_options_.compaction_service->OnInstallation(
         response.scheduled_job_id, CompactionServiceJobStatus::kUseLocal);
@@ -1105,6 +1138,13 @@ void CompactionServiceCompactionJob::Prepare(
   if (compaction_input_.has_end) {
     end = compaction_input_.end;
   }
+  // CompactionJob::Prepare() replaces the floor for a kBottommostFiles
+  // compaction. The worker always rebuilds the compaction as a manual one, so
+  // the primary's floor is kept.
+  assert(compact_->compaction->compaction_reason() !=
+         CompactionReason::kBottommostFiles);
+  preserve_time_min_seqno_floor_ =
+      compaction_input_.preserve_time_min_seqno_floor;
   CompactionJob::Prepare(std::make_pair(begin, end), compaction_progress,
                          compaction_progress_writer);
 }
@@ -1394,6 +1434,29 @@ static std::unordered_map<std::string, OptionTypeInfo> cs_input_type_info = {
       OptionTypeFlags::kNone}},
     {"min_manifest_file_size",
      {offsetof(struct CompactionServiceInput, min_manifest_file_size),
+      OptionType::kUInt64T, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone}},
+    {"preserve_internal_time_seconds",
+     {offsetof(struct CompactionServiceInput, preserve_internal_time_seconds),
+      OptionType::kUInt64T, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone}},
+    {"preclude_last_level_data_seconds",
+     {offsetof(struct CompactionServiceInput, preclude_last_level_data_seconds),
+      OptionType::kUInt64T, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone}},
+    {"preserve_time_min_seqno_floor",
+     {offsetof(struct CompactionServiceInput, preserve_time_min_seqno_floor),
+      OptionType::kUInt64T, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone}},
+    {"proximal_level",
+     {offsetof(struct CompactionServiceInput, proximal_level), OptionType::kInt,
+      OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+    {"proximal_output_range_type",
+     {offsetof(struct CompactionServiceInput, proximal_output_range_type),
+      OptionType::kInt, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone}},
+    {"keep_in_last_level_through_seqno",
+     {offsetof(struct CompactionServiceInput, keep_in_last_level_through_seqno),
       OptionType::kUInt64T, OptionVerificationType::kNormal,
       OptionTypeFlags::kNone}},
 };
