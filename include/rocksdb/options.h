@@ -1947,6 +1947,11 @@ struct DBOptions {
   // quarter-interval past its (revised) deadline. To enforce the age limit
   // immediately at such a transition, trigger a manual compaction.
   //
+  // Files not yet past due at a (re)anchor are steered toward their phase more
+  // gently for up to about two intervals afterward, so that many DBs
+  // anchoring at once (e.g. enabling phasing across a fleet) do not
+  // concentrate periodic compactions shortly after the change.
+  //
   // 0 disables phasing entirely (exact legacy behavior; this is the kill
   // switch). 100 snaps to the preferred phase in a single cycle, which can
   // recompact some files well before their normal interval and is generally not
