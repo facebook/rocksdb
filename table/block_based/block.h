@@ -479,7 +479,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
 
   void SetCacheHandle(Cache::Handle* handle) { cache_handle_ = handle; }
 
-  Cache::Handle* cache_handle() { return cache_handle_; }
+  Cache::Handle* cache_handle() const { return cache_handle_; }
 
  protected:
   InternalKeyComparator icmp_;
