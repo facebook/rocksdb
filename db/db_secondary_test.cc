@@ -2590,6 +2590,54 @@ TEST_F(DBSecondaryTest, SwitchToNewManifestDuringOpen) {
   ro_db_thread.join();
 }
 
+TEST_F(DBSecondaryTest, CatchUpAfterInitialRecoveryFindsOnlyMissingFiles) {
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  options.max_manifest_file_size = 1;
+  options.max_manifest_space_amp_pct = 0;
+  Reopen(options);
+  ASSERT_OK(Put("foo", "v1"));
+  ASSERT_OK(Flush());
+  // Start recovery from a manifest snapshot containing the old SST.
+  Reopen(options);
+  const std::string old_table =
+      GetNewestTableFilePath(kDefaultColumnFamilyName);
+
+  bool rewritten = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit:Begin1",
+      [&](void*) {
+        if (rewritten) {
+          return;
+        }
+        rewritten = true;
+        // Replace the snapshot's SST before the secondary applies it.
+        ASSERT_OK(Put("foo", "v2"));
+        ASSERT_OK(Flush());
+        CompactRangeOptions compact_options;
+        compact_options.bottommost_level_compaction =
+            BottommostLevelCompaction::kForce;
+        ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+        ASSERT_OK(dbfull()->TEST_WaitForPurge());
+        const Status old_table_status = env_->FileExists(old_table);
+        ASSERT_TRUE(old_table_status.IsNotFound())
+            << old_table_status.ToString();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_points([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  Options secondary_options = options;
+  secondary_options.max_open_files = -1;
+  OpenSecondary(secondary_options);
+  ASSERT_TRUE(rewritten);
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  VerifySecondaryValue("foo", "v2");
+}
+
 TEST_F(DBSecondaryTest, MissingTableFileDuringOpen) {
   Options options;
   options.env = env_;
