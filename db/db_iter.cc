@@ -1979,6 +1979,9 @@ Status DBIter::ValidateScanOptions(const MultiScanArgs& multiscan_opts) const {
 }
 
 Status DBIter::SetScanOptionsForPrepare(const MultiScanArgs& scan_opts) {
+  // Prepare() discards the current position, because child iterators may
+  // release the data blocks that key() and value() point into.
+  valid_ = false;
   status_ = ValidateScanOptions(scan_opts);
   if (!status_.ok()) {
     return status_;

@@ -1014,8 +1014,10 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
 }
 
 // Note:
-// - Iterator should not be reused for multiple multiscans or mixing
-// multiscan with regular iterator usage.
+// - multiscan_opts == nullptr (no bounded scan ranges) is a no-op.
+// - Prepare() may follow regular positioning (e.g. Seek()); the current
+// position is discarded.
+// - Iterator should not be reused for multiple multiscans.
 // - scan ranges should be non-overlapping, and have increasing start keys.
 // If a scan range's limit is not set, then there should only be one scan range.
 // - After Prepare(), a forward scan expects Seek to be called on the start key
@@ -1037,6 +1039,9 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
 // moving forward.
 void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   assert(!multi_scan_read_set_);
+  if (multiscan_opts == nullptr) {
+    return;
+  }
   RecordTick(table_->GetStatistics(), MULTISCAN_PREPARE_CALLS);
   PERF_COUNTER_ADD(multiscan_prepare_count, 1);
   StopWatch sw(table_->get_rep()->ioptions.clock, table_->GetStatistics(),
@@ -1053,6 +1058,12 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
     RecordTick(table_->GetStatistics(), MULTISCAN_PREPARE_ERRORS);
     return;
   }
+
+  // CollectBlockHandles() repositions index_iter_ and success replaces it, so
+  // discard the current position and its data block, whatever the outcome.
+  ResetDataIter();
+  is_index_at_curr_block_ = false;
+  is_at_first_key_from_index_ = false;
 
   index_iter_->Prepare(multiscan_opts);
 
@@ -1148,9 +1159,6 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   prefetch_max_idx_ = prefetch_max_idx;
   original_index_iter_ = std::move(index_iter_);
   index_iter_ = std::move(multi_scan_idx_iter);
-
-  is_index_at_curr_block_ = false;
-  block_iter_points_to_real_block_ = false;
 }
 
 constexpr auto kVerbose = false;
