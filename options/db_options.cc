@@ -13,6 +13,7 @@
 #include "options/options_parser.h"
 #include "port/port.h"
 #include "rocksdb/advanced_cache.h"
+#include "rocksdb/auto_tune.h"
 #include "rocksdb/configurable.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
@@ -47,6 +48,106 @@ static std::unordered_map<std::string, InfoLogLevel> info_log_level_string_map =
      {"ERROR_LEVEL", InfoLogLevel::ERROR_LEVEL},
      {"FATAL_LEVEL", InfoLogLevel::FATAL_LEVEL},
      {"HEADER_LEVEL", InfoLogLevel::HEADER_LEVEL}};
+
+static const std::unordered_map<std::string, AutoTuneMode>&
+AutoTuneModeStringMap() {
+  static const std::unordered_map<std::string, AutoTuneMode> map = {
+      {"kOff", AutoTuneMode::kOff},
+      {"kObserve", AutoTuneMode::kObserve},
+      {"kRecommend", AutoTuneMode::kRecommend},
+      {"kApply", AutoTuneMode::kApply}};
+  return map;
+}
+
+// A free-form string option, serialized in braces so that ';', '=' and
+// balanced braces inside it (an intent is often JSON) survive a round trip
+// through an options string or the OPTIONS file.
+static OptionTypeInfo BracedStringOption(int offset) {
+  return OptionTypeInfo(offset, OptionType::kString,
+                        OptionVerificationType::kNormal, OptionTypeFlags::kNone)
+      .SetSerializeFunc([](const ConfigOptions& /*opts*/,
+                           const std::string& /*name*/, const void* addr,
+                           std::string* value) {
+        *value = "{" +
+                 EscapeOptionString(*static_cast<const std::string*>(addr)) +
+                 "}";
+        return Status::OK();
+      });
+}
+
+static std::unordered_map<std::string, OptionTypeInfo>
+    auto_tune_options_type_info = {
+        {"mode",
+         OptionTypeInfo::Enum<AutoTuneMode>(
+             offsetof(struct AutoTuneOptions, mode), &AutoTuneModeStringMap())},
+        {"intent",
+         BracedStringOption(offsetof(struct AutoTuneOptions, intent))},
+        {"allowed_options",
+         BracedStringOption(offsetof(struct AutoTuneOptions, allowed_options))},
+        {"tuning_dir",
+         {offsetof(struct AutoTuneOptions, tuning_dir), OptionType::kString,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+        {"trace_window_sec",
+         {offsetof(struct AutoTuneOptions, trace_window_sec),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"trace_period_sec",
+         {offsetof(struct AutoTuneOptions, trace_period_sec),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"trace_max_file_size",
+         {offsetof(struct AutoTuneOptions, trace_max_file_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"trace_sampling_frequency",
+         {offsetof(struct AutoTuneOptions, trace_sampling_frequency),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"trace_filter",
+         {offsetof(struct AutoTuneOptions, trace_filter), OptionType::kUInt64T,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+        {"trace_block_cache",
+         {offsetof(struct AutoTuneOptions, trace_block_cache),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"checkpoint_at_trace_start",
+         {offsetof(struct AutoTuneOptions, checkpoint_at_trace_start),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        // Written to the OPTIONS file by id. A tuner that is not registered
+        // with the ObjectRegistry cannot be loaded back, so the tuner is not
+        // compared when the OPTIONS file is verified.
+        {"tuner",
+         OptionTypeInfo::AsCustomSharedPtr<AutoTuner>(
+             offsetof(struct AutoTuneOptions, tuner),
+             OptionVerificationType::kByNameAllowFromNull,
+             OptionTypeFlags::kAllowNull | OptionTypeFlags::kCompareNever)},
+        {"max_changes_per_recommendation",
+         {offsetof(struct AutoTuneOptions, max_changes_per_recommendation),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"max_step_ratio",
+         {offsetof(struct AutoTuneOptions, max_step_ratio), OptionType::kDouble,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+        {"min_confidence",
+         {offsetof(struct AutoTuneOptions, min_confidence), OptionType::kDouble,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+        {"max_confirm_windows",
+         {offsetof(struct AutoTuneOptions, max_confirm_windows),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"watch_windows",
+         {offsetof(struct AutoTuneOptions, watch_windows), OptionType::kUInt32T,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+        {"min_apply_interval_sec",
+         {offsetof(struct AutoTuneOptions, min_apply_interval_sec),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"revert_on_constraint_violation",
+         {offsetof(struct AutoTuneOptions, revert_on_constraint_violation),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+};
 
 static std::unordered_map<std::string, OptionTypeInfo>
     db_mutable_options_type_info = {
@@ -170,6 +271,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableDBOptions, remote_compaction_manifest_floor),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"auto_tune",
+         OptionTypeInfo::Struct("auto_tune", &auto_tune_options_type_info,
+                                offsetof(struct MutableDBOptions, auto_tune),
+                                OptionVerificationType::kNormal,
+                                OptionTypeFlags::kMutable)},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
@@ -1150,7 +1256,8 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       optimize_manifest_for_recovery(options.optimize_manifest_for_recovery),
       fast_sst_open(options.fast_sst_open),
       remote_compaction_manifest_floor(
-          options.remote_compaction_manifest_floor) {}
+          options.remote_compaction_manifest_floor),
+      auto_tune(options.auto_tune) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.max_background_jobs: %d",
@@ -1221,6 +1328,21 @@ void MutableDBOptions::Dump(Logger* log) const {
                    fast_sst_open);
   ROCKS_LOG_HEADER(log, "      Options.remote_compaction_manifest_floor: %d",
                    remote_compaction_manifest_floor);
+  ROCKS_LOG_HEADER(log, "            Options.auto_tune.mode: %d",
+                   static_cast<int>(auto_tune.mode));
+  if (auto_tune.mode != AutoTuneMode::kOff) {
+    ROCKS_LOG_HEADER(
+        log, "            Options.auto_tune.tuner: %s",
+        auto_tune.tuner ? auto_tune.tuner->GetId().c_str() : "nullptr");
+    ROCKS_LOG_HEADER(log, "            Options.auto_tune.tuning_dir: %s",
+                     auto_tune.tuning_dir.c_str());
+    ROCKS_LOG_HEADER(log,
+                     "            Options.auto_tune.trace_window_sec: %" PRIu64
+                     " trace_period_sec: %" PRIu64,
+                     auto_tune.trace_window_sec, auto_tune.trace_period_sec);
+    ROCKS_LOG_HEADER(log, "            Options.auto_tune.allowed_options: %s",
+                     auto_tune.allowed_options.c_str());
+  }
 }
 
 Status GetMutableDBOptionsFromStrings(
@@ -1245,6 +1367,23 @@ bool MutableDBOptionsAreEqual(const MutableDBOptions& this_options,
   return OptionTypeInfo::StructsAreEqual(
       config_options, "MutableDBOptions", &db_mutable_options_type_info,
       "MutableDBOptions", &this_options, &that_options, &mismatch);
+}
+
+bool AutoTuneOptionsAreEqual(const AutoTuneOptions& this_options,
+                             const AutoTuneOptions& that_options) {
+  ConfigOptions config_options;
+  std::string mismatch;
+  if (!OptionTypeInfo::StructsAreEqual(
+          config_options, "auto_tune", &auto_tune_options_type_info,
+          "auto_tune", &this_options, &that_options, &mismatch)) {
+    return false;
+  }
+  const AutoTuner* this_tuner = this_options.tuner.get();
+  const AutoTuner* that_tuner = that_options.tuner.get();
+  if (this_tuner == nullptr || that_tuner == nullptr) {
+    return this_tuner == that_tuner;
+  }
+  return this_tuner->AreEquivalent(config_options, that_tuner, &mismatch);
 }
 
 Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,

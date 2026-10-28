@@ -79,7 +79,8 @@ TEST_F(PeriodicTaskSchedulerTest, Basic) {
 
   const PeriodicTaskScheduler& scheduler =
       dbfull()->TEST_GetPeriodicTaskScheduler();
-  ASSERT_EQ((int)PeriodicTaskType::kMax - 1, scheduler.TEST_GetValidTaskNum());
+  // All but kRecordSeqnoTime and kAutoTune, which are off by default.
+  ASSERT_EQ((int)PeriodicTaskType::kMax - 2, scheduler.TEST_GetValidTaskNum());
 
   ASSERT_EQ(1, dump_st_counter);
   ASSERT_EQ(1, pst_st_counter);
@@ -481,8 +482,9 @@ TEST_F(PeriodicTaskSchedulerTest, MultiInstances) {
   auto dbi = static_cast_with_check<DBImpl>(dbs[kInstanceNum - 1].get());
 
   const PeriodicTaskScheduler& scheduler = dbi->TEST_GetPeriodicTaskScheduler();
-  // kRecordSeqnoTime is not registered since the feature is not enabled
-  ASSERT_EQ(kInstanceNum * ((int)PeriodicTaskType::kMax - 1),
+  // kRecordSeqnoTime and kAutoTune are not registered since the features are
+  // not enabled
+  ASSERT_EQ(kInstanceNum * ((int)PeriodicTaskType::kMax - 2),
             scheduler.TEST_GetValidTaskNum());
 
   int expected_run = kInstanceNum;

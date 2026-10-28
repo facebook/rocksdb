@@ -296,6 +296,8 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "util/write_batch_util.cc",
         "util/xxhash.cc",
         "utilities/agg_merge/agg_merge.cc",
+        "utilities/auto_tune/auto_tune.cc",
+        "utilities/auto_tune/auto_tune_driver.cc",
         "utilities/backup/backup_engine.cc",
         "utilities/blob_db/blob_compaction_filter.cc",
         "utilities/blob_db/blob_db.cc",
@@ -4564,6 +4566,12 @@ cpp_unittest_wrapper(name="arena_test",
 
 cpp_unittest_wrapper(name="auto_roll_logger_test",
             srcs=["logging/auto_roll_logger_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="auto_tune_test",
+            srcs=["utilities/auto_tune/auto_tune_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

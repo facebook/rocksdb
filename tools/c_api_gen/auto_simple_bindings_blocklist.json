@@ -153,6 +153,11 @@
           "field": "writable_file_max_buffer_size",
           "policy": "manual",
           "reason": "ABI type mismatch: legacy C API uses uint64_t but C++ field is size_t. Hand-written binding preserved for ABI compatibility."
+        },
+        {
+          "field": "auto_tune",
+          "policy": "deferred",
+          "reason": "EXPERIMENTAL nested struct (AutoTuneOptions) holding a shared_ptr<AutoTuner>; needs an explicit C design for the tuner's ownership before exposing it."
         }
       ]
     },

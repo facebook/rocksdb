@@ -151,6 +151,15 @@ std::string TempCompactionProgressFileName(const std::string& dbname,
 // Return the DB session temporary directory.
 std::string SessionTmpDir(const std::string& dbname);
 
+// The name of the auto-tuning workload profile directory inside the DB
+// directory for AutoTuneOptions::tuning_dir, or "" when `tuning_dir` is a path
+// outside it.
+std::string AutoTuneDirName(const std::string& tuning_dir);
+
+// The auto-tuning workload profile directory for AutoTuneOptions::tuning_dir.
+std::string AutoTuneDir(const std::string& dbname,
+                        const std::string& tuning_dir);
+
 // Return the path for the client-selected staging directory name. When the
 // session temporary directory is not used, an already DB-rooted path is
 // returned unchanged for compatibility with legacy clients.

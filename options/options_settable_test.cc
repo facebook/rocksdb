@@ -371,6 +371,7 @@ TEST_F(OptionsSettableTest, TablePropertiesAllFieldsSettable) {
 // If it is a complicated type, you also need to add the field to
 // kDBOptionsExcluded, and maybe add customized verification for it.
 TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
+  const size_t kAutoTuneOffset = offsetof(struct DBOptions, auto_tune);
   const OffsetGap kDBOptionsExcluded = {
       {offsetof(struct DBOptions, env), sizeof(Env*)},
       {offsetof(struct DBOptions, rate_limiter),
@@ -401,6 +402,14 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       {offsetof(struct DBOptions, daily_offpeak_time_utc), sizeof(std::string)},
       {offsetof(struct DBOptions, calculate_sst_write_lifetime_hint_set),
        sizeof(CompactionStyleSet)},
+      {kAutoTuneOffset + offsetof(struct AutoTuneOptions, intent),
+       sizeof(std::string)},
+      {kAutoTuneOffset + offsetof(struct AutoTuneOptions, allowed_options),
+       sizeof(std::string)},
+      {kAutoTuneOffset + offsetof(struct AutoTuneOptions, tuning_dir),
+       sizeof(std::string)},
+      {kAutoTuneOffset + offsetof(struct AutoTuneOptions, tuner),
+       sizeof(std::shared_ptr<AutoTuner>)},
   };
 
   char* options_ptr = new char[sizeof(DBOptions)];
@@ -546,7 +555,15 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "fast_sst_open=true;"
       "remote_compaction_manifest_floor=false;"
       "use_session_tmp_dir_for_remote_compaction=true;"
-      "reuse_manifest_on_open=true;",
+      "reuse_manifest_on_open=true;"
+      "auto_tune={mode=kRecommend;trace_window_sec=4295048118;"
+      "trace_period_sec=4295008036;trace_max_file_size=4294967758;"
+      "trace_sampling_frequency=4295048119;trace_filter=4295008037;"
+      "trace_block_cache=true;checkpoint_at_trace_start=false;"
+      "max_changes_per_recommendation=5;max_step_ratio=2.5;"
+      "min_confidence=0.5;max_confirm_windows=7;watch_windows=6;"
+      "min_apply_interval_sec=4294967759;"
+      "revert_on_constraint_violation=false};",
       new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),
