@@ -1895,6 +1895,9 @@ checkpoint_test: $(OBJ_DIR)/utilities/checkpoint/checkpoint_test.o $(TEST_LIBRAR
 db_split_merge_test: $(OBJ_DIR)/utilities/db_split_merge_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+auto_tune_test: $(OBJ_DIR)/utilities/auto_tune/auto_tune_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 copy_engine_test: $(OBJ_DIR)/utilities/copy_engine/copy_engine_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 

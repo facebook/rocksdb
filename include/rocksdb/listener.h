@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "rocksdb/advanced_options.h"
+#include "rocksdb/auto_tune.h"
 #include "rocksdb/compaction_job_stats.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/customizable.h"
@@ -617,6 +618,18 @@ struct BackgroundJobPressure {
 // [Exceptions] Exceptions MUST NOT propagate out of overridden functions into
 // RocksDB, because RocksDB is not exception-safe. This could cause undefined
 // behavior including data loss, unreported corruption, deadlocks, and more.
+// EXPERIMENTAL. See EventListener::OnTuningRecommendation().
+struct TuningRecommendationInfo {
+  std::string db_name;
+  TuningRecommendation recommendation;
+  TuningOutcome outcome = TuningOutcome::kRejected;
+  // Why, for kRejected (and failed applies or reverts).
+  std::string reason;
+  // The confidence RocksDB computed from the confirmation windows; 0 when it
+  // was not computed.
+  double confidence = 0.0;
+};
+
 class EventListener : public Customizable {
  public:
   static const char* Type() { return "EventListener"; }
@@ -976,6 +989,15 @@ class EventListener : public Customizable {
   // listener callbacks may still run concurrently or afterward. Implementations
   // should not call blocking DB APIs or run for an extended period of time.
   virtual void OnDBShutdownBegin(DB* /*db*/) {}
+
+  // EXPERIMENTAL
+  // Called when auto-tuning (see AutoTuneOptions) acts on a tuner's
+  // recommendation: rejected by a check, reported in kRecommend mode, applied,
+  // kept or reverted. In kRecommend mode, this is where a service sends the
+  // change through its own config system. Called on the DB's auto-tuning
+  // thread; a slow callback delays the next window.
+  virtual void OnTuningRecommendation(
+      const TuningRecommendationInfo& /*info*/) {}
 
   ~EventListener() override = default;
 };
