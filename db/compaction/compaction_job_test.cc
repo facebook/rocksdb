@@ -1614,6 +1614,12 @@ TEST_F(CompactionJobTest, InputSerialization) {
   if (input.has_end) {
     input.end = rnd.RandomBinaryString(rnd.Uniform(kStrMaxLen));
   }
+  input.preserve_internal_time_seconds = rnd64.Uniform(UINT64_MAX);
+  input.preclude_last_level_data_seconds = rnd64.Uniform(UINT64_MAX);
+  input.preserve_time_min_seqno_floor = rnd64.Uniform(UINT64_MAX);
+  input.proximal_level = static_cast<int>(rnd.Uniform(8)) - 1;
+  input.proximal_output_range_type = static_cast<int>(rnd.Uniform(4));
+  input.keep_in_last_level_through_seqno = rnd64.Uniform(UINT64_MAX);
 
   std::string output;
   ASSERT_OK(input.Write(&output));
