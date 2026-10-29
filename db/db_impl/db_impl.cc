@@ -3257,6 +3257,76 @@ Status DBImpl::GetWithMetadata(const ReadOptions& _read_options,
       read_options.snapshot != nullptr ? newer_version_present : nullptr);
 }
 
+Status DB::GetEntityWithMetadata(const ReadOptions& options,
+                                 ColumnFamilyHandle* column_family,
+                                 const Slice& key, PinnableWideColumns* columns,
+                                 OutputMetadata* output_metadata) {
+  Status s = InitGetEntityOutputMetadata(output_metadata);
+  if (!s.ok()) {
+    return s;
+  }
+  if (column_family == nullptr) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityWithMetadata without a column family handle");
+  }
+  if (columns == nullptr) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityWithMetadata without a PinnableWideColumns "
+        "object");
+  }
+  if (GetOutputNewerVersionPresent(output_metadata) == nullptr ||
+      options.snapshot == nullptr) {
+    return GetEntity(options, column_family, key, columns);
+  }
+  return Status::NotSupported(
+      "GetEntityWithMetadata is not implemented by this DB subclass");
+}
+
+Status DBImpl::GetEntityWithMetadata(const ReadOptions& _read_options,
+                                     ColumnFamilyHandle* column_family,
+                                     const Slice& key,
+                                     PinnableWideColumns* columns,
+                                     OutputMetadata* output_metadata) {
+  bool* newer_version_present = GetOutputNewerVersionPresent(output_metadata);
+  Status s = InitGetEntityOutputMetadata(output_metadata);
+  if (!s.ok()) {
+    return s;
+  }
+  if (!column_family) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityWithMetadata without a column family handle");
+  }
+  if (!columns) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityWithMetadata without a PinnableWideColumns "
+        "object");
+  }
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGetEntity) {
+    return Status::InvalidArgument(
+        "Can only call GetEntityWithMetadata with `ReadOptions::io_activity` "
+        "set to `Env::IOActivity::kUnknown` or "
+        "`Env::IOActivity::kGetEntity`");
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGetEntity;
+  }
+  if (newer_version_present != nullptr && read_options.snapshot != nullptr &&
+      read_options.read_tier == kPersistedTier) {
+    return Status::NotSupported(
+        "Newer-version metadata is not supported with kPersistedTier");
+  }
+  columns->Reset();
+
+  GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+  get_impl_options.columns = columns;
+  get_impl_options.newer_version_present =
+      read_options.snapshot != nullptr ? newer_version_present : nullptr;
+  return GetImpl(read_options, key, get_impl_options);
+}
+
 Status DBImpl::GetImpl(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        PinnableSlice* value, std::string* timestamp,
@@ -4271,6 +4341,80 @@ void DB::MultiGetWithMetadata(const ReadOptions& options,
   }
 }
 
+void DB::MultiGetEntityWithMetadata(const ReadOptions& options, size_t num_keys,
+                                    ColumnFamilyHandle* const* column_families,
+                                    const Slice* keys,
+                                    PinnableWideColumns* results,
+                                    Status* statuses,
+                                    MultiGetOutputMetadata* output_metadata,
+                                    bool sorted_input) {
+  const Status s = InitMultiGetEntityOutputMetadata(num_keys, output_metadata);
+  if (!s.ok()) {
+    std::fill_n(statuses, num_keys, s);
+    return;
+  }
+  if (GetOutputNewerVersionPresent(output_metadata) != nullptr &&
+      options.snapshot != nullptr) {
+    std::fill_n(statuses, num_keys,
+                Status::NotSupported("MultiGetEntityWithMetadata is not "
+                                     "implemented by this DB subclass"));
+    return;
+  }
+  MultiGetEntityWithoutNewerVersionTracking(this, options, num_keys,
+                                            column_families, keys, results,
+                                            statuses, sorted_input);
+}
+
+void DB::MultiGetEntityWithMetadata(const ReadOptions& options,
+                                    ColumnFamilyHandle* column_family,
+                                    size_t num_keys, const Slice* keys,
+                                    PinnableWideColumns* results,
+                                    Status* statuses,
+                                    MultiGetOutputMetadata* output_metadata,
+                                    bool sorted_input) {
+  // Use std::array, if possible, to avoid memory allocation overhead
+  if (num_keys > MultiGetContext::MAX_BATCH_SIZE) {
+    std::vector<ColumnFamilyHandle*> column_families(num_keys, column_family);
+    MultiGetEntityWithMetadata(options, num_keys, column_families.data(), keys,
+                               results, statuses, output_metadata,
+                               sorted_input);
+  } else {
+    std::array<ColumnFamilyHandle*, MultiGetContext::MAX_BATCH_SIZE>
+        column_families{};
+    std::fill(column_families.begin(), column_families.begin() + num_keys,
+              column_family);
+    MultiGetEntityWithMetadata(options, num_keys, column_families.data(), keys,
+                               results, statuses, output_metadata,
+                               sorted_input);
+  }
+}
+
+void DB::MultiGetEntityWithMetadata(const ReadOptions& options, size_t num_keys,
+                                    const Slice* keys,
+                                    PinnableAttributeGroups* results,
+                                    MultiGetOutputMetadata* output_metadata) {
+  const size_t total_count = CountAttributeGroups(num_keys, results);
+  const Status s =
+      InitMultiGetEntityOutputMetadata(total_count, output_metadata);
+  if (!results) {
+    s.PermitUncheckedError();
+    return;
+  }
+  if (!s.ok()) {
+    SetAttributeGroupsStatus(num_keys, results, s);
+    return;
+  }
+  if (GetOutputNewerVersionPresent(output_metadata) != nullptr &&
+      options.snapshot != nullptr) {
+    SetAttributeGroupsStatus(
+        num_keys, results,
+        Status::NotSupported("MultiGetEntityWithMetadata is not implemented "
+                             "by this DB subclass"));
+    return;
+  }
+  MultiGetEntity(options, num_keys, keys, results);
+}
+
 void DBImpl::MultiGetCommon(const ReadOptions& read_options,
                             ColumnFamilyHandle* column_family,
                             const size_t num_keys, const Slice* keys,
@@ -4456,6 +4600,62 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
                  statuses, /* newer_version_present */ nullptr, sorted_input);
 }
 
+void DBImpl::MultiGetEntityWithMetadata(
+    const ReadOptions& _read_options, size_t num_keys,
+    ColumnFamilyHandle* const* column_families, const Slice* keys,
+    PinnableWideColumns* results, Status* statuses,
+    MultiGetOutputMetadata* output_metadata, bool sorted_input) {
+  assert(statuses);
+
+  std::vector<uint8_t>* newer_version_present =
+      GetOutputNewerVersionPresent(output_metadata);
+  const bool newer_version_present_requested =
+      newer_version_present != nullptr && _read_options.snapshot != nullptr;
+  Status s = InitMultiGetEntityOutputMetadata(num_keys, output_metadata);
+  if (s.ok()) {
+    if (!column_families) {
+      s = Status::InvalidArgument(
+          "Cannot call MultiGetEntityWithMetadata without column families");
+    } else if (!keys) {
+      s = Status::InvalidArgument(
+          "Cannot call MultiGetEntityWithMetadata without keys");
+    } else if (!results) {
+      s = Status::InvalidArgument(
+          "Cannot call MultiGetEntityWithMetadata without "
+          "PinnableWideColumns objects");
+    } else if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+               _read_options.io_activity != Env::IOActivity::kMultiGetEntity) {
+      s = Status::InvalidArgument(
+          "Can only call MultiGetEntityWithMetadata with "
+          "`ReadOptions::io_activity` set to `Env::IOActivity::kUnknown` or "
+          "`Env::IOActivity::kMultiGetEntity`");
+    } else if (newer_version_present_requested &&
+               _read_options.read_tier == kPersistedTier) {
+      s = Status::NotSupported(
+          "Newer-version metadata is not supported with kPersistedTier");
+    }
+  }
+  if (!s.ok()) {
+    std::fill_n(statuses, num_keys, s);
+    return;
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGetEntity;
+  }
+  autovector<ColumnFamilyHandle*, MultiGetContext::MAX_BATCH_SIZE>
+      stack_column_families;
+  std::vector<ColumnFamilyHandle*> heap_column_families;
+  ColumnFamilyHandle** mutable_column_families = MakeMutableCfHandles(
+      column_families, num_keys, &stack_column_families, &heap_column_families);
+  MultiGetCommon(
+      read_options, num_keys, mutable_column_families, keys,
+      /* values */ nullptr, results, /* timestamps */ nullptr, statuses,
+      newer_version_present_requested ? newer_version_present : nullptr,
+      sorted_input);
+}
+
 void DBImpl::MultiGetEntity(const ReadOptions& _read_options,
                             ColumnFamilyHandle* column_family, size_t num_keys,
                             const Slice* keys, PinnableWideColumns* results,
@@ -4577,6 +4777,79 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
     for (size_t j = 0; j < results[i].size(); ++j) {
       results[i][j].Reset();
       results[i][j].SetStatus(std::move(statuses[index]));
+      results[i][j].SetColumns(std::move(columns[index]));
+      ++index;
+    }
+  }
+}
+
+void DBImpl::MultiGetEntityWithMetadata(
+    const ReadOptions& _read_options, size_t num_keys, const Slice* keys,
+    PinnableAttributeGroups* results, MultiGetOutputMetadata* output_metadata) {
+  const size_t total_count = CountAttributeGroups(num_keys, results);
+  std::vector<uint8_t>* newer_version_present =
+      GetOutputNewerVersionPresent(output_metadata);
+  const bool newer_version_present_requested =
+      newer_version_present != nullptr && _read_options.snapshot != nullptr;
+  Status s = InitMultiGetEntityOutputMetadata(total_count, output_metadata);
+  if (!results) {
+    s.PermitUncheckedError();
+    return;
+  }
+  if (s.ok()) {
+    if (!keys) {
+      s = Status::InvalidArgument(
+          "Cannot call MultiGetEntityWithMetadata without keys");
+    } else if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+               _read_options.io_activity != Env::IOActivity::kMultiGetEntity) {
+      s = Status::InvalidArgument(
+          "Can only call MultiGetEntityWithMetadata with "
+          "`ReadOptions::io_activity` set to `Env::IOActivity::kUnknown` or "
+          "`Env::IOActivity::kMultiGetEntity`");
+    } else if (newer_version_present_requested &&
+               _read_options.read_tier == kPersistedTier) {
+      s = Status::NotSupported(
+          "Newer-version metadata is not supported with kPersistedTier");
+    }
+  }
+  if (!s.ok()) {
+    SetAttributeGroupsStatus(num_keys, results, s);
+    return;
+  }
+  if (total_count == 0) {
+    return;
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGetEntity;
+  }
+
+  std::vector<ColumnFamilyHandle*> column_families;
+  std::vector<Slice> all_keys;
+  column_families.reserve(total_count);
+  all_keys.reserve(total_count);
+  for (size_t i = 0; i < num_keys; ++i) {
+    for (size_t j = 0; j < results[i].size(); ++j) {
+      all_keys.emplace_back(keys[i]);
+      column_families.emplace_back(results[i][j].column_family());
+    }
+  }
+
+  std::vector<Status> statuses(total_count);
+  std::vector<PinnableWideColumns> columns(total_count);
+  MultiGetCommon(
+      read_options, total_count, column_families.data(), all_keys.data(),
+      /* values */ nullptr, columns.data(), /* timestamps */ nullptr,
+      statuses.data(),
+      newer_version_present_requested ? newer_version_present : nullptr,
+      /* sorted_input */ false);
+
+  size_t index = 0;
+  for (size_t i = 0; i < num_keys; ++i) {
+    for (size_t j = 0; j < results[i].size(); ++j) {
+      results[i][j].Reset();
+      results[i][j].SetStatus(statuses[index]);
       results[i][j].SetColumns(std::move(columns[index]));
       ++index;
     }

@@ -122,6 +122,19 @@ class DBImplSecondary : public DBImpl {
                             MultiGetOutputMetadata* output_metadata,
                             const bool sorted_input = false) override;
 
+  using DBImpl::MultiGetEntityWithMetadata;
+  void MultiGetEntityWithMetadata(const ReadOptions& options, size_t num_keys,
+                                  ColumnFamilyHandle* const* column_families,
+                                  const Slice* keys,
+                                  PinnableWideColumns* results,
+                                  Status* statuses,
+                                  MultiGetOutputMetadata* output_metadata,
+                                  bool sorted_input = false) override;
+  void MultiGetEntityWithMetadata(
+      const ReadOptions& options, size_t num_keys, const Slice* keys,
+      PinnableAttributeGroups* results,
+      MultiGetOutputMetadata* output_metadata) override;
+
   using DBImpl::NewIterator;
   // Operations on the created iterators can return IOError due to files being
   // deleted by the primary. To avoid IOError in this case, application can
