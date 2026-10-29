@@ -4851,6 +4851,25 @@ TEST_F(OptionTypeInfoTest, StringMapRejectsMalformedEntries) {
   }
 }
 
+TEST_F(OptionTypeInfoTest, EncodedStringRejectsMalformedHex) {
+  ConfigOptions config_options;
+  OptionTypeInfo encoded_string(0, OptionType::kEncodedString);
+  const std::string expected = "existing";
+
+  // An odd number of digits, and a digit that is not hex.
+  for (const char* malformed : {"616", "61zz"}) {
+    SCOPED_TRACE(malformed);
+    std::string parsed = expected;
+    ASSERT_TRUE(encoded_string.Parse(config_options, "str", malformed, &parsed)
+                    .IsInvalidArgument());
+    ASSERT_EQ(parsed, expected);
+  }
+
+  std::string parsed;
+  ASSERT_OK(encoded_string.Parse(config_options, "str", "6162", &parsed));
+  ASSERT_EQ(parsed, "ab");
+}
+
 TEST_F(OptionTypeInfoTest, TestParseFunc) {
   OptionTypeInfo opt_info(0, OptionType::kUnknown,
                           OptionVerificationType::kNormal,
