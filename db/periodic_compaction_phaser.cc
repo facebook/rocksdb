@@ -145,6 +145,12 @@ uint64_t PeriodicCompactionPhaser::TriggerTime(
   // q <= 1/2: at q = 33% a lockstep herd due 0.62*n after the anchor still
   // spreads over 0.31*n (vs 0.33*n unscaled). For q > 1/2 it spreads like
   // q = 1/2.
+  //
+  // DB open is also an anchor and gets the same scaling: restarts can be
+  // coordinated across a fleet (e.g. DC power recovery), and write-driven
+  // workloads keep many files off their phase, so the same spike could follow.
+  // The cost is slower convergence for a DB reopened much more often than once
+  // per period; no trigger moves past the classic deadline.
   const uint64_t q_pct = static_cast<uint64_t>(std::min(recovery_percent, 100));
   constexpr uint64_t k_pct = 50;
   const uint64_t r = natural_trigger - anchor;

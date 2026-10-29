@@ -1950,7 +1950,11 @@ struct DBOptions {
   // Files not yet past due at a (re)anchor are steered toward their phase more
   // gently for up to about two intervals afterward, so that many DBs
   // anchoring at once (e.g. enabling phasing across a fleet) do not
-  // concentrate periodic compactions shortly after the change.
+  // concentrate periodic compactions shortly after the change. Because DB open
+  // is also a (re)anchor, a DB reopened much more often than once per interval
+  // converges toward its phase more slowly; such re-anchoring is appropriate to
+  // reduce load spikes after some period with the DB closed, without
+  // compromising the periodic_compaction_seconds contract.
   //
   // 0 disables phasing entirely (exact legacy behavior; this is the kill
   // switch). 100 snaps to the preferred phase in a single cycle, which can
