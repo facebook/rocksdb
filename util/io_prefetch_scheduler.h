@@ -26,7 +26,8 @@ class PrefetchDispatchTarget {
 
   virtual Status DispatchPrefetch(const std::shared_ptr<ReadSet>& read_set,
                                   const std::shared_ptr<IOJob>& job,
-                                  const std::vector<size_t>& block_indices) = 0;
+                                  const std::vector<size_t>& block_indices,
+                                  bool require_async_io) = 0;
 };
 
 // Selects which blocks to dispatch as a ReadSet is consumed. A scheduler may
@@ -38,11 +39,17 @@ class PrefetchScheduler {
   virtual ~PrefetchScheduler() = default;
 
   virtual Status Start(const std::vector<size_t>& block_indices) = 0;
+  virtual Status OnBlockRequired(size_t /* block_index */) {
+    return Status::OK();
+  }
+  virtual void OnBlockHandedOff(size_t /* block_index */) {}
   virtual void OnBlockDiscarded(size_t /* block_index */) {}
+  virtual void OnForegroundStall(size_t /* block_index */) {}
   virtual void ReleaseMemory(size_t /* bytes */) {}
 };
 
-// Creates schedulers and owns their dispatcher-scoped shared state.
+// Owns dispatcher-scoped shared state and creates the default scheduler unless
+// the job satisfies every rolling-prefetch prerequisite.
 class PrefetchSchedulerFactory {
  public:
   virtual ~PrefetchSchedulerFactory() = default;
@@ -50,7 +57,7 @@ class PrefetchSchedulerFactory {
   virtual std::shared_ptr<PrefetchScheduler> Create(
       std::weak_ptr<PrefetchDispatchTarget> target,
       const std::shared_ptr<ReadSet>& read_set,
-      const std::shared_ptr<IOJob>& job) = 0;
+      const std::shared_ptr<IOJob>& job, bool block_handles_are_sorted) = 0;
 };
 
 std::shared_ptr<PrefetchSchedulerFactory> NewPrefetchSchedulerFactory(

@@ -5864,6 +5864,8 @@ TEST_P(DBMultiScanIteratorTest, FailureTest) {
   scan_options.insert(key_ranges[0], key_ranges[1]);
   scan_options.insert(key_ranges[2], key_ranges[3]);
   scan_options.max_prefetch_size = 4500;
+  scan_options.rolling_prefetch = true;
+  scan_options.rolling_prefetch_window_size = 4500;
   ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
   std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ro, cfh));
   ASSERT_NE(iter, nullptr);
@@ -5934,6 +5936,10 @@ TEST_P(DBMultiScanIteratorTest, OutOfL0FileRange) {
   ro.iterate_upper_bound = &ub;
   ro.fill_cache = GetParam();
   MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.use_async_io = true;
+  scan_options.max_prefetch_size = 64 << 10;
+  scan_options.rolling_prefetch = true;
+  scan_options.rolling_prefetch_window_size = 128 << 10;
   scan_options.insert(key_ranges[0], key_ranges[1]);
   scan_options.insert(key_ranges[2], key_ranges[3]);
   ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
@@ -6342,6 +6348,8 @@ TEST_P(DBMultiScanIteratorTest, ReversePrefetchAcrossMultipleRanges) {
   MultiScanArgs scan_options(BytewiseComparator());
   scan_options.use_async_io = false;
   scan_options.reverse = true;
+  scan_options.rolling_prefetch = true;
+  scan_options.rolling_prefetch_window_size = 64 << 10;
   scan_options.io_dispatcher = tracking_dispatcher;
   std::vector<std::string> key_ranges(
       {Key(100), Key(200), Key(500), Key(600), Key(800), Key(900)});
