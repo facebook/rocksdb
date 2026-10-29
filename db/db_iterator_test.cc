@@ -26,6 +26,7 @@
 #include "rocksdb/perf_context.h"
 #include "table/block_based/flush_block_policy_impl.h"
 #include "test_util/testutil.h"
+#include "util/defer.h"
 #include "util/random.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
 
@@ -616,6 +617,12 @@ TEST_F(DBIteratorBaseTest, PrepareWithMultiScanPrunesNonIntersectingMemTables) {
 // merging iterator rather than through LevelIterator, so they are positioned
 // on a data block.
 TEST_F(DBIteratorBaseTest, PrepareWithMultiScanAfterPositioning) {
+  // Other tests can leave counting disabled on this thread.
+  const PerfLevel prev_perf_level = GetPerfLevel();
+  SetPerfLevel(kEnableCount);
+  Defer restore_perf_level(
+      [prev_perf_level]() { SetPerfLevel(prev_perf_level); });
+
   constexpr int kNumKeys = 200;
   std::vector<std::string> keys;
   for (int i = 0; i <= kNumKeys; ++i) {
@@ -698,8 +705,7 @@ TEST_F(DBIteratorBaseTest, PrepareWithMultiScanAfterPositioning) {
         iter->Prepare(scan_opts);
         ASSERT_OK(iter->status());
         ASSERT_FALSE(iter->Valid());
-        // The L0 table iterator took the MultiScan path (perf counters are
-        // enabled by default).
+        // The L0 table iterator took the MultiScan path.
         ASSERT_GT(get_perf_context()->multiscan_prepare_count, 0);
 
         std::vector<std::pair<std::string, std::string>> expected;
