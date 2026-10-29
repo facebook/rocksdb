@@ -6063,8 +6063,8 @@ Status VersionSet::ProcessManifestWrites(
                                  : MutableCFOptions(*new_cf_options),
                 io_tracer_, current_version_number_++);
             versions.push_back(version);
-            builder_guards.emplace_back(
-                new BaseReferencedVersionBuilder(last_writer->cfd));
+            builder_guards.emplace_back(new BaseReferencedVersionBuilder(
+                last_writer->cfd, last_writer->cfd->current()));
             builder = builder_guards.back()->version_builder();
           }
           assert(last_writer->IsAllVersionIndependentEdits() || builder);
