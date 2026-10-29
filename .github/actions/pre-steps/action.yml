@@ -2,12 +2,21 @@ name: pre-steps
 runs:
   using: composite
   steps:
-  - name: Dump ulimits for diagnostics
+  - name: Dump system info for diagnostics
     run: |
       echo "=== ulimits (soft) ==="
       ulimit -a -S || true
       echo "=== ulimits (hard) ==="
       ulimit -a -H || true
+      echo "=== OS ==="
+      uname -a || true
+      echo "=== CPU ==="
+      if [ "$RUNNER_OS" = "macOS" ]; then
+        sysctl machdep.cpu.brand_string hw.ncpu || true
+      else
+        lscpu || true
+        grep -m1 '^microcode' /proc/cpuinfo || true
+      fi
     shell: bash
   - name: Install lld linker for faster builds
     run: apt-get update -y && apt-get install -y lld 2>/dev/null || true
@@ -15,7 +24,6 @@ runs:
   - name: Setup Environment Variables
     run: |-
       echo "GTEST_THROW_ON_FAILURE=0" >> "$GITHUB_ENV"
-      echo "GTEST_OUTPUT=\"xml:${{ runner.temp }}/test-results/\"" >> "$GITHUB_ENV"
       echo "SKIP_FORMAT_BUCK_CHECKS=1" >> "$GITHUB_ENV"
       echo "GTEST_COLOR=1" >> "$GITHUB_ENV"
       echo "CTEST_OUTPUT_ON_FAILURE=1" >> "$GITHUB_ENV"

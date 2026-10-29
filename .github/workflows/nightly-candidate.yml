@@ -16,4 +16,3 @@ jobs:
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/install-gflags"
     - run: make V=1 J=4 -j4 check
-    - uses: "./.github/actions/post-steps"

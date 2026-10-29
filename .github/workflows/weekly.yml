@@ -17,4 +17,3 @@ jobs:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
     - run: make V=1 -j20 valgrind_test
-    - uses: "./.github/actions/post-steps"
