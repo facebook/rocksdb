@@ -665,8 +665,13 @@ static bool ParseOptionHelper(void* opt_address, const OptionType& opt_type,
           compaction_stop_style_string_map, value,
           static_cast<CompactionStopStyle*>(opt_address));
     case OptionType::kEncodedString: {
-      std::string* output_addr = static_cast<std::string*>(opt_address);
-      (Slice(value)).DecodeHex(output_addr);
+      // DecodeHex() can write part of the result before it finds a bad digit,
+      // so keep the option unchanged until the whole value decodes.
+      std::string decoded;
+      if (!Slice(value).DecodeHex(&decoded)) {
+        return false;
+      }
+      *static_cast<std::string*>(opt_address) = std::move(decoded);
       break;
     }
     case OptionType::kTemperature: {

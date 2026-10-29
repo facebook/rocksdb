@@ -1676,6 +1676,17 @@ TEST_F(CompactionJobTest, InputSerialization) {
   ASSERT_TRUE(CompactionServiceInput::Read(invalid_range, &parsed_invalid_range)
                   .IsInvalidArgument());
 
+  // Test malformed hex in an encoded string field
+  const std::string cf_name_field = "cf_name=";
+  std::string malformed_hex;
+  ASSERT_OK(input.Write(&malformed_hex));
+  const size_t cf_name_pos = malformed_hex.find(cf_name_field);
+  ASSERT_NE(cf_name_pos, std::string::npos);
+  malformed_hex.insert(cf_name_pos + cf_name_field.size(), "Z");
+  CompactionServiceInput parsed_malformed_hex;
+  ASSERT_TRUE(CompactionServiceInput::Read(malformed_hex, &parsed_malformed_hex)
+                  .IsInvalidArgument());
+
   // Test missing field
   CompactionServiceInput deserialized3;
   deserialized3.output_level = 0;
