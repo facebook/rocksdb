@@ -9,6 +9,7 @@
 
 #include "rocksdb/cache.h"
 
+#include "cache/fifo_cache.h"
 #include "cache/lru_cache.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/utilities/customizable_util.h"
@@ -142,6 +143,28 @@ Status Cache::CreateFromString(const ConfigOptions& config_options,
       }
     }
     if (status.ok()) {
+      result->swap(cache);
+    }
+  } else if (StartsWith(trim(OptionTypeInfo::StripOuterBraces(trim(value))),
+                        "fifo_cache://")) {
+    // Trimmed inside and outside the braces like the LRU form, so
+    // " { fifo_cache://...} " is not silently passed to the object registry
+    // instead.
+    FIFOCacheOptions cache_opts;
+    status = OptionTypeInfo::ParseStruct(
+        config_options, "fifo_cache", &FIFOCacheOptionsTypeInfo(), "fifo_cache",
+        trim(OptionTypeInfo::StripOuterBraces(trim(value)))
+            .substr(std::strlen("fifo_cache://")),
+        &cache_opts);
+    if (status.ok() && cache_opts.capacity == 0) {
+      status = Status::InvalidArgument("fifo_cache.capacity",
+                                       "must be set and non-zero");
+    } else if (status.ok() && cache_opts.num_shard_bits >= 20) {
+      status = Status::InvalidArgument("fifo_cache.num_shard_bits",
+                                       "must be less than 20");
+    }
+    if (status.ok()) {
+      cache = cache_opts.MakeSharedCache();
       result->swap(cache);
     }
   } else {
