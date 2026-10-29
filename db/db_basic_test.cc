@@ -4676,12 +4676,13 @@ INSTANTIATE_TEST_CASE_P(DBMultiGetTestWithParam, DBMultiGetTestWithParam,
 #if USE_COROUTINES
 class DBMultiGetAsyncIOTest
     : public DBBasicTest,
-      public ::testing::WithParamInterface<std::tuple<bool, bool>> {
+      public ::testing::WithParamInterface<std::tuple<bool, bool, bool>> {
  public:
   DBMultiGetAsyncIOTest()
       : DBBasicTest(),
         optimize_multiget_for_io_(std::get<0>(GetParam())),
         use_coroutine_(std::get<1>(GetParam())),
+        use_direct_io_(std::get<2>(GetParam())),
         statistics_(ROCKSDB_NAMESPACE::CreateDBStatistics()) {
     BlockBasedTableOptions bbto;
     bbto.filter_policy.reset(NewBloomFilterPolicy(10));
@@ -4690,6 +4691,7 @@ class DBMultiGetAsyncIOTest
     options_.statistics = statistics_;
     options_.table_factory.reset(NewBlockBasedTableFactory(bbto));
     options_.env = Env::Default();
+    options_.use_direct_reads = use_direct_io_ && IsDirectIOSupported();
     Reopen(options_);
     int num_keys = 0;
 
@@ -4753,6 +4755,12 @@ class DBMultiGetAsyncIOTest
     EXPECT_EQ(0, num_keys);
   }
 
+  void SetUp() override {
+    if (use_direct_io_ && !options_.use_direct_reads) {
+      ROCKSDB_GTEST_SKIP("Direct IO is not supported");
+    }
+  }
+
   const std::shared_ptr<Statistics>& statistics() { return statistics_; }
 
  protected:
@@ -4787,6 +4795,7 @@ class DBMultiGetAsyncIOTest
 
   const bool optimize_multiget_for_io_;
   const bool use_coroutine_;
+  const bool use_direct_io_;
 
  private:
   std::shared_ptr<Statistics> statistics_;
@@ -5236,7 +5245,8 @@ TEST_P(DBMultiGetAsyncIOTest, MixedReadAsyncFallbackPropagatesPollError) {
 #endif  // ROCKSDB_IOURING_PRESENT
 
 INSTANTIATE_TEST_CASE_P(DBMultiGetAsyncIOTest, DBMultiGetAsyncIOTest,
-                        testing::Combine(testing::Bool(), testing::Bool()));
+                        testing::Combine(testing::Bool(), testing::Bool(),
+                                         testing::Bool()));
 #endif  // USE_COROUTINES
 
 TEST_F(DBBasicTest, MultiGetStats) {
