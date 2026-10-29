@@ -3631,7 +3631,7 @@ TEST_F(BackupEngineTest, ChangeManifestDuringBackupCreation) {
   AssertBackupConsistency(0, 0, 100);
 }
 
-// see https://github.com/facebook/rocksdb/issues/921
+// see https://github.com/meta/rocksdb/issues/921
 TEST_F(BackupEngineTest, Issue921Test) {
   BackupEngine* backup_engine;
   engine_options_->share_table_files = false;

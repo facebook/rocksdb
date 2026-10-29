@@ -153,7 +153,7 @@ class BlockReadAmpBitmap {
 // compressed blocks in general, filter blocks/partitions, or compression
 // dictionaries.
 //
-// See https://github.com/facebook/rocksdb/wiki/Rocksdb-BlockBasedTable-Format
+// See https://github.com/meta/rocksdb/wiki/Rocksdb-BlockBasedTable-Format
 // for details of the format and the various block types.
 //
 // TODO: Rename to ParsedKvBlock?

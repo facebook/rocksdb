@@ -1375,7 +1375,7 @@ multiops_txn_params = {
     # values will be sanitized to 65536 during db open. SetOptions currently
     # does not sanitize options, but very small write_buffer_size may cause
     # assertion failure in
-    # https://github.com/facebook/rocksdb/blob/7.0.fb/db/memtable.cc#L117.
+    # https://github.com/meta/rocksdb/blob/7.0.fb/db/memtable.cc#L117.
     "write_buffer_size": 65536,
     # flush more frequently to generate more files, thus trigger more
     # compactions.
@@ -3150,7 +3150,7 @@ def whitebox_crash_main(args, unknown_args):
                 "compaction_style": 2,
             }
             # TODO: test transition from non-FIFO to FIFO with num_levels > 1.
-            # See https://github.com/facebook/rocksdb/pull/10348
+            # See https://github.com/meta/rocksdb/pull/10348
             # For now, tiered storage FIFO (file_temperature_age_thresholds)
             # requires num_levels == 1 and non-tiered operates that way.
             if args.test_tiered_storage:

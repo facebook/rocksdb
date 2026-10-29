@@ -4820,7 +4820,7 @@ TEST_F(DBIteratorTest, IteratorRefreshReturnSV) {
 
 TEST_F(DBIteratorTest, ErrorWhenReadFile) {
   // This is to test a bug that is fixed in
-  // https://github.com/facebook/rocksdb/pull/11782.
+  // https://github.com/meta/rocksdb/pull/11782.
   //
   // Ingest error when reading from a file, and
   // see if Iterator handles it correctly.

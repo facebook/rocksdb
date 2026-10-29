@@ -2566,7 +2566,7 @@ TEST_F(ExternalSSTFileBasicTest, StandaloneRangeDeletionEndKeyIsExclusive) {
 }
 
 TEST_F(ExternalSSTFileBasicTest, IngestFileAfterDBPut) {
-  // Repro https://github.com/facebook/rocksdb/issues/6245.
+  // Repro https://github.com/meta/rocksdb/issues/6245.
   // Flush three files to L0. Ingest one more file to trigger L0->L1 compaction
   // via trivial move. The bug happened when L1 files were incorrectly sorted
   // resulting in an old value for "k" returned by `Get()`.
