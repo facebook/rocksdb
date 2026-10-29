@@ -3500,6 +3500,24 @@ class DBImpl : public DB
   Status IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
                                       std::string ts_low);
 
+  // Passes GetMergeOperands collection options to every lookup layer through
+  // merge_context. The caller's output array is not touched here.
+  static void PrepareGetMergeOperands(const GetImplOptions& get_impl_options,
+                                      MergeContext* merge_context);
+
+  // Publishes a successful GetMergeOperands lookup into the first
+  // *number_of_operands output slots; later slots, and the whole array on an
+  // Incomplete result, are left as the caller passed them. The output either
+  // owns a copy of every operand or shares one cleanup bundle that keeps all
+  // backing resources alive until the last PinnableSlice is reset. Returns
+  // Incomplete when the result exceeds the caller's capacity and a plain OK
+  // otherwise, so a caller must not let that OK replace a subcode it set.
+  Status FinalizeGetMergeOperands(const GetImplOptions& get_impl_options,
+                                  SuperVersion* super_version,
+                                  MergeContext* merge_context,
+                                  PinnedIteratorsManager* pinned_iters_manager,
+                                  size_t* bytes_read);
+
   bool ShouldReferenceSuperVersion(const MergeContext& merge_context);
   // Resolves a plain value whose current payload is an encoded direct-write
   // blob index, either through `value` directly or through the default-column

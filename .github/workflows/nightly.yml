@@ -1,4 +1,4 @@
-name: facebook/rocksdb/nightly
+name: meta/rocksdb/nightly
 on:
   schedule:
   - cron: 0 9 * * *
@@ -6,11 +6,11 @@ on:
 permissions: {}
 jobs:
   build-format-compatible:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: ${{ github.repository_owner == 'meta' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
+      image: ghcr.io/meta/rocksdb_ubuntu:22.1
       options: --shm-size=32gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -27,12 +27,30 @@ jobs:
         git config --global --add safe.directory /__w/rocksdb/rocksdb
         tools/check_format_compatible.sh
     - uses: "./.github/actions/post-steps"
+    - name: Check that old facebook/rocksdb URLs still redirect
+      # Alerts the RocksDB team if GitHub stops redirecting the pre-transfer
+      # repo URL to its current location (or the old name gets taken by
+      # another repo). Existing releases (e.g. dependency download URLs in
+      # java/Makefile), existing clones, and external links still use the old
+      # URL, so they would all break.
+      if: ${{ !cancelled() }}
+      run: |-
+        if ! result=$(curl -sSL --retry 3 --retry-all-errors -o /dev/null \
+            -w '%{http_code} %{url_effective}' https://github.com/facebook/rocksdb); then
+          echo "::error::Failed to fetch https://github.com/facebook/rocksdb (network problem?)"
+          exit 1
+        fi
+        echo "Old URL resolved to: $result"
+        if [ "$result" != "200 https://github.com/meta/rocksdb" ]; then
+          echo "::error::https://github.com/facebook/rocksdb no longer redirects to https://github.com/meta/rocksdb. Builds of existing releases, existing clones, and external links that use the old URL are likely broken."
+          exit 1
+        fi
   build-linux-non-shm:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: ${{ github.repository_owner == 'meta' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
+      image: ghcr.io/meta/rocksdb_ubuntu:22.1
       options: --shm-size=32gb
     env:
       TEST_TMPDIR: "/tmp/rocksdb_test_tmp"
@@ -42,11 +60,11 @@ jobs:
     - run: make V=1 -j32 check
     - uses: "./.github/actions/post-steps"
   build-linux-clang-21-asan-ubsan-with-folly:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: ${{ github.repository_owner == 'meta' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:24.1
+      image: ghcr.io/meta/rocksdb_ubuntu:24.1
       options: --shm-size=32gb
     env:
       CC: clang-21
@@ -79,11 +97,11 @@ jobs:
     - run: LIB_MODE=static USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: ${{ github.repository_owner == 'meta' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
+      image: ghcr.io/meta/rocksdb_ubuntu:22.1
       options: --shm-size=32gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -98,11 +116,11 @@ jobs:
     - run: "(mkdir build && cd build && cmake -DUSE_FOLLY=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make VERBOSE=1 -j20 && ctest -j20)"
     - uses: "./.github/actions/post-steps"
   build-linux-release-with-folly:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: ${{ github.repository_owner == 'meta' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
+      image: ghcr.io/meta/rocksdb_ubuntu:22.1
       options: --shm-size=32gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -114,7 +132,7 @@ jobs:
     - run: "(mkdir build && cd build && cmake -DUSE_FOLLY=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 -DCMAKE_BUILD_TYPE=Release .. && make VERBOSE=1 -j20 && ctest -j20)"
     - uses: "./.github/actions/post-steps"
   build-windows-msvc-avx2:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: ${{ github.repository_owner == 'meta' }}
     runs-on: windows-8-core
     env:
       CMAKE_PORTABLE: AVX2
@@ -122,7 +140,7 @@ jobs:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/windows-build-steps"
   build-linux-arm-test-full:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: ${{ github.repository_owner == 'meta' }}
     runs-on:
       labels: 4-core-ubuntu-arm
     steps:
@@ -132,7 +150,7 @@ jobs:
       - run: make V=1 J=4 -j4 check
       - uses: "./.github/actions/post-steps"
   build-linux-arm-crashtest:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: ${{ github.repository_owner == 'meta' }}
     runs-on:
       labels: 4-core-ubuntu-arm
     steps:
@@ -156,11 +174,11 @@ jobs:
     - run: ulimit -S -n `ulimit -H -n` && make V=1 -j8 CRASH_TEST_EXT_ARGS='--duration=1800 --max_key=2500000' blackbox_crash_test_with_multiops_wc_txn
     - uses: "./.github/actions/post-steps"
   build-examples:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: ${{ github.repository_owner == 'meta' }}
     runs-on:
       labels: 4-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
+      image: ghcr.io/meta/rocksdb_ubuntu:22.1
       options: --shm-size=8gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -169,11 +187,11 @@ jobs:
       run: make V=1 -j4 static_lib && cd examples && make V=1 -j4
     - uses: "./.github/actions/post-steps"
   build-fuzzers:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: ${{ github.repository_owner == 'meta' }}
     runs-on:
       labels: 4-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:24.1
+      image: ghcr.io/meta/rocksdb_ubuntu:24.1
       options: --shm-size=8gb
     steps:
     - uses: actions/checkout@v4.1.0
@@ -184,11 +202,11 @@ jobs:
       run: cd fuzz && make sst_file_writer_fuzzer db_fuzzer db_map_fuzzer
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly-lite:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: ${{ github.repository_owner == 'meta' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:22.1
+      image: ghcr.io/meta/rocksdb_ubuntu:22.1
       options: --shm-size=32gb
     steps:
     - uses: actions/checkout@v4.1.0

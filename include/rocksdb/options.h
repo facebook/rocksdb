@@ -100,7 +100,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Universal style compaction is focused on reducing Write Amplification
   // Factor for big data sets, but increases Space Amplification. You can learn
   // more about the different styles here:
-  // https://github.com/facebook/rocksdb/wiki/Rocksdb-Architecture-Guide
+  // https://github.com/meta/rocksdb/wiki/Rocksdb-Architecture-Guide
   // Make sure to also call IncreaseParallelism(), which will provide the
   // biggest performance gains.
   // Note: we might use more memory than memtable_memory_budget during high
@@ -841,7 +841,7 @@ struct DBOptions {
   //
   // The RocksDB wiki has some discussion about how the WAL interacts
   // with memtables and flushing of column families.
-  // https://github.com/facebook/rocksdb/wiki/Column-Families
+  // https://github.com/meta/rocksdb/wiki/Column-Families
   //
   // This option takes effect only when there are more than one column
   // family as otherwise the wal size is dictated by the write_buffer_size.
@@ -1870,7 +1870,7 @@ struct DBOptions {
   // will be removed in a future release.
   // Warning: do not set to false unless you are trying to migrate existing
   // data in which the contract of single delete
-  // (https://github.com/facebook/rocksdb/wiki/Single-Delete) is not enforced,
+  // (https://github.com/meta/rocksdb/wiki/Single-Delete) is not enforced,
   // thus has Delete mixed with SingleDelete for the same user key. Violation
   // of the contract leads to undefined behaviors with high possibility of data
   // inconsistency, e.g. deleted old data become visible again, etc.
@@ -2158,6 +2158,8 @@ class MultiScanArgs {
     original_ranges_ = other.original_ranges_;
     io_coalesce_threshold = other.io_coalesce_threshold;
     max_prefetch_size = other.max_prefetch_size;
+    rolling_prefetch = other.rolling_prefetch;
+    rolling_prefetch_window_size = other.rolling_prefetch_window_size;
     use_async_io = other.use_async_io;
     reverse = other.reverse;
     io_dispatcher = other.io_dispatcher;
@@ -2165,6 +2167,8 @@ class MultiScanArgs {
   MultiScanArgs(MultiScanArgs&& other) noexcept
       : io_coalesce_threshold(other.io_coalesce_threshold),
         max_prefetch_size(other.max_prefetch_size),
+        rolling_prefetch(other.rolling_prefetch),
+        rolling_prefetch_window_size(other.rolling_prefetch_window_size),
         use_async_io(other.use_async_io),
         reverse(other.reverse),
         io_dispatcher(std::move(other.io_dispatcher)),
@@ -2176,6 +2180,8 @@ class MultiScanArgs {
     original_ranges_ = other.original_ranges_;
     io_coalesce_threshold = other.io_coalesce_threshold;
     max_prefetch_size = other.max_prefetch_size;
+    rolling_prefetch = other.rolling_prefetch;
+    rolling_prefetch_window_size = other.rolling_prefetch_window_size;
     use_async_io = other.use_async_io;
     reverse = other.reverse;
     io_dispatcher = other.io_dispatcher;
@@ -2188,6 +2194,8 @@ class MultiScanArgs {
       original_ranges_ = std::move(other.original_ranges_);
       io_coalesce_threshold = other.io_coalesce_threshold;
       max_prefetch_size = other.max_prefetch_size;
+      rolling_prefetch = other.rolling_prefetch;
+      rolling_prefetch_window_size = other.rolling_prefetch_window_size;
       use_async_io = other.use_async_io;
       reverse = other.reverse;
       io_dispatcher = std::move(other.io_dispatcher);
@@ -2252,6 +2260,8 @@ class MultiScanArgs {
   void CopyConfigFrom(const MultiScanArgs& other) {
     io_coalesce_threshold = other.io_coalesce_threshold;
     max_prefetch_size = other.max_prefetch_size;
+    rolling_prefetch = other.rolling_prefetch;
+    rolling_prefetch_window_size = other.rolling_prefetch_window_size;
     use_async_io = other.use_async_io;
     reverse = other.reverse;
     io_dispatcher = other.io_dispatcher;
@@ -2270,6 +2280,21 @@ class MultiScanArgs {
   // I/O.
   // Note that this limit is per file and applies to compressed block size.
   uint64_t max_prefetch_size = 0;
+
+  // Use max_prefetch_size as the maximum adaptive rolling batch size. The
+  // first batch is submitted by Prepare(), and touching a block in that batch
+  // submits the next batch. Iteration waits for submitted I/O at its boundary
+  // rather than falling back to an individual block read. Applied only to
+  // forward scans with use_async_io and a nonzero rolling window. Otherwise it
+  // is ignored, leaving max_prefetch_size with its ordinary one-shot semantics.
+  bool rolling_prefetch = false;
+
+  // Maximum requested physical span of one rolling prefetch window and the
+  // initial rolling batch budget. Must be nonzero. When max_prefetch_size is
+  // nonzero, the effective window is the smaller of the two and a foreground
+  // wait may grow the batch up to max_prefetch_size. Otherwise the batch stays
+  // fixed at this size.
+  uint64_t rolling_prefetch_window_size = 0;
 
   // Enable async I/O for multi-scan operations
   // When true, BlockBasedTableIterator will use ReadAsync() for reading blocks

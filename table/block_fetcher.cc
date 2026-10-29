@@ -270,7 +270,7 @@ inline void BlockFetcher::GetBlockContents() {
     *contents_ = BlockContents(Slice(slice_.data(), block_size_));
   } else {
     // page can be either uncompressed or compressed, the buffer either stack
-    // or heap provided. Refer to https://github.com/facebook/rocksdb/pull/4096
+    // or heap provided. Refer to https://github.com/meta/rocksdb/pull/4096
     if (got_from_prefetch_buffer_ || used_buf_ == &stack_buf_[0]) {
       CopyBufferToHeapBuf();
     } else if (used_buf_ == compressed_buf_.get()) {

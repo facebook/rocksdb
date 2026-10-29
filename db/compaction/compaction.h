@@ -531,7 +531,7 @@ class Compaction {
 
   // Get the atomic file boundaries for all files in the compaction. Necessary
   // in order to avoid the scenario described in
-  // https://github.com/facebook/rocksdb/pull/4432#discussion_r221072219 and
+  // https://github.com/meta/rocksdb/pull/4432#discussion_r221072219 and
   // plumb down appropriate key boundaries to RangeDelAggregator during
   // compaction.
   static std::vector<CompactionInputFiles> PopulateWithAtomicBoundaries(

@@ -478,7 +478,7 @@ class DB {
 
   // Manually, synchronously attempt to resume DB writes after a write failure
   // to the underlying filesystem. See
-  // https://github.com/facebook/rocksdb/wiki/Background-Error-Handling
+  // https://github.com/meta/rocksdb/wiki/Background-Error-Handling
   //
   // Returns OK if writes are successfully resumed, or there was no
   // outstanding error to recover from. Returns underlying write error if

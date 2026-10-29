@@ -703,7 +703,7 @@ Status DBImpl::ResumeImpl(DBRecoverContext context,
   } else {
     // NOTE: this is needed to pass ASSERT_STATUS_CHECKED
     // in the DBSSTTest.DBWithMaxSpaceAllowedRandomized test.
-    // See https://github.com/facebook/rocksdb/pull/7715#issuecomment-754947952
+    // See https://github.com/meta/rocksdb/pull/7715#issuecomment-754947952
     error_handler_.GetRecoveryError().PermitUncheckedError();
   }
 
@@ -2987,6 +2987,80 @@ static void CleanupGetMergeOperandsState(void* arg1, void* /*arg2*/) {
   GetMergeOperandsState* state = static_cast<GetMergeOperandsState*>(arg1);
   CleanupSuperVersionHandle(state->sv_handle /* arg1 */, nullptr /* arg2 */);
   delete state;
+}
+
+void DBImpl::PrepareGetMergeOperands(const GetImplOptions& get_impl_options,
+                                     MergeContext* merge_context) {
+  assert(merge_context != nullptr);
+  merge_context->get_merge_operands_options =
+      get_impl_options.get_merge_operands_options;
+}
+
+Status DBImpl::FinalizeGetMergeOperands(
+    const GetImplOptions& get_impl_options, SuperVersion* super_version,
+    MergeContext* merge_context, PinnedIteratorsManager* pinned_iters_manager,
+    size_t* bytes_read) {
+  assert(!get_impl_options.get_value);
+  assert(get_impl_options.merge_operands != nullptr);
+  assert(get_impl_options.get_merge_operands_options != nullptr);
+  assert(get_impl_options.number_of_operands != nullptr);
+  assert(super_version != nullptr);
+  assert(merge_context != nullptr);
+  assert(pinned_iters_manager != nullptr);
+  assert(bytes_read != nullptr);
+
+  const int number_of_operands =
+      static_cast<int>(merge_context->GetNumOperands());
+  *get_impl_options.number_of_operands = number_of_operands;
+  assert(number_of_operands > 0);
+  if (number_of_operands > get_impl_options.get_merge_operands_options
+                               ->expected_max_number_of_operands) {
+    return Status::Incomplete(
+        Status::SubCode::KMergeOperandsInsufficientCapacity);
+  }
+
+  // Only the slots being filled are reset, each just before it is written, so
+  // the cost scales with the result rather than the caller's capacity. Reset
+  // is still required there: a reused slot may hold an earlier pin, and
+  // PinSlice/PinSelf assert the slot is unpinned.
+  //
+  // An operand can borrow storage from the SuperVersion, an SST iterator, or
+  // MergeContext itself. Large results keep those resources together behind a
+  // shared cleanup instead of copying every operand independently.
+  if (ShouldReferenceSuperVersion(*merge_context)) {
+    SharedCleanablePtr shared_cleanable;
+    GetMergeOperandsState* state = new GetMergeOperandsState(
+        std::move(*merge_context), std::move(*pinned_iters_manager));
+
+    super_version->Ref();
+    state->sv_handle = new SuperVersionHandle(
+        this, &mutex_, super_version,
+        immutable_db_options_.avoid_unnecessary_blocking_io);
+
+    shared_cleanable.Allocate();
+    shared_cleanable->RegisterCleanup(CleanupGetMergeOperandsState,
+                                      state /* arg1 */, nullptr /* arg2 */);
+    const std::vector<Slice>& operands = state->merge_context.GetOperands();
+    for (size_t i = 0; i < operands.size(); ++i) {
+      *bytes_read += operands[i].size();
+      get_impl_options.merge_operands[i].Reset();
+      get_impl_options.merge_operands[i].PinSlice(operands[i],
+                                                  nullptr /* cleanable */);
+      if (i + 1 == operands.size()) {
+        shared_cleanable.MoveAsCleanupTo(&get_impl_options.merge_operands[i]);
+      } else {
+        shared_cleanable.RegisterCopyWith(&get_impl_options.merge_operands[i]);
+      }
+    }
+  } else {
+    size_t i = 0;
+    for (const Slice& operand : merge_context->GetOperands()) {
+      *bytes_read += operand.size();
+      get_impl_options.merge_operands[i].Reset();
+      get_impl_options.merge_operands[i++].PinSelf(operand);
+    }
+  }
+  return Status::OK();
 }
 
 InternalIterator* DBImpl::NewInternalIterator(

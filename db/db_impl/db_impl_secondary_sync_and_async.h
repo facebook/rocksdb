@@ -87,16 +87,8 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplSecondary::GetImpl)
     }
   }
 
-  if (get_impl_options.get_merge_operands_options != nullptr) {
-    // Clear the full caller-advertised writable range before data lookup. This
-    // makes reused output arrays deterministic and prevents an
-    // insufficient-capacity result from exposing stale or partial operands.
-    for (int i = 0; i < get_impl_options.get_merge_operands_options
-                            ->expected_max_number_of_operands;
-         ++i) {
-      get_impl_options.merge_operands[i].Reset();
-    }
-  }
+  MergeContext merge_context;
+  PrepareGetMergeOperands(get_impl_options, &merge_context);
 
   // Acquire SuperVersion, or use the batch's shared one for a batched lazy read
   // (see GetImplOptions::lazy_columns_shared_sv), skipping the per-key
@@ -127,14 +119,6 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplSecondary::GetImpl)
       CO_RETURN s;
     }
   }
-  MergeContext merge_context;
-  // Operand collection happens below the post-processing layer, so the
-  // collectors need these options in order to honor continue_cb.
-  merge_context.get_merge_operands_options =
-      get_impl_options.get_merge_operands_options;
-  // TODO - Large Result Optimization for Secondary DB
-  // (https://github.com/facebook/rocksdb/pull/10458)
-
   SequenceNumber max_covering_tombstone_seq = 0;
   LookupKey lkey(key, snapshot, read_options.timestamp);
   PERF_TIMER_STOP(get_snapshot_time);
@@ -218,7 +202,7 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplSecondary::GetImpl)
     CO_RETURN s;
   }
   // SST-backed operands borrow block memory pinned here, so this must outlive
-  // the copy into the caller's output below.
+  // FinalizeGetMergeOperands below.
   PinnedIteratorsManager pinned_iters_mgr;
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
@@ -259,32 +243,18 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplSecondary::GetImpl)
       } else if (get_impl_options.columns) {
         size = get_impl_options.columns->payload_size();
       } else if (get_impl_options.merge_operands) {
-        *get_impl_options.number_of_operands =
-            static_cast<int>(merge_context.GetNumOperands());
-        // The count reports the required capacity even on Incomplete. Validate
-        // before pinning the first operand so output remains all-or-nothing and
-        // no write can cross the caller-advertised range.
-        if (*get_impl_options.number_of_operands >
-            get_impl_options.get_merge_operands_options
-                ->expected_max_number_of_operands) {
-          s = Status::Incomplete(
-              Status::SubCode::KMergeOperandsInsufficientCapacity);
-        } else {
-          for (const Slice& sl : merge_context.GetOperands()) {
-            size += sl.size();
-            get_impl_options.merge_operands->PinSelf(sl);
-            get_impl_options.merge_operands++;
-          }
-        }
+        s = FinalizeGetMergeOperands(get_impl_options, super_version,
+                                     &merge_context, &pinned_iters_mgr, &size);
       }
       RecordTick(stats_, BYTES_READ, size);
       RecordTimeToHistogram(stats_, BYTES_PER_READ, size);
       PERF_COUNTER_ADD(get_read_bytes, size);
     }
-    // Merge operands read from a memtable are borrowed slices into it. A
-    // concurrent TryCatchUpWithPrimary can retire that memtable, leaving this
-    // reference as the last one keeping it alive, so release it only after the
-    // operands have been copied into the caller's output.
+    // Finalization may copy from the SuperVersion or transfer its ownership to
+    // returned operands, so release this call's reference only afterwards.
+    // Memtable operands are borrowed slices, and a concurrent
+    // TryCatchUpWithPrimary can retire their memtable, leaving this reference
+    // as the last one keeping it alive.
     if (own_super_version) {
 #if defined(WITH_COROUTINES)
       CleanupSuperVersion(super_version);

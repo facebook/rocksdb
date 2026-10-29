@@ -153,7 +153,7 @@ class BlockReadAmpBitmap {
 // compressed blocks in general, filter blocks/partitions, or compression
 // dictionaries.
 //
-// See https://github.com/facebook/rocksdb/wiki/Rocksdb-BlockBasedTable-Format
+// See https://github.com/meta/rocksdb/wiki/Rocksdb-BlockBasedTable-Format
 // for details of the format and the various block types.
 //
 // TODO: Rename to ParsedKvBlock?
@@ -479,7 +479,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
 
   void SetCacheHandle(Cache::Handle* handle) { cache_handle_ = handle; }
 
-  Cache::Handle* cache_handle() { return cache_handle_; }
+  Cache::Handle* cache_handle() const { return cache_handle_; }
 
  protected:
   InternalKeyComparator icmp_;
