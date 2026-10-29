@@ -102,7 +102,6 @@ jobs:
     - run: make V=1 J=32 -j32 check
     - uses: "./.github/actions/teardown-ccache"
       if: always()
-    - uses: "./.github/actions/post-steps"
   build-linux-cmake-mingw:
     if: needs.config.outputs.only_job == 'build-linux-cmake-mingw' || (needs.config.outputs.only_job == '' && github.repository_owner == 'meta')
     needs: config
@@ -127,7 +126,6 @@ jobs:
         mkdir build && cd build && cmake -DJNI=1 -DWITH_GFLAGS=OFF .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb rocksdbjni
     - uses: "./.github/actions/teardown-ccache"
       if: always()
-    - uses: "./.github/actions/post-steps"
   build-linux-make-with-folly:
     if: needs.config.outputs.only_job == 'build-linux-make-with-folly' || (needs.config.outputs.only_job == '' && github.repository_owner == 'meta')
     needs: config
@@ -152,7 +150,6 @@ jobs:
     - run: USE_FOLLY=1 LIB_MODE=static V=1 make -j64 check
     - uses: "./.github/actions/teardown-ccache"
       if: always()
-    - uses: "./.github/actions/post-steps"
   build-linux-make-with-folly-lite-no-test:
     if: needs.config.outputs.only_job == 'build-linux-make-with-folly-lite-no-test' || (needs.config.outputs.only_job == '' && github.repository_owner == 'meta')
     needs: config
@@ -172,7 +169,6 @@ jobs:
     - run: USE_FOLLY_LITE=1 EXTRA_CXXFLAGS=-DGLOG_USE_GLOG_EXPORT V=1 make -j32 all
     - uses: "./.github/actions/teardown-ccache"
       if: always()
-    - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly-coroutines:
     if: needs.config.outputs.only_job == 'build-linux-cmake-with-folly-coroutines' || (needs.config.outputs.only_job == '' && github.repository_owner == 'meta')
     needs: config
@@ -197,7 +193,6 @@ jobs:
     - run: "(mkdir build && cd build && cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 -DPORTABLE=ON .. && make VERBOSE=1 -j64 && ctest -j64)"
     - uses: "./.github/actions/teardown-ccache"
       if: always()
-    - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-benchmark-no-thread-status:
     if: needs.config.outputs.only_job == 'build-linux-cmake-with-benchmark-no-thread-status' || (needs.config.outputs.only_job == '' && github.repository_owner == 'meta')
     needs: config
@@ -222,9 +217,6 @@ jobs:
       run: cd build && ctest -j20 -I ${{ matrix.shard }},,4
     - uses: "./.github/actions/teardown-ccache"
       if: always()
-    - uses: "./.github/actions/post-steps"
-      with:
-        artifact-prefix: "${{ github.job }}-shard${{ matrix.shard }}"
   build-linux-encrypted_env-no_compression:
     if: needs.config.outputs.only_job == 'build-linux-encrypted_env-no_compression' || (needs.config.outputs.only_job == '' && github.repository_owner == 'meta')
     needs: config
@@ -243,7 +235,6 @@ jobs:
     - run: "./sst_dump --help | grep -E -q 'Supported built-in compression types: kNoCompression$' # Verify no compiled in compression\n"
     - uses: "./.github/actions/teardown-ccache"
       if: always()
-    - uses: "./.github/actions/post-steps"
   # ======================== Linux No Test Runs ======================= #
   build-linux-release:
     if: needs.config.outputs.only_job == 'build-linux-release' || (needs.config.outputs.only_job == '' && github.repository_owner == 'meta')
@@ -276,7 +267,6 @@ jobs:
     - run: if ./trace_analyzer --version; then false; else true; fi
     - uses: "./.github/actions/teardown-ccache"
       if: always()
-    - uses: "./.github/actions/post-steps"
   build-linux-clang-13-no_test_run:
     if: needs.config.outputs.only_job == 'build-linux-clang-13-no_test_run' || (needs.config.outputs.only_job == '' && github.repository_owner == 'meta')
     needs: config
@@ -298,7 +288,6 @@ jobs:
     - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 EXTRA_CXXFLAGS=-stdlib=libc++ EXTRA_LDFLAGS=-stdlib=libc++ DEBUG_LEVEL=0 make -j32 shared_lib
     - uses: "./.github/actions/teardown-ccache"
       if: always()
-    - uses: "./.github/actions/post-steps"
   build-linux-clang-21-no_test_run:
     if: needs.config.outputs.only_job == 'build-linux-clang-21-no_test_run' || (needs.config.outputs.only_job == '' && github.repository_owner == 'meta')
     needs: config
@@ -365,7 +354,6 @@ jobs:
           CLANG_FORMAT_BINARY=clang-format-21
     - uses: "./.github/actions/teardown-ccache"
       if: always()
-    - uses: "./.github/actions/post-steps"
   build-linux-gcc-14-no_test_run:
     if: needs.config.outputs.only_job == 'build-linux-gcc-14-no_test_run' || (needs.config.outputs.only_job == '' && github.repository_owner == 'meta')
     needs: config
@@ -383,7 +371,6 @@ jobs:
     - run: CC=gcc-14 CXX=g++-14 V=1 make -j32 all microbench
     - uses: "./.github/actions/teardown-ccache"
       if: always()
-    - uses: "./.github/actions/post-steps"
 
   # ======================== Linux Other Checks ======================= #
 
@@ -406,7 +393,6 @@ jobs:
     - run: make V=1 -j8 -k check-headers
     - uses: "./.github/actions/teardown-ccache"
       if: always()
-    - uses: "./.github/actions/post-steps"
   build-linux-mini-crashtest:
     if: needs.config.outputs.only_job == 'build-linux-mini-crashtest' || (needs.config.outputs.only_job == '' && github.repository_owner == 'meta')
     needs: config
@@ -442,9 +428,6 @@ jobs:
         USE_COROUTINES=1 USE_FOLLY=1 LIB_MODE=static make V=1 -j8 CRASH_TEST_EXT_ARGS='--duration=${{ matrix.crash_duration }} --max_key=2500000' ${{ matrix.crash_test_target }}
     - uses: "./.github/actions/teardown-ccache"
       if: always()
-    - uses: "./.github/actions/post-steps"
-      with:
-        artifact-prefix: "${{ github.job }}-${{ matrix.crash_test_target }}"
   # ======================= Linux with Sanitizers ===================== #
   build-linux-clang21-asan-ubsan:
     if: needs.config.outputs.only_job == 'build-linux-clang21-asan-ubsan' || (needs.config.outputs.only_job == '' && github.repository_owner == 'meta')
@@ -470,9 +453,6 @@ jobs:
         CI_TOTAL_SHARDS: 3
     - uses: "./.github/actions/teardown-ccache"
       if: always()
-    - uses: "./.github/actions/post-steps"
-      with:
-        artifact-prefix: "${{ github.job }}-shard${{ matrix.shard }}"
   build-linux-clang21-mini-tsan:
     if: needs.config.outputs.only_job == 'build-linux-clang21-mini-tsan' || (needs.config.outputs.only_job == '' && github.repository_owner == 'meta')
     needs: config
@@ -497,9 +477,6 @@ jobs:
         CI_TOTAL_SHARDS: 3
     - uses: "./.github/actions/teardown-ccache"
       if: always()
-    - uses: "./.github/actions/post-steps"
-      with:
-        artifact-prefix: "${{ github.job }}-shard${{ matrix.shard }}"
   build-linux-static_lib-alt_namespace-status_checked:
     if: needs.config.outputs.only_job == 'build-linux-static_lib-alt_namespace-status_checked' || (needs.config.outputs.only_job == '' && github.repository_owner == 'meta')
     needs: config
@@ -517,8 +494,8 @@ jobs:
     - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=static OPT="-DROCKSDB_USE_STD_SEMAPHORES -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j24 check
     - uses: "./.github/actions/teardown-ccache"
       if: always()
-    - uses: "./.github/actions/post-steps"
   # ========================= MacOS build only ======================== #
+  # NOTE: build-macos-cmake (with tests) is in "nightly" to save resources
   build-macos:
     if: needs.config.outputs.only_job == 'build-macos' || (needs.config.outputs.only_job == '' && github.repository_owner == 'meta')
     needs: config
@@ -540,45 +517,6 @@ jobs:
       run: ulimit -S -n `ulimit -H -n` && make V=1 J=16 -j8 all
     - uses: "./.github/actions/teardown-ccache"
       if: always()
-    - uses: "./.github/actions/post-steps"
-  # ========================= MacOS with Tests ======================== #
-  build-macos-cmake:
-    if: needs.config.outputs.only_job == 'build-macos-cmake' || (needs.config.outputs.only_job == '' && github.repository_owner == 'meta')
-    needs: config
-    runs-on: macos-15-xlarge
-    strategy:
-      matrix:
-        run_sharded_tests: [0, 1, 2, 3]
-    steps:
-    - uses: actions/checkout@v4.1.0
-    - uses: maxim-lobanov/setup-xcode@v1.6.0
-      with:
-        xcode-version: 16.4.0
-    - uses: "./.github/actions/setup-ccache"
-      with:
-        cache-key-prefix: macos-cmake
-    - uses: "./.github/actions/increase-max-open-files-on-macos"
-    - uses: "./.github/actions/install-gflags-on-macos"
-    - uses: "./.github/actions/pre-steps-macos"
-    - name: cmake generate project file
-      run: ulimit -S -n `ulimit -H -n` && mkdir build && cd build && cmake -DWITH_GFLAGS=1 ..
-    - name: Build tests
-      run: cd build && make VERBOSE=1 -j8
-    - name: Run shard 0 out of 4 test shards
-      run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j8 -I 0,,4
-      if: ${{ matrix.run_sharded_tests == 0 }}
-    - name: Run shard 1 out of 4 test shards
-      run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j8 -I 1,,4
-      if: ${{ matrix.run_sharded_tests == 1 }}
-    - name: Run shard 2 out of 4 test shards
-      run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j8 -I 2,,4
-      if: ${{ matrix.run_sharded_tests == 2 }}
-    - name: Run shard 3 out of 4 test shards
-      run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j8 -I 3,,4
-      if: ${{ matrix.run_sharded_tests == 3 }}
-    - uses: "./.github/actions/teardown-ccache"
-      if: always()
-    - uses: "./.github/actions/post-steps"
   # ======================== Windows with Tests ======================= #
   # NOTE: some windows jobs are in "nightly" to save resources
   build-windows-msvc:
@@ -680,7 +618,6 @@ jobs:
       run: make V=1 J=16 -j16 jtest
     - uses: "./.github/actions/teardown-ccache"
       if: always()
-    - uses: "./.github/actions/post-steps"
   build-macos-java-static:
     if: needs.config.outputs.only_job == 'build-macos-java-static' || (needs.config.outputs.only_job == '' && github.repository_owner == 'meta')
     needs: config
@@ -706,7 +643,6 @@ jobs:
       run: make V=1 J=16 -j16 rocksdbjavastaticosx
     - uses: "./.github/actions/teardown-ccache"
       if: always()
-    - uses: "./.github/actions/post-steps"
   build-macos-java-static-universal:
     if: needs.config.outputs.only_job == 'build-macos-java-static-universal' || (needs.config.outputs.only_job == '' && github.repository_owner == 'meta')
     needs: config
@@ -732,7 +668,6 @@ jobs:
       run: make V=1 J=16 -j16 rocksdbjavastaticosx_ub
     - uses: "./.github/actions/teardown-ccache"
       if: always()
-    - uses: "./.github/actions/post-steps"
   build-linux-java-pmd:
     if: needs.config.outputs.only_job == 'build-linux-java-pmd' || (needs.config.outputs.only_job == '' && github.repository_owner == 'meta')
     needs: config
@@ -777,4 +712,3 @@ jobs:
         run: ccache -s
         if: always()
         shell: bash
-      - uses: "./.github/actions/post-steps"
