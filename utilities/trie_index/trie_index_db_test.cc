@@ -755,6 +755,7 @@ TEST_P(TrieIndexDBTest, SharedPrefixDoesNotCutCompactionFilesEarly) {
 TEST_P(TrieIndexDBTest, SharedPrefixWithParallelCompression) {
   if (!Zlib_Supported()) {
     ROCKSDB_GTEST_SKIP("Zlib not linked into this build");
+    return;
   }
   options_.compression = kZlibCompression;
   options_.compression_opts.parallel_threads = 4;
@@ -5167,6 +5168,7 @@ TEST_P(TrieIndexDBTest, ParallelCompressionWithTrieIndex) {
   // where Snappy / LZ4 / ZSTD may not be.
   if (!Zlib_Supported()) {
     ROCKSDB_GTEST_SKIP("Zlib not linked into this build");
+    return;
   }
   options_.compression = kZlibCompression;
   options_.compression_opts.parallel_threads = 4;
@@ -5201,6 +5203,7 @@ TEST_P(TrieIndexDBTest, ParallelCompressionWithTrieIndex) {
 TEST_F(TrieIndexDBTest, ParallelCompressionWithHashStandardIndexAndTrieUdi) {
   if (!Zlib_Supported()) {
     ROCKSDB_GTEST_SKIP("Zlib not linked into this build");
+    return;
   }
 
   options_.create_if_missing = true;
