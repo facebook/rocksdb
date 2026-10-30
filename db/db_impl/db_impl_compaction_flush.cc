@@ -4987,6 +4987,10 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
     InstrumentedMutexLock l(&mutex_);
     assert(bg_flush_scheduled_);
     num_running_flushes_++;
+    const uint64_t cleanup_id = next_flush_cleanup_id_++;
+    if (snapshot_checker_ || use_custom_gc_) {
+      running_flush_cleanup_ids_.insert(cleanup_id);
+    }
 
     std::unique_ptr<std::list<uint64_t>::iterator>
         pending_outputs_inserted_elem(new std::list<uint64_t>::iterator(
@@ -5050,12 +5054,14 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
         PurgeObsoleteFiles(job_context);
       }
       job_context.Clean();
+      TEST_SYNC_POINT("DBImpl::BackgroundCallFlush:SnapshotCleanedUp");
       mutex_.Lock();
     }
     TEST_SYNC_POINT("DBImpl::BackgroundCallFlush:ContextCleanedUp");
 
     assert(num_running_flushes_ > 0);
     num_running_flushes_--;
+    running_flush_cleanup_ids_.erase(cleanup_id);
     bg_flush_scheduled_--;
     if (write_buffer_manager_->ShouldTrackFlushInitiator()) {
       RefreshFlushableMemAccounting();
