@@ -1622,14 +1622,12 @@ def finalize_and_sanitize(src_params):
         dest_params["open_read_fault_one_in"] = 0
         dest_params["sync_fault_injection"] = 0
 
-    # UDI now supports all operation types and all iteration directions.
-    # Only parallel compression and mmap_read remain incompatible.
+    # UDI is compatible with all operation types and iteration directions
+    # except mmap_read.
     if dest_params.get("use_trie_index") == 1:
         # Trie UDI uses zero-copy pointers into block data, which is
         # incompatible with mmap_read.
         dest_params["mmap_read"] = 0
-        # Parallel compression is incompatible with UDI
-        dest_params["compression_parallel_threads"] = 1
         if dest_params.get("use_udi_as_primary_index") == 1:
             # Primary UDI mode: the standard index is still fully populated,
             # but partitioned index (kTwoLevelIndexSearch) and partitioned
