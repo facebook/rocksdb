@@ -2446,20 +2446,6 @@ Status DBImplSecondary::FinalizeCompactionProgressWriter(
         temp_file_path, "" /* final_file_path */, compaction_progress_writer);
   }
 
-  if (!compaction_progress_.empty()) {
-    s = PersistInitialCompactionProgress(compaction_progress_writer->get(),
-                                         &compaction_progress_);
-    if (!s.ok()) {
-      ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                     "Failed to persist the initial copmaction "
-                     "progress: %s. Will perform clean up "
-                     "to start compaction without progress persistence",
-                     s.ToString().c_str());
-      return HandleCompactionProgressWriterCreationFailure(
-          temp_file_path, "" /* final_file_path */, compaction_progress_writer);
-    }
-  }
-
   compaction_progress_writer->reset();
 
   std::string final_file_path;
@@ -2486,6 +2472,23 @@ Status DBImplSecondary::FinalizeCompactionProgressWriter(
                    s.ToString().c_str());
     return HandleCompactionProgressWriterCreationFailure(
         "" /* temp_file_path */, final_file_path, compaction_progress_writer);
+  }
+
+  // The resumed progress must be written through the final writer: reopening
+  // the final file with NewWritableFile() truncates it, and later checkpoints
+  // only persist output files added after this record.
+  if (!compaction_progress_.empty()) {
+    s = PersistInitialCompactionProgress(compaction_progress_writer->get(),
+                                         &compaction_progress_);
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Failed to persist the initial compaction "
+                     "progress: %s. Will perform clean up "
+                     "to start compaction without progress persistence",
+                     s.ToString().c_str());
+      return HandleCompactionProgressWriterCreationFailure(
+          "" /* temp_file_path */, final_file_path, compaction_progress_writer);
+    }
   }
 
   ROCKS_LOG_DEBUG(immutable_db_options_.info_log,

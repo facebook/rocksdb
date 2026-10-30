@@ -5568,6 +5568,12 @@ class ResumableCompactionService : public MyTestCompactionService {
     cancel_at_seqno_ = seqno;
   }
 
+  // Run an extra resumed-then-canceled phase between the first canceled phase
+  // and the final phase, canceling at `key`.
+  void SetSecondCancelAtKey(const std::string& key) {
+    second_cancel_at_key_ = key;
+  }
+
   void CaptureVerifiedInputRecords(std::atomic<uint64_t>* records) {
     verified_input_records_ = records;
   }
@@ -5639,6 +5645,16 @@ class ResumableCompactionService : public MyTestCompactionService {
     std::string output_path = GetOutputPath(scheduled_job_id);
     TEST_SYNC_POINT_CALLBACK(
         "ResumableCompactionService::AfterCancelledCompaction", &output_path);
+
+    if (!second_cancel_at_key_.empty()) {
+      open_and_compaction_options.allow_resumption = true;
+      cancel_at_key_ = second_cancel_at_key_;
+      already_canceled_ = false;
+      canceled_ = false;
+      output_key_count_ = 0;
+      RunCancelledCompaction(open_and_compaction_options, scheduled_job_id,
+                             compaction_input, override_options);
+    }
 
     HistogramData phase2_stats;
 
@@ -5832,6 +5848,7 @@ class ResumableCompactionService : public MyTestCompactionService {
   const bool merge_resumed_output_;
   size_t output_key_count_ = 0;
   std::string cancel_at_key_;
+  std::string second_cancel_at_key_;
   SequenceNumber cancel_at_seqno_ = kMaxSequenceNumber;
   std::atomic<bool> already_canceled_{false};
   std::atomic<uint64_t>* verified_input_records_ = nullptr;
@@ -6400,6 +6417,58 @@ TEST_F(ResumableCompactionServiceTest,
   EXPECT_GT(statistics->getTickerCount(REMOTE_COMPACT_RESUMED_BYTES), 0);
   for (const char* const key : {"a", "b", "c", "d", "e"}) {
     EXPECT_EQ(Get(key), "new");
+  }
+}
+
+TEST_F(ResumableCompactionServiceTest,
+       RepeatedCancelKeepsOutputRecordCountConsistent) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.compaction_verify_record_count = true;
+  std::shared_ptr<Statistics> statistics = CreateDBStatistics();
+
+  auto resume_cs = std::make_shared<ResumableCompactionService>(
+      dbname_, options, statistics,
+      ResumableCompactionService::TestScenario::kCancelThenResume,
+      /*output_file_key_interval=*/3);
+  resume_cs->SetCancelAtKey(Key(20), kMaxSequenceNumber);
+  resume_cs->SetSecondCancelAtKey(Key(40));
+  resume_cs->SetWorkerOptionOverride("compaction_verify_record_count", "true");
+  options.compaction_service = resume_cs;
+
+  DestroyAndReopen(options);
+  constexpr int kTestNumKeys = 60;
+  for (int i = 0; i < kTestNumKeys; ++i) {
+    ASSERT_OK(Put(Key(i), "old"));
+  }
+  ASSERT_OK(Flush());
+  const Snapshot* snapshot = db_->GetSnapshot();
+  for (int i = 0; i < kTestNumKeys; ++i) {
+    ASSERT_OK(Put(Key(i), "new"));
+  }
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  const Status s = db_->CompactRange(compact_options, nullptr, nullptr);
+  db_->ReleaseSnapshot(snapshot);
+  ASSERT_OK(s);
+
+  CompactionServiceResult result;
+  resume_cs->GetResult(&result);
+  ASSERT_OK(result.status);
+  uint64_t entries_in_output_files = 0;
+  for (const auto& file : result.output_files) {
+    entries_in_output_files += file.table_properties.num_entries -
+                               file.table_properties.num_range_deletions;
+  }
+  // The snapshot keeps both versions of every key.
+  EXPECT_EQ(entries_in_output_files, 2 * kTestNumKeys);
+  EXPECT_EQ(result.stats.num_output_records, entries_in_output_files);
+  EXPECT_GT(statistics->getTickerCount(REMOTE_COMPACT_RESUMED_BYTES), 0);
+  for (int i = 0; i < kTestNumKeys; ++i) {
+    EXPECT_EQ(Get(Key(i)), "new");
   }
 }
 
