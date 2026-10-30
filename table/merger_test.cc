@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "memory/arena.h"
 #include "table/merging_iterator.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -171,6 +172,57 @@ TEST_F(MergerTest, SeekToLastTest) {
     AssertEquivalence();
     Prev(50000);
   }
+}
+
+TEST_F(MergerTest, OrdinaryInputsRetainValueTypeOrdering) {
+  const std::string deletion =
+      InternalKey("m", 7, kTypeDeletion).Encode().ToString();
+  const std::string value = InternalKey("m", 7, kTypeValue).Encode().ToString();
+  InternalIterator* inputs[] = {
+      new VectorIterator({deletion}, {"deleted"}, &icomp_),
+      new VectorIterator({value}, {"value"}, &icomp_)};
+  std::unique_ptr<InternalIterator> iter(
+      NewMergingIterator(&icomp_, inputs, 2));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  EXPECT_EQ(value, iter->key().ToString());
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  EXPECT_EQ(deletion, iter->key().ToString());
+  iter->SeekToLast();
+  ASSERT_TRUE(iter->Valid());
+  EXPECT_EQ(deletion, iter->key().ToString());
+  iter->Prev();
+  ASSERT_TRUE(iter->Valid());
+  EXPECT_EQ(value, iter->key().ToString());
+  ASSERT_OK(iter->status());
+}
+
+TEST_F(MergerTest, ExplicitSourcePriorityOrdersEqualZeroPoints) {
+  const std::string deletion =
+      InternalKey("m", 0, kTypeDeletion).Encode().ToString();
+  const std::string value = InternalKey("m", 0, kTypeValue).Encode().ToString();
+  Arena arena;
+  MergeIteratorBuilder builder(&icomp_, &arena);
+  builder.SetSourcePriorityForEqualSequences(true);
+  builder.AddIterator(new (arena.AllocateAligned(sizeof(VectorIterator)))
+                          VectorIterator({deletion}, {"deleted"}, &icomp_));
+  builder.AddIterator(new (arena.AllocateAligned(sizeof(VectorIterator)))
+                          VectorIterator({value}, {"value"}, &icomp_));
+  ScopedArenaPtr<InternalIterator> iter(builder.Finish());
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  EXPECT_EQ(deletion, iter->key().ToString());
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  EXPECT_EQ(value, iter->key().ToString());
+  iter->SeekToLast();
+  ASSERT_TRUE(iter->Valid());
+  EXPECT_EQ(value, iter->key().ToString());
+  iter->Prev();
+  ASSERT_TRUE(iter->Valid());
+  EXPECT_EQ(deletion, iter->key().ToString());
+  ASSERT_OK(iter->status());
 }
 
 }  // namespace ROCKSDB_NAMESPACE

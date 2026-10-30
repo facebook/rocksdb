@@ -62,7 +62,8 @@ class MergingIterator : public InternalIterator {
         direction_(kForward),
         comparator_(comparator),
         current_(nullptr),
-        minHeap_(MinHeapItemComparator(comparator_)),
+        minHeap_(MinHeapItemComparator(comparator_,
+                                       &source_priority_for_equal_sequences_)),
         pinned_iters_mgr_(nullptr),
         iterate_upper_bound_(iterate_upper_bound) {
     children_.resize(n);
@@ -528,13 +529,19 @@ class MergingIterator : public InternalIterator {
 
   class MinHeapItemComparator {
    public:
-    explicit MinHeapItemComparator(const InternalKeyComparator* comparator)
-        : comparator_(comparator) {}
+    MinHeapItemComparator(const InternalKeyComparator* comparator,
+                          const bool* source_priority)
+        : comparator_(comparator), source_priority_(source_priority) {}
 
     bool operator()(HeapItem* a, HeapItem* b) const {
       if (LIKELY(a->type == HeapItem::Type::ITERATOR)) {
         if (LIKELY(b->type == HeapItem::Type::ITERATOR)) {
-          return comparator_->Compare(a->iter.key(), b->iter.key()) > 0;
+          if (!*source_priority_) {
+            return comparator_->Compare(a->iter.key(), b->iter.key()) > 0;
+          }
+          const int cmp =
+              comparator_->CompareKeySeq(a->iter.key(), b->iter.key());
+          return cmp != 0 ? cmp > 0 : a->level > b->level;
         } else {
           return comparator_->Compare(a->iter.key(), b->tombstone_pik) > 0;
         }
@@ -549,17 +556,24 @@ class MergingIterator : public InternalIterator {
 
    private:
     const InternalKeyComparator* comparator_;
+    const bool* source_priority_;
   };
 
   class MaxHeapItemComparator {
    public:
-    explicit MaxHeapItemComparator(const InternalKeyComparator* comparator)
-        : comparator_(comparator) {}
+    MaxHeapItemComparator(const InternalKeyComparator* comparator,
+                          const bool* source_priority)
+        : comparator_(comparator), source_priority_(source_priority) {}
 
     bool operator()(HeapItem* a, HeapItem* b) const {
       if (LIKELY(a->type == HeapItem::Type::ITERATOR)) {
         if (LIKELY(b->type == HeapItem::Type::ITERATOR)) {
-          return comparator_->Compare(a->iter.key(), b->iter.key()) < 0;
+          if (!*source_priority_) {
+            return comparator_->Compare(a->iter.key(), b->iter.key()) < 0;
+          }
+          const int cmp =
+              comparator_->CompareKeySeq(a->iter.key(), b->iter.key());
+          return cmp != 0 ? cmp < 0 : a->level < b->level;
         } else {
           return comparator_->Compare(a->iter.key(), b->tombstone_pik) < 0;
         }
@@ -574,6 +588,7 @@ class MergingIterator : public InternalIterator {
 
    private:
     const InternalKeyComparator* comparator_;
+    const bool* source_priority_;
   };
 
   using MergerMinIterHeap = BinaryHeap<HeapItem*, MinHeapItemComparator>;
@@ -663,6 +678,7 @@ class MergingIterator : public InternalIterator {
   // This holds by using only BinaryHeap APIs to modify heap. One
   // exception is to modify heap top item directly (by caller iter->Next()), and
   // it should be followed by a call to replace_top() or pop().
+  bool source_priority_for_equal_sequences_ = false;
   MergerMinIterHeap minHeap_;
 
   // Max heap is used for reverse iteration, which is way less common than
@@ -1041,8 +1057,8 @@ bool MergingIterator::SkipNextDeleted() {
     auto i = *active_.begin();
     if (i < current->level) {
       // range tombstone is from a newer level, definitely covers
-      assert(comparator_->Compare(range_tombstone_iters_[i]->start_key(),
-                                  pik) <= 0);
+      assert(comparator_->CompareKeySeq(range_tombstone_iters_[i]->start_key(),
+                                        current->iter.key()) <= 0);
       assert(comparator_->Compare(pik, range_tombstone_iters_[i]->end_key()) <
              0);
       std::string target;
@@ -1053,8 +1069,8 @@ bool MergingIterator::SkipNextDeleted() {
       // range tombstone is from the same level as current, check sequence
       // number. By `active_` we know current key is between start key and end
       // key.
-      assert(comparator_->Compare(range_tombstone_iters_[i]->start_key(),
-                                  pik) <= 0);
+      assert(comparator_->CompareKeySeq(range_tombstone_iters_[i]->start_key(),
+                                        current->iter.key()) <= 0);
       assert(comparator_->Compare(pik, range_tombstone_iters_[i]->end_key()) <
              0);
       if (pik.sequence < range_tombstone_iters_[current->level]->seq()) {
@@ -1255,8 +1271,8 @@ bool MergingIterator::SkipPrevDeleted() {
     auto i = *active_.begin();
     if (i < current->level) {
       // range tombstone is from a newer level, definitely covers
-      assert(comparator_->Compare(range_tombstone_iters_[i]->start_key(),
-                                  pik) <= 0);
+      assert(comparator_->CompareKeySeq(range_tombstone_iters_[i]->start_key(),
+                                        current->iter.key()) <= 0);
       assert(comparator_->Compare(pik, range_tombstone_iters_[i]->end_key()) <
              0);
       std::string target;
@@ -1272,8 +1288,8 @@ bool MergingIterator::SkipPrevDeleted() {
       return true /* current key deleted */;
     } else if (i == current->level) {
       // By `active_` we know current key is between start key and end key.
-      assert(comparator_->Compare(range_tombstone_iters_[i]->start_key(),
-                                  pik) <= 0);
+      assert(comparator_->CompareKeySeq(range_tombstone_iters_[i]->start_key(),
+                                        current->iter.key()) <= 0);
       assert(comparator_->Compare(pik, range_tombstone_iters_[i]->end_key()) <
              0);
       if (pik.sequence < range_tombstone_iters_[current->level]->seq()) {
@@ -1421,11 +1437,12 @@ void MergingIterator::SwitchToBackward() {
       // same user key at current_, but with a smaller sequence number. This
       // makes current_ not at maxHeap_ top for the CurrentReverse() call
       // below. If there is a range tombstone start key with the same user
-      // key and the same sequence number as current_.key(), it will be fine as
-      // in InsertRangeTombstoneToMaxHeap() we change op_type to be the smallest
-      // op_type.
+      // key and sequence as current_.key(), its kTypeMaxValid heap key follows
+      // the point in reverse order.
       while (iter->Valid() &&
-             comparator_->Compare(iter->start_key(), pik) > 0) {
+             (source_priority_for_equal_sequences_
+                  ? comparator_->CompareKeySeq(iter->start_key(), target)
+                  : comparator_->Compare(iter->start_key(), pik)) > 0) {
         iter->Prev();
       }
       if (iter->Valid()) {
@@ -1459,8 +1476,8 @@ void MergingIterator::ClearHeaps(bool clear_active) {
 
 void MergingIterator::InitMaxHeap() {
   if (!maxHeap_) {
-    maxHeap_ =
-        std::make_unique<MergerMaxIterHeap>(MaxHeapItemComparator(comparator_));
+    maxHeap_ = std::make_unique<MergerMaxIterHeap>(MaxHeapItemComparator(
+        comparator_, &source_priority_for_equal_sequences_));
   }
 }
 
@@ -1705,6 +1722,11 @@ void MergeIteratorBuilder::AddIterator(InternalIterator* iter) {
   } else {
     first_iter = iter;
   }
+}
+
+void MergeIteratorBuilder::SetSourcePriorityForEqualSequences(bool enabled) {
+  assert(merge_iter->minHeap_.empty());
+  merge_iter->source_priority_for_equal_sequences_ = enabled;
 }
 
 void MergeIteratorBuilder::AddPointAndTombstoneIterator(
