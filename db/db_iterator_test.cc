@@ -29,6 +29,7 @@
 #include "rocksdb/persistent_cache.h"
 #include "table/block_based/flush_block_policy_impl.h"
 #include "test_util/testutil.h"
+#include "util/defer.h"
 #include "util/random.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
 
@@ -362,6 +363,9 @@ TEST_F(DBIteratorBaseTest, PrepareWithMultiScanAllowsSingleUnboundedRange) {
   ASSERT_OK(Put("c", "vc"));
   ASSERT_OK(Flush());
   MoveFilesToLevel(1);
+  // L0 table iterators receive the unbounded Prepare() directly.
+  ASSERT_OK(Put("d", "vd"));
+  ASSERT_OK(Flush());
 
   MultiScanArgs scan_opts(BytewiseComparator());
   scan_opts.insert(Slice("b"));
@@ -374,7 +378,7 @@ TEST_F(DBIteratorBaseTest, PrepareWithMultiScanAllowsSingleUnboundedRange) {
   for (iter->Seek("b"); iter->Valid(); iter->Next()) {
     keys.push_back(iter->key().ToString());
   }
-  ASSERT_EQ(keys, std::vector<std::string>({"b", "c"}));
+  ASSERT_EQ(keys, std::vector<std::string>({"b", "c", "d"}));
   ASSERT_FALSE(iter->Valid());
   ASSERT_OK(iter->status());
 }
@@ -608,6 +612,133 @@ TEST_F(DBIteratorBaseTest, PrepareWithMultiScanPrunesNonIntersectingMemTables) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
   ASSERT_OK(db_->ContinueBackgroundWork());
+}
+
+// Prepare() on an iterator that is already positioned must discard that
+// position and yield the same results as on a fresh iterator. The test needs
+// an L0 file, because L0 table iterators receive Prepare() directly from the
+// merging iterator rather than through LevelIterator, so they are positioned
+// on a data block.
+TEST_F(DBIteratorBaseTest, PrepareWithMultiScanAfterPositioning) {
+  // Other tests can leave counting disabled on this thread.
+  const PerfLevel prev_perf_level = GetPerfLevel();
+  SetPerfLevel(kEnableCount);
+  Defer restore_perf_level(
+      [prev_perf_level]() { SetPerfLevel(prev_perf_level); });
+
+  constexpr int kNumKeys = 200;
+  std::vector<std::string> keys;
+  for (int i = 0; i <= kNumKeys; ++i) {
+    keys.push_back(Key(i));
+  }
+  const std::string l1_value(50, '1');
+  const std::string l0_value(50, '0');
+  const std::vector<std::pair<int, int>> ranges = {{10, 20}, {120, 140}};
+
+  struct Case {
+    const char* name;
+    std::function<void(Iterator*)> position;
+    bool reverse;
+  };
+  const std::vector<Case> cases = {
+      {"Seek inside a range", [&](Iterator* it) { it->Seek(keys[15]); }, false},
+      {"Seek outside the ranges", [&](Iterator* it) { it->Seek(keys[190]); },
+       false},
+      {"Seek then Next",
+       [&](Iterator* it) {
+         it->Seek(keys[5]);
+         for (int i = 0; i < 10; ++i) {
+           it->Next();
+         }
+       },
+       false},
+      {"SeekToFirst", [](Iterator* it) { it->SeekToFirst(); }, false},
+      {"SeekToLast", [](Iterator* it) { it->SeekToLast(); }, false},
+      {"SeekForPrev", [&](Iterator* it) { it->SeekForPrev(keys[130]); }, false},
+      {"Seek then reverse MultiScan", [&](Iterator* it) { it->Seek(keys[15]); },
+       true},
+  };
+
+  for (bool first_key_index : {false, true}) {
+    Options options = CurrentOptions();
+    options.disable_auto_compactions = true;
+    options.compression = kNoCompression;
+    BlockBasedTableOptions table_options;
+    table_options.block_size = 256;
+    if (first_key_index) {
+      table_options.index_type =
+          BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey;
+    }
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    DestroyAndReopen(options);
+    for (int i = 0; i < kNumKeys; ++i) {
+      ASSERT_OK(Put(keys[i], l1_value));
+    }
+    ASSERT_OK(Flush());
+    MoveFilesToLevel(1);
+    for (int i = 0; i < kNumKeys; i += 7) {
+      ASSERT_OK(Put(keys[i], l0_value));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_EQ(1, NumTableFilesAtLevel(0));
+    ASSERT_EQ(1, NumTableFilesAtLevel(1));
+
+    for (bool pin_data : {false, true}) {
+      for (const Case& c : cases) {
+        SCOPED_TRACE(std::string(c.name) +
+                     " first_key_index=" + std::to_string(first_key_index) +
+                     " pin_data=" + std::to_string(pin_data));
+        Slice lower_bound = keys[0];
+        Slice upper_bound = keys[kNumKeys];
+        ReadOptions read_options;
+        read_options.pin_data = pin_data;
+        read_options.iterate_lower_bound = &lower_bound;
+        read_options.iterate_upper_bound = &upper_bound;
+        std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+        c.position(iter.get());
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_OK(iter->status());
+
+        MultiScanArgs scan_opts(BytewiseComparator());
+        scan_opts.reverse = c.reverse;
+        for (const auto& range : ranges) {
+          scan_opts.insert(keys[range.first], keys[range.second]);
+        }
+        get_perf_context()->Reset();
+        iter->Prepare(scan_opts);
+        ASSERT_OK(iter->status());
+        ASSERT_FALSE(iter->Valid());
+        // The L0 table iterator took the MultiScan path.
+        ASSERT_GT(get_perf_context()->multiscan_prepare_count, 0);
+
+        std::vector<std::pair<std::string, std::string>> expected;
+        std::vector<std::pair<std::string, std::string>> actual;
+        for (const auto& range : ranges) {
+          lower_bound = keys[range.first];
+          upper_bound = keys[range.second];
+          if (c.reverse) {
+            for (int i = range.second - 1; i >= range.first; --i) {
+              expected.emplace_back(keys[i], i % 7 == 0 ? l0_value : l1_value);
+            }
+            for (iter->SeekForPrev(upper_bound); iter->Valid(); iter->Prev()) {
+              actual.emplace_back(iter->key().ToString(),
+                                  iter->value().ToString());
+            }
+          } else {
+            for (int i = range.first; i < range.second; ++i) {
+              expected.emplace_back(keys[i], i % 7 == 0 ? l0_value : l1_value);
+            }
+            for (iter->Seek(lower_bound); iter->Valid(); iter->Next()) {
+              actual.emplace_back(iter->key().ToString(),
+                                  iter->value().ToString());
+            }
+          }
+          ASSERT_OK(iter->status());
+        }
+        ASSERT_EQ(expected, actual);
+      }
+    }
+  }
 }
 
 // Test param:
