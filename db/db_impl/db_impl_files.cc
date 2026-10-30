@@ -292,6 +292,13 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
 
   if (doing_the_full_scan) {
     versions_->AddLiveFiles(&job_context->sst_live, &job_context->blob_live);
+    // Preserve uncommitted ingestion files in this purge snapshot.
+    for (const auto& [first_file_number, num_files] :
+         pending_ingestion_outputs_) {
+      for (uint64_t i = 0; i < num_files; ++i) {
+        job_context->sst_live.push_back(first_file_number + i);
+      }
+    }
     InfoLogPrefix info_log_prefix(!immutable_db_options_.db_log_dir.empty(),
                                   dbname_);
     // PurgeObsoleteFiles will dedupe duplicate files.

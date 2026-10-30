@@ -74,6 +74,7 @@
 #include "util/autovector.h"
 #include "util/coro_utils.h"
 #include "util/hash.h"
+#include "util/hash_containers.h"
 #include "util/repeatable_thread.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
@@ -3373,10 +3374,8 @@ class DBImpl : public DB
   // Reserve the next 'num' file numbers for to-be-ingested external SST files,
   // and return the current file_number in 'next_file_number'.
   // Write a version edit to the MANIFEST.
-  Status ReserveFileNumbersBeforeIngestion(
-      ColumnFamilyData* cfd, uint64_t num,
-      std::unique_ptr<std::list<uint64_t>::iterator>& pending_output_elem,
-      uint64_t* next_file_number);
+  Status ReserveFileNumbersBeforeIngestion(ColumnFamilyData* cfd, uint64_t num,
+                                           uint64_t* next_file_number);
 
   bool ShouldPurge(uint64_t file_number) const;
   void MarkAsGrabbedForPurge(uint64_t file_number);
@@ -3910,6 +3909,11 @@ class DBImpl : public DB
   // it up.
   // State is protected with db mutex.
   std::list<uint64_t> pending_outputs_;
+
+  // First file number -> reserved file count for external file ingestions.
+  // Full-scan purge snapshots protect these SSTs until commit or cleanup.
+  // State is protected with db mutex.
+  UnorderedMap<uint64_t, uint64_t> pending_ingestion_outputs_;
 
   // Similar to pending_outputs_, FindObsoleteFiles()/PurgeObsoleteFiles() never
   // deletes any OPTIONS file that has number bigger than any of the file number

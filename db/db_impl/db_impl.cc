@@ -10,11 +10,8 @@
 
 #include <algorithm>
 #include <array>
-#include <cstdint>
-
-#include "db/db_impl/db_impl_metadata.h"
-
 #include <cinttypes>
+#include <cstdint>
 #include <cstdio>
 #include <deque>
 #include <forward_list>
@@ -39,6 +36,7 @@
 #include "db/coalescing_iterator.h"
 #include "db/compaction/compaction_job.h"
 #include "db/convenience_impl.h"
+#include "db/db_impl/db_impl_metadata.h"
 #include "db/db_info_dumper.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
@@ -7817,7 +7815,8 @@ Status DBImpl::IngestExternalFile(
 
 class FileIngestionHandleImpl : public FileIngestionHandle {
  public:
-  explicit FileIngestionHandleImpl(DBImpl* db) : db_(db) {}
+  FileIngestionHandleImpl(DBImpl* db, uint64_t first_file_number)
+      : db_(db), first_file_number_(first_file_number) {}
   ~FileIngestionHandleImpl() override;
 
   FileIngestionHandleImpl(const FileIngestionHandleImpl&) = delete;
@@ -7828,8 +7827,8 @@ class FileIngestionHandleImpl : public FileIngestionHandle {
   Status Abort() override;
 
   DBImpl* const db_;
+  const uint64_t first_file_number_;
   std::vector<std::unique_ptr<ExternalSstFileIngestionJob>> jobs_;
-  std::unique_ptr<std::list<uint64_t>::iterator> pending_output_elem_;
   bool fill_cache_ = true;
   // Set true once committed or aborted, so the destructor does not roll back.
   bool consumed_ = false;
@@ -7857,7 +7856,7 @@ void DBImpl::RollbackPreparedFileIngestion(FileIngestionHandleImpl* const h) {
   }
   {
     InstrumentedMutexLock l(&mutex_);
-    ReleaseFileNumberFromPendingOutputs(h->pending_output_elem_);
+    pending_ingestion_outputs_.erase(h->first_file_number_);
   }
   h->consumed_ = true;
   num_outstanding_prepared_ingestions_.fetch_sub(1);
@@ -7979,7 +7978,6 @@ Status DBImpl::PrepareFileIngestion(
 
   // TODO (yanqin) maybe handle the case in which column_families have
   // duplicates
-  std::unique_ptr<std::list<uint64_t>::iterator> pending_output_elem;
   size_t total = 0;
   for (size_t i = 0; i != num_cfs; ++i) {
     total += ingestion_jobs[i]->NumFilesToPrepare(args[i].external_files.size(),
@@ -7988,10 +7986,10 @@ Status DBImpl::PrepareFileIngestion(
   uint64_t next_file_number = 0;
   Status status = ReserveFileNumbersBeforeIngestion(
       static_cast<ColumnFamilyHandleImpl*>(args[0].column_family)->cfd(), total,
-      pending_output_elem, &next_file_number);
+      &next_file_number);
   if (!status.ok()) {
     InstrumentedMutexLock l(&mutex_);
-    ReleaseFileNumberFromPendingOutputs(pending_output_elem);
+    pending_ingestion_outputs_.erase(next_file_number);
     return status;
   }
 
@@ -8035,13 +8033,13 @@ Status DBImpl::PrepareFileIngestion(
       ingestion_jobs[i]->Cleanup(status);
     }
     InstrumentedMutexLock l(&mutex_);
-    ReleaseFileNumberFromPendingOutputs(pending_output_elem);
+    pending_ingestion_outputs_.erase(next_file_number);
     return status;
   }
 
-  auto handle_impl = std::make_unique<FileIngestionHandleImpl>(this);
+  std::unique_ptr<FileIngestionHandleImpl> handle_impl =
+      std::make_unique<FileIngestionHandleImpl>(this, next_file_number);
   handle_impl->jobs_ = std::move(ingestion_jobs);
-  handle_impl->pending_output_elem_ = std::move(pending_output_elem);
   handle_impl->fill_cache_ = args[0].options.fill_cache;
   if (record_ingest_micros) {
     RecordTimeToHistogram(
@@ -8279,6 +8277,17 @@ Status DBImpl::CommitFileIngestionHandles(
         }
         assert(0 == num_entries);
       }
+      // The callback runs under mutex after every Version is installed,
+      // including when another thread commits this manifest batch.
+      std::vector<std::function<void(const Status&)>> manifest_wcbs(num_jobs);
+      manifest_wcbs.back() = [this, &hs](const Status& s) {
+        mutex_.AssertHeld();
+        if (s.ok()) {
+          for (auto* h : hs) {
+            pending_ingestion_outputs_.erase(h->first_file_number_);
+          }
+        }
+      };
       assert(snapshots_blocked);
       TEST_SYNC_POINT("DBImpl::IngestExternalFiles:BeforeLogAndApply");
       // LogAndApply releases mutex_ while writing the MANIFEST. GetSnapshot()
@@ -8287,7 +8296,7 @@ Status DBImpl::CommitFileIngestionHandles(
       status = versions_->LogAndApply(
           cfds_to_commit, read_options, write_options, edit_lists, &mutex_,
           directories_.GetDbDir(), false /* new_descriptor_log */,
-          nullptr /* new_cf_options */, {} /* manifest_wcbs */, {} /* pre_cb */,
+          nullptr /* new_cf_options */, manifest_wcbs, {} /* pre_cb */,
           max_file_opening_threads);
       // It is safe to update VersionSet last seqno here after LogAndApply since
       // LogAndApply persists last sequence number from VersionEdits,
@@ -8369,9 +8378,6 @@ Status DBImpl::CommitFileIngestionHandles(
     if (status.ok()) {
       for (auto* job : ingestion_jobs) {
         job->UpdateStats();
-      }
-      for (auto* h : hs) {
-        ReleaseFileNumberFromPendingOutputs(h->pending_output_elem_);
       }
     }
     num_running_ingest_file_ -= static_cast<int>(num_jobs);
@@ -8967,10 +8973,9 @@ Status DBImpl::TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
   return s;
 }
 
-Status DBImpl::ReserveFileNumbersBeforeIngestion(
-    ColumnFamilyData* cfd, uint64_t num,
-    std::unique_ptr<std::list<uint64_t>::iterator>& pending_output_elem,
-    uint64_t* next_file_number) {
+Status DBImpl::ReserveFileNumbersBeforeIngestion(ColumnFamilyData* cfd,
+                                                 uint64_t num,
+                                                 uint64_t* next_file_number) {
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   const WriteOptions write_options;
@@ -8983,9 +8988,8 @@ Status DBImpl::ReserveFileNumbersBeforeIngestion(
     // Do not ingest files when there is a bg_error
     return error_handler_.GetBGError();
   }
-  pending_output_elem.reset(new std::list<uint64_t>::iterator(
-      CaptureCurrentFileNumberInPendingOutputs()));
   *next_file_number = versions_->FetchAddFileNumber(static_cast<uint64_t>(num));
+  pending_ingestion_outputs_.emplace(*next_file_number, num);
   VersionEdit dummy_edit;
   // If crash happen after a hard link established, Recover function may
   // reuse the file number that has already assigned to the internal file,
