@@ -11,7 +11,10 @@
 
 #include <algorithm>
 #include <cinttypes>
+#include <condition_variable>
+#include <exception>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <utility>
@@ -58,10 +61,69 @@
 #include "table/table_builder.h"
 #include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
+#include "util/defer.h"
 #include "util/hash_containers.h"
 #include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+class SubcompactionCompletion {
+ public:
+  SubcompactionCompletion() = default;
+  SubcompactionCompletion(const SubcompactionCompletion&) = delete;
+  SubcompactionCompletion& operator=(const SubcompactionCompletion&) = delete;
+  SubcompactionCompletion(SubcompactionCompletion&&) = delete;
+  SubcompactionCompletion& operator=(SubcompactionCompletion&&) = delete;
+
+  class Guard {
+   public:
+    explicit Guard(SubcompactionCompletion& completion)
+        : completion_(&completion) {}
+
+    ~Guard() {
+      if (completion_ != nullptr) {
+        completion_->Complete();
+      }
+    }
+
+    Guard(const Guard&) = delete;
+    Guard& operator=(const Guard&) = delete;
+    Guard(Guard&&) = delete;
+    Guard& operator=(Guard&&) = delete;
+
+    void Release() { completion_ = nullptr; }
+
+   private:
+    SubcompactionCompletion* completion_;
+  };
+
+  void Add() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    ++remaining_;
+  }
+
+  ~SubcompactionCompletion() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    TEST_SYNC_POINT("CompactionJob::RunSubcompactions:Wait");
+    cv_.wait(lock, [&] { return remaining_ == 0; });
+  }
+
+ private:
+  void Complete() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    assert(remaining_ > 0);
+    --remaining_;
+    cv_.notify_one();
+  }
+
+  std::mutex mutex_;
+  std::condition_variable cv_;
+  size_t remaining_ = 0;
+};
+
+}  // namespace
 
 const char* GetCompactionReasonString(CompactionReason compaction_reason) {
   switch (compaction_reason) {
@@ -211,11 +273,8 @@ CompactionJob::CompactionJob(
     file_options_for_compaction_input_read_.use_direct_reads = true;
   }
 
-  const auto* cfd = compact_->compaction->column_family_data();
-  ThreadStatusUtil::SetEnableTracking(db_options_.enable_thread_tracking);
-  ThreadStatusUtil::SetColumnFamily(cfd);
-  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
   ReportStartedCompaction(compaction);
+  InitializeThreadStatus();
 }
 
 CompactionJob::~CompactionJob() {
@@ -223,7 +282,10 @@ CompactionJob::~CompactionJob() {
   ThreadStatusUtil::ResetThreadStatus();
 }
 
-void CompactionJob::ReportStartedCompaction(Compaction* compaction) {
+void CompactionJob::InitializeThreadStatus() {
+  auto* compaction = compact_->compaction;
+  ThreadStatusUtil::SetEnableTracking(db_options_.enable_thread_tracking);
+  ThreadStatusUtil::SetColumnFamily(compaction->column_family_data());
   ThreadStatusUtil::SetThreadOperationProperty(ThreadStatus::COMPACTION_JOB_ID,
                                                job_id_);
 
@@ -241,9 +303,9 @@ void CompactionJob::ReportStartedCompaction(Compaction* compaction) {
       ThreadStatus::COMPACTION_PROP_FLAGS,
       compaction->is_manual_compaction() +
           (compaction->deletion_compaction() << 1));
-  auto total_input_bytes = compaction->CalculateTotalInputSize();
   ThreadStatusUtil::SetThreadOperationProperty(
-      ThreadStatus::COMPACTION_TOTAL_INPUT_BYTES, total_input_bytes);
+      ThreadStatus::COMPACTION_TOTAL_INPUT_BYTES,
+      compaction->CalculateTotalInputSize());
 
   IOSTATS_RESET(bytes_written);
   IOSTATS_RESET(bytes_read);
@@ -255,7 +317,9 @@ void CompactionJob::ReportStartedCompaction(Compaction* compaction) {
   // Set the thread operation after operation properties
   // to ensure GetThreadList() can always show them all together.
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
+}
 
+void CompactionJob::ReportStartedCompaction(Compaction* compaction) {
   job_stats_->is_manual_compaction = compaction->is_manual_compaction();
   job_stats_->is_full_compaction = compaction->is_full_compaction();
   // populate compaction stats num_input_files and total_num_of_bytes
@@ -267,7 +331,7 @@ void CompactionJob::ReportStartedCompaction(Compaction* compaction) {
     num_input_files += flevel->num_files;
   }
   job_stats_->CompactionJobStats::num_input_files = num_input_files;
-  job_stats_->total_input_bytes = total_input_bytes;
+  job_stats_->total_input_bytes = compaction->CalculateTotalInputSize();
 }
 
 void CompactionJob::Prepare(
@@ -485,6 +549,9 @@ uint64_t CompactionJob::GetSubcompactionsLimit() {
 
 void CompactionJob::AcquireSubcompactionResources(
     int num_extra_required_subcompactions) {
+  if (remote_compaction_executor_) {
+    return;
+  }
   TEST_SYNC_POINT("CompactionJob::AcquireSubcompactionResources:0");
   TEST_SYNC_POINT("CompactionJob::AcquireSubcompactionResources:1");
   int max_db_compactions =
@@ -762,21 +829,52 @@ void CompactionJob::RunSubcompactions() {
   assert(num_threads > 0);
   compact_->compaction->GetOrInitInputTableProperties();
 
-  // Launch a thread for each of subcompactions 1...num_threads-1
-  std::vector<port::Thread> thread_pool;
-  thread_pool.reserve(num_threads - 1);
-  for (size_t i = 1; i < compact_->sub_compact_states.size(); i++) {
-    thread_pool.emplace_back(&CompactionJob::ProcessKeyValueCompaction, this,
-                             &compact_->sub_compact_states[i]);
-  }
+  if (remote_compaction_executor_) {
+    const auto run_subcompaction = [this](SubcompactionState* sub_compact) {
+      try {
+        ProcessKeyValueCompaction(sub_compact);
+      } catch (...) {
+        sub_compact->status = Status::Aborted();
+      }
+    };
+    SubcompactionCompletion completion;
+    for (size_t i = 1; i < num_threads; ++i) {
+      try {
+        completion.Add();
+        SubcompactionCompletion::Guard submission(completion);
+        remote_compaction_executor_([&, i] {
+          SubcompactionCompletion::Guard completed(completion);
+          run_subcompaction(&compact_->sub_compact_states[i]);
+        });
+        submission.Release();
+      } catch (...) {
+        compact_->sub_compact_states[0].status = Status::Aborted();
+        for (size_t j = i; j < num_threads; ++j) {
+          compact_->sub_compact_states[j].status = Status::Aborted();
+        }
+        break;
+      }
+    }
+    if (compact_->sub_compact_states[0].status.ok()) {
+      run_subcompaction(compact_->sub_compact_states.data());
+    }
+  } else {
+    // Launch a thread for each of subcompactions 1...num_threads-1
+    std::vector<port::Thread> thread_pool;
+    thread_pool.reserve(num_threads - 1);
+    for (size_t i = 1; i < compact_->sub_compact_states.size(); i++) {
+      thread_pool.emplace_back(&CompactionJob::ProcessKeyValueCompaction, this,
+                               &compact_->sub_compact_states[i]);
+    }
 
-  // Always schedule the first subcompaction (whether or not there are also
-  // others) in the current thread to be efficient with resources
-  ProcessKeyValueCompaction(compact_->sub_compact_states.data());
+    // Always schedule the first subcompaction (whether or not there are also
+    // others) in the current thread to be efficient with resources
+    ProcessKeyValueCompaction(compact_->sub_compact_states.data());
 
-  // Wait for all other threads (if there are any) to finish execution
-  for (auto& thread : thread_pool) {
-    thread.join();
+    // Wait for all other threads (if there are any) to finish execution
+    for (auto& thread : thread_pool) {
+      thread.join();
+    }
   }
   RecordRemoteCompactionInputBlobFileCount();
   RemoveEmptyOutputs();
@@ -1453,6 +1551,7 @@ void CompactionJob::NotifyOnSubcompactionCompleted(
   if (sub_compact->notify_on_subcompaction_completion == false) {
     return;
   }
+  sub_compact->notify_on_subcompaction_completion = false;
 
   SubcompactionJobInfo info{};
   sub_compact->BuildSubcompactionJobInfo(info);
@@ -1981,7 +2080,41 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   if (!ShouldUseLocalCompaction(sub_compact)) {
     return;
   }
+  if (local_compaction_executor_) {
+    Status status = local_compaction_executor_(
+        [this, sub_compact] {
+          if (thread_pri_ != Env::Priority::USER) {
+            InitializeThreadStatus();
+          }
+          Defer reset_thread_status([this] {
+            if (thread_pri_ != Env::Priority::USER) {
+              ThreadStatusUtil::ResetThreadStatus();
+            }
+          });
+          try {
+            ProcessLocalKeyValueCompaction(sub_compact);
+            return;
+          } catch (const std::exception& e) {
+            sub_compact->status =
+                Status::Aborted("Local subcompaction exception", e.what());
+          } catch (...) {
+            sub_compact->status =
+                Status::Aborted("Unknown local subcompaction exception");
+          }
+          sub_compact->CleanupOutputs();
+          NotifyOnSubcompactionCompleted(sub_compact);
+        },
+        thread_pri_);
+    if (!status.ok()) {
+      sub_compact->status = status;
+    }
+  } else {
+    ProcessLocalKeyValueCompaction(sub_compact);
+  }
+}
 
+void CompactionJob::ProcessLocalKeyValueCompaction(
+    SubcompactionState* sub_compact) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PROCESS_KV);
 
