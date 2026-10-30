@@ -271,6 +271,13 @@ class Compaction {
   // Does this compaction include all sst files?
   bool is_full_compaction() const { return is_full_compaction_; }
 
+  bool use_separate_remote_compaction_pool() const {
+    return use_separate_remote_compaction_pool_;
+  }
+  void SetUseSeparateRemoteCompactionPool(bool enabled) {
+    use_separate_remote_compaction_pool_ = enabled;
+  }
+
   // Was this compaction triggered manually by the client?
   bool is_manual_compaction() const { return is_manual_compaction_; }
 
@@ -609,6 +616,7 @@ class Compaction {
   const bool bottommost_level_;
   // Does this compaction include all sst files?
   const bool is_full_compaction_;
+  bool use_separate_remote_compaction_pool_ = false;
 
   // Is this compaction requested by the client?
   const bool is_manual_compaction_;
