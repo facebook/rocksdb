@@ -225,8 +225,6 @@ class CorruptionFS : public FileSystemWrapper {
 
   bool VerifyRetry() { return corrupt_len_ > 0 && corrupt_fname_.empty(); }
 
-  int read_count() { return read_count_; }
-
   int corruption_trigger() { return corruption_trigger_; }
 
  private:

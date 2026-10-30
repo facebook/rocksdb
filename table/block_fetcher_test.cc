@@ -281,13 +281,6 @@ class BlockFetcherTest : public testing::Test {
 
   std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
 
-  void WriteToFile(const std::string& content, const std::string& filename) {
-    std::unique_ptr<FSWritableFile> f;
-    ASSERT_OK(fs_->NewWritableFile(Path(filename), FileOptions(), &f, nullptr));
-    ASSERT_OK(f->Append(content, IOOptions(), nullptr));
-    ASSERT_OK(f->Close(IOOptions(), nullptr));
-  }
-
   void NewFileWriter(const std::string& filename,
                      std::unique_ptr<WritableFileWriter>* writer) {
     std::string path = Path(filename);

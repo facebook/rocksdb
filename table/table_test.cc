@@ -6368,7 +6368,6 @@ namespace {
 class TestPrefixExtractor : public ROCKSDB_NAMESPACE::SliceTransform {
  public:
   ~TestPrefixExtractor() override = default;
-  ;
   const char* Name() const override { return "TestPrefixExtractor"; }
 
   ROCKSDB_NAMESPACE::Slice Transform(

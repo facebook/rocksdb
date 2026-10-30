@@ -6293,7 +6293,7 @@ class DBBasicTestTrackWal : public DBTestBase,
     VectorLogPtr log_files;
     EXPECT_OK(dbfull()->GetSortedWalFiles(log_files));
     return static_cast<int>(log_files.size());
-  };
+  }
 };
 
 TEST_P(DBBasicTestTrackWal, DoNotTrackObsoleteWal) {
@@ -6663,7 +6663,6 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
 
 TEST_P(DBBasicTestWithParallelIO, MultiGetDirectIO) {
   class FakeDirectIOEnv : public EnvWrapper {
-    class FakeDirectIOSequentialFile;
     class FakeDirectIORandomAccessFile;
 
    public:
@@ -6687,19 +6686,6 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetDirectIO) {
     }
 
    private:
-    class FakeDirectIOSequentialFile : public SequentialFileWrapper {
-     public:
-      FakeDirectIOSequentialFile(std::unique_ptr<SequentialFile>&& file)
-          : SequentialFileWrapper(file.get()), file_(std::move(file)) {}
-      ~FakeDirectIOSequentialFile() override {}
-
-      bool use_direct_io() const override { return true; }
-      size_t GetRequiredBufferAlignment() const override { return 1; }
-
-     private:
-      std::unique_ptr<SequentialFile> file_;
-    };
-
     class FakeDirectIORandomAccessFile : public RandomAccessFileWrapper {
      public:
       FakeDirectIORandomAccessFile(std::unique_ptr<RandomAccessFile>&& file)
