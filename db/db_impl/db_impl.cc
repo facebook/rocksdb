@@ -293,8 +293,12 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
                                    [this]() { this->DumpStats(); });
   periodic_task_functions_.emplace(PeriodicTaskType::kPersistStats,
                                    [this]() { this->PersistStats(); });
-  periodic_task_functions_.emplace(PeriodicTaskType::kFlushInfoLog,
-                                   [this]() { this->FlushInfoLog(); });
+  periodic_task_functions_.emplace(PeriodicTaskType::kFlushInfoLog, [this]() {
+    this->FlushInfoLog();
+    if (immutable_db_options_.compaction_service) {
+      this->ShrinkRemoteCompactionPool();
+    }
+  });
   periodic_task_functions_.emplace(
       PeriodicTaskType::kRecordSeqnoTime,
       [this]() { this->RecordSeqnoToTimeMapping(); });
@@ -764,7 +768,7 @@ Status DBImpl::ResumeImpl(DBRecoverContext context,
 
 void DBImpl::WaitForBackgroundWork() {
   // Wait for background work to finish
-  while (bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
+  while (remote_compaction_pool_jobs_ || CompactionsScheduled() ||
          bg_flush_scheduled_ || bg_wbm_flush_scheduled_ ||
          bg_pressure_callback_in_progress_ ||
          bg_async_file_open_state_ == AsyncFileOpenState::kScheduled) {
@@ -1116,7 +1120,7 @@ Status DBImpl::CloseHelper() {
   Status ret = Status::OK();
 
   // Wait for background work to finish
-  while (bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
+  while (remote_compaction_pool_jobs_ || CompactionsScheduled() ||
          bg_flush_scheduled_ || bg_wbm_flush_scheduled_ ||
          bg_purge_scheduled_ || bg_pressure_callback_in_progress_ ||
          bg_async_file_open_state_ == AsyncFileOpenState::kScheduled ||
@@ -1126,6 +1130,10 @@ Status DBImpl::CloseHelper() {
     TEST_SYNC_POINT("DBImpl::~DBImpl:WaitJob");
     bg_cv_.Wait();
   }
+
+  mutex_.Unlock();
+  ReleaseRemoteCompactionPool();
+  mutex_.Lock();
 
   // Release any opened-but-unpublished WAL writer after the in-flight worker
   // has published its result. Clear the DB-owned async slot while holding
@@ -2210,6 +2218,9 @@ Status DBImpl::SetDBOptions(
                                  new_options.wal_bytes_per_sync;
       wal_size_option_changed = mutable_db_options_.max_total_wal_size !=
                                 new_options.max_total_wal_size;
+      const bool compaction_pool_changed =
+          mutable_db_options_.use_separate_remote_compaction_pool !=
+          new_options.use_separate_remote_compaction_pool;
       mutable_db_options_ = new_options;
       mutex_hold_log_threshold_us_.store(
           new_options.mutex_hold_log_threshold_us, std::memory_order_relaxed);
@@ -2220,6 +2231,10 @@ Status DBImpl::SetDBOptions(
       // TODO(xiez): clarify why apply optimize for read to write options
       file_options_for_compaction_ = fs_->OptimizeForCompactionTableRead(
           file_options_for_compaction_, immutable_db_options_);
+      if (compaction_pool_changed || max_compactions_increased) {
+        bg_cv_.SignalAll();
+        MaybeScheduleFlushOrCompaction();
+      }
       TEST_SYNC_POINT_CALLBACK("DBImpl::SetDBOptions:FileOptionsForCompaction",
                                &file_options_for_compaction_);
       if (wal_other_option_changed || wal_size_option_changed) {

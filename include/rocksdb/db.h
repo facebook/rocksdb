@@ -1702,6 +1702,13 @@ class DB {
     //      to this count. Always 0 when no `compaction_service` is configured.
     static const std::string kNumRunningRemoteCompactions;
 
+    //  "rocksdb.num-remote-compaction-pool-threads" - returns the thread count
+    //      of the process-wide remote compaction pool, including idle workers
+    //      and coordinators waiting for local fallback. This value is shared
+    //      by all DBs and must not be summed across DBs. Returns 0 before first
+    //      use and after releasing all idle workers.
+    static const std::string kNumRemoteCompactionPoolThreads;
+
     //  "rocksdb.num-running-bottom-compactions" - returns the number of
     //      currently running bottom-priority compactions.
     static const std::string kNumRunningBottomCompactions;
@@ -1964,6 +1971,7 @@ class DB {
   //  "rocksdb.estimate-pending-compaction-bytes"
   //  "rocksdb.num-running-compactions"
   //  "rocksdb.num-running-remote-compactions"
+  //  "rocksdb.num-remote-compaction-pool-threads"
   //  "rocksdb.num-running-bottom-compactions"
   //  "rocksdb.num-running-flushes"
   //  "rocksdb.num-unscheduled-compactions"
