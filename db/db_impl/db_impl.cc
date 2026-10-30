@@ -10,11 +10,8 @@
 
 #include <algorithm>
 #include <array>
-#include <cstdint>
-
-#include "db/db_impl/db_impl_metadata.h"
-
 #include <cinttypes>
+#include <cstdint>
 #include <cstdio>
 #include <deque>
 #include <forward_list>
@@ -39,6 +36,7 @@
 #include "db/coalescing_iterator.h"
 #include "db/compaction/compaction_job.h"
 #include "db/convenience_impl.h"
+#include "db/db_impl/db_impl_metadata.h"
 #include "db/db_info_dumper.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
@@ -7907,6 +7905,7 @@ Status DBImpl::PrepareFileIngestion(
     }
   }
   for (const auto& arg : args) {
+    auto* cfd = static_cast<ColumnFamilyHandleImpl*>(arg.column_family)->cfd();
     const IngestExternalFileOptions& ingest_opts = arg.options;
     if (ingest_opts.ingest_behind) {
       auto ucmp = arg.column_family->GetComparator();
@@ -7917,15 +7916,17 @@ Status DBImpl::PrepareFileIngestion(
             "timestamps enabled doesn't support ingest behind.");
       }
 
-      if (!static_cast<ColumnFamilyHandleImpl*>(arg.column_family)
-               ->cfd()
-               ->AllowIngestBehind()) {
+      if (!cfd->AllowIngestBehind()) {
         return Status::InvalidArgument(
             "Can't ingest_behind file in ColumnFamily %s with "
             "cf_allow_ingest_behind=false");
       }
     }
     if (arg.atomic_replace_range.has_value()) {
+      if (cfd->ioptions().compaction_style == kCompactionStyleFIFO) {
+        return Status::NotSupported(
+            "atomic_replace_range is not supported with FIFO compaction.");
+      }
       if (ingest_opts.ingest_behind) {
         return Status::InvalidArgument(
             "Can't combine atomic_replace_range with ingest_behind.");
@@ -8218,7 +8219,11 @@ Status DBImpl::CommitFileIngestionHandles(
         if (!status.ok()) {
           break;
         }
-        ingestion_jobs[i]->RegisterRange();
+      }
+    }
+    if (status.ok()) {
+      for (auto* job : ingestion_jobs) {
+        job->RegisterRange();
       }
     }
     // Now that Run() has assigned the actual seqno for each ingested file,
@@ -8312,7 +8317,7 @@ Status DBImpl::CommitFileIngestionHandles(
     }
 
     for (auto* job : ingestion_jobs) {
-      job->UnregisterRange();
+      job->UnregisterRange(/*restore_compaction_candidates=*/!status.ok());
     }
 
     if (status.ok()) {
@@ -8342,6 +8347,15 @@ Status DBImpl::CommitFileIngestionHandles(
       const IOStatus& io_s = versions_->io_status();
       // Should handle return error?
       error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite);
+    }
+
+    if (!status.ok()) {
+      // Compaction may have been skipped while replacement files were reserved.
+      // Retry now that failed ingestion has released them.
+      for (auto* job : ingestion_jobs) {
+        EnqueuePendingCompaction(job->GetColumnFamilyData());
+      }
+      MaybeScheduleFlushOrCompaction();
     }
 
     // Resume writes to the DB
