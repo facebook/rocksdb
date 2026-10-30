@@ -875,6 +875,24 @@ class DBCrashTestTest(unittest.TestCase):
         self.assertEqual(self.expected_dir, expected_dir)
         self.assertTrue(os.path.exists(marker))
 
+    def test_finalize_keeps_parallel_compression_with_trie_index(self):
+        db_crashtest = self.load_db_crashtest()
+        for use_udi_as_primary_index in (0, 1):
+            with self.subTest(use_udi_as_primary_index=use_udi_as_primary_index):
+                params = self.build_params(
+                    db_crashtest.default_params,
+                    {
+                        "use_trie_index": 1,
+                        "use_udi_as_primary_index": use_udi_as_primary_index,
+                        "compression_parallel_threads": 4,
+                    },
+                )
+
+                finalized = db_crashtest.finalize_and_sanitize(params)
+
+                self.assertEqual(1, finalized["use_trie_index"])
+                self.assertEqual(4, finalized["compression_parallel_threads"])
+
     def test_finalize_disables_test_batches_snapshots_when_disable_wal(self):
         db_crashtest = self.load_db_crashtest()
         params = self.build_params(
