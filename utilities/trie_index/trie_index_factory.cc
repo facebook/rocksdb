@@ -165,6 +165,11 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
     return Status::NotSupported(
         "Trie index block offset or size exceeds the 32-bit encoding limit");
   }
+  if (has_unprepared_entry_) {
+    return Status::InvalidArgument(
+        "TrieIndexBuilder::FinishAddEntry called without a matching "
+        "PrepareAddEntry");
+  }
 
   // Every staged entry needs the seqno side-table so the post-seek
   // correction can disambiguate the last block and any same-user-key run,
@@ -311,8 +316,10 @@ void TrieIndexBuilder::FinishAddEntry(const BlockHandle& block_handle,
                                       bool /*skip_delta_encoding*/) {
   auto* p = static_cast_with_check<PreparedTrieEntry>(entry);
   if (!p->valid) {
-    // PrepareAddEntry didn't populate this slot (e.g., due to an upstream
-    // ParseInternalKey failure). Skip.
+    // Nothing was prepared into this entry, or it was already finished, so
+    // there is no separator for this data block. Skipping the block would make
+    // its keys unreachable through the index, so fail the build in Finish().
+    has_unprepared_entry_ = true;
     return;
   }
 

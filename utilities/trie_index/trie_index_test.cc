@@ -6172,31 +6172,48 @@ TEST_F(TrieIndexFactoryTest, ParallelEstimatedSizeStaysMonotonic) {
   }
 }
 
-TEST_F(TrieIndexFactoryTest, ParallelInvalidPreparedEntrySkipped) {
-  // FinishAddEntry must safely no-op when the prepared slot wasn't
-  // populated (e.g., the table builder failed an upstream
-  // ParseInternalKey). The trie's invariants must hold: subsequent
-  // Finish must succeed and produce a usable index.
+TEST_F(TrieIndexFactoryTest, ParallelFinishWithoutPrepareFailsBuild) {
+  // FinishAddEntry() on an entry that PrepareAddEntry() did not fill, or on
+  // one that was already finished, has no separator to commit for its data
+  // block. Skipping the block would leave its keys unreachable through the
+  // index while the SST build succeeds, so Finish() must fail instead.
   IndexFactoryOptions option;
   option.comparator = BytewiseComparator();
-  std::unique_ptr<IndexFactoryBuilder> builder;
-  ASSERT_OK(factory_->NewBuilder(option, builder));
-  const uint64_t empty_estimate = builder->EstimatedSize();
-
-  // Prepared entry never populated by PrepareAddEntry -- just default-
-  // constructed via CreatePreparedAddEntry.
-  auto unfilled = builder->CreatePreparedAddEntry();
-  IndexFactoryBuilder::BlockHandle h{0, 100};
   std::string scratch;
-  builder->FinishAddEntry(h, unfilled.get(), &scratch,
-                          /*skip_delta_encoding=*/false);
 
-  EXPECT_EQ(builder->EstimatedSize(), empty_estimate);
-  // No trie entries were committed; Finish should produce an empty index.
-  Slice contents;
-  ASSERT_OK(builder->Finish(&contents));
-  EXPECT_EQ(builder->EstimatedSize(), contents.size());
-  EXPECT_GE(empty_estimate, contents.size());
+  for (bool finish_twice : {false, true}) {
+    SCOPED_TRACE(finish_twice ? "entry finished twice"
+                              : "entry never prepared");
+    std::unique_ptr<IndexFactoryBuilder> builder;
+    ASSERT_OK(factory_->NewBuilder(option, builder));
+
+    // Block 0 holds keys up to "a".
+    auto first = builder->CreatePreparedAddEntry();
+    Slice next("b");
+    builder->PrepareAddEntry(Slice("a"), &next, EntryCtx(100, 90), first.get());
+    builder->FinishAddEntry({0, 100}, first.get(), &scratch,
+                            /*skip_delta_encoding=*/false);
+
+    // Block 1 (keys "b" and up) is committed without a prepared separator.
+    if (finish_twice) {
+      builder->FinishAddEntry({105, 100}, first.get(), &scratch,
+                              /*skip_delta_encoding=*/false);
+    } else {
+      auto unfilled = builder->CreatePreparedAddEntry();
+      builder->FinishAddEntry({105, 100}, unfilled.get(), &scratch,
+                              /*skip_delta_encoding=*/false);
+    }
+
+    // Block 2 is the last block, holding keys up to "c".
+    auto last = builder->CreatePreparedAddEntry();
+    builder->PrepareAddEntry(Slice("c"), nullptr, EntryCtx(80, 0), last.get());
+    builder->FinishAddEntry({210, 100}, last.get(), &scratch,
+                            /*skip_delta_encoding=*/false);
+
+    Slice contents;
+    Status s = builder->Finish(&contents);
+    ASSERT_EQ(s.code(), Status::Code::kInvalidArgument) << s.ToString();
+  }
 }
 
 }  // namespace trie_index

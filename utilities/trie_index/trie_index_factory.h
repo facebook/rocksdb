@@ -125,6 +125,9 @@ class TrieIndexBuilder final : public IndexFactoryBuilder {
   LoudsTrieBuilder trie_builder_;
   bool finished_;
   bool has_unsupported_handle_ = false;
+  // Set when FinishAddEntry receives an entry with nothing prepared in it, so
+  // Finish() fails instead of writing an index that omits that data block.
+  bool has_unprepared_entry_ = false;
 
   // Buffered separator entries: (separator_key, tag, handle).
   // The separator_key is the user-key-only separator computed by
@@ -166,7 +169,8 @@ class TrieIndexBuilder final : public IndexFactoryBuilder {
     // the previous buffered entry's separator (a check that depends on
     // buffer state and so must run during Finish).
     bool same_user_key_initial = false;
-    // Set by PrepareAddEntry; FinishAddEntry skips on false.
+    // Set by PrepareAddEntry and cleared by FinishAddEntry. Finishing an
+    // entry while this is false fails the build.
     bool valid = false;
   };
 };
