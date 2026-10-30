@@ -5055,6 +5055,10 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     std::vector<FileMetaData> out_files;
     // Output whose creation was announced to listeners but has not finished.
     std::string unfinished_out_fname;
+    // As for other compactions, the copy runs without the DB mutex. The inputs
+    // are protected by being compacted and referenced by the input version, and
+    // the new file numbers by pending_outputs_.
+    mutex_.Unlock();
     for (const auto& in_file : *c->inputs(0)) {
       const uint64_t out_file_number = versions_->NewFileNumber();
       const std::string in_fname =
@@ -5066,10 +5070,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
       // The output is a byte-for-byte copy of the input, so its table
       // properties are exactly the input's, including the SST unique ID.
-      // Loading them can read the input file, and listeners are called without
-      // the DB mutex.
       std::shared_ptr<const TableProperties> out_table_properties;
-      mutex_.Unlock();
       const TablePropertiesCollection& input_table_properties =
           c->GetOrInitInputTableProperties();
       auto input_table_properties_it = input_table_properties.find(in_fname);
@@ -5079,7 +5080,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       EventHelpers::NotifyTableFileCreationStarted(
           cfd->ioptions().listeners, dbname_, cfd->GetName(), out_fname,
           job_context->job_id, TableFileCreationReason::kCompaction);
-      mutex_.Lock();
       unfinished_out_fname = out_fname;
 
       int64_t tmp_current_time = 0;
@@ -5147,6 +5147,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       copy_files_compaction_io_options.io_activity =
           Env::IOActivity::kCompaction;
 
+      TEST_SYNC_POINT("DBImpl::BackgroundCompaction:TrivialCopyFile");
       IOStatus copy_file_io_status = CopyFile(
           immutable_db_options_.fs.get() /* fileSystem */,
           in_fname /* source */, in_file->temperature /* src_temp_hint */,
@@ -5232,7 +5233,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       if (out_table_properties) {
         c->SetOutputTableProperties(out_fname, out_table_properties);
       }
-      mutex_.Unlock();
       EventHelpers::LogAndNotifyTableFileCreationFinished(
           &event_logger_, cfd->ioptions().listeners, dbname_, cfd->GetName(),
           out_fname, job_context->job_id, out_file_metadata.fd,
@@ -5241,7 +5241,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           TableFileCreationReason::kCompaction, io_s,
           out_file_metadata.file_checksum,
           out_file_metadata.file_checksum_func_name);
-      mutex_.Lock();
       unfinished_out_fname.clear();
 
       out_files.push_back(std::move(out_file_metadata));
@@ -5249,15 +5248,14 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
     if (!unfinished_out_fname.empty()) {
       assert(!io_s.ok());
-      mutex_.Unlock();
       EventHelpers::LogAndNotifyTableFileCreationFinished(
           &event_logger_, cfd->ioptions().listeners, dbname_, cfd->GetName(),
           unfinished_out_fname, job_context->job_id, FileDescriptor(),
           kInvalidBlobFileNumber, TableProperties(),
           TableFileCreationReason::kCompaction, io_s, kUnknownFileChecksum,
           kUnknownFileChecksumFuncName);
-      mutex_.Lock();
     }
+    mutex_.Lock();
 
     // Update version set
     if (status.ok() && io_s.ok()) {
