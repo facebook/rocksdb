@@ -166,6 +166,31 @@ class DBCrashTestTest(unittest.TestCase):
             any(arg.startswith("--use_coro_db_api=") for arg in command)
         )
 
+    def test_wal_tailing_disables_reopen_and_preserves_ingestion(self):
+        db_crashtest = self.load_db_crashtest()
+        for tail_wal_updates in (0, 1):
+            with self.subTest(tail_wal_updates=tail_wal_updates):
+                params = self.build_params(
+                    db_crashtest.default_params,
+                    {
+                        "tail_wal_updates": tail_wal_updates,
+                        "reopen": 10,
+                        "disable_wal": 0,
+                        "sync_fault_injection": 0,
+                        "manual_wal_flush_one_in": 0,
+                        "enable_blob_direct_write": 0,
+                        "ingest_external_file_one_in": 100,
+                        "test_batches_snapshots": 0,
+                        "use_txn": 0,
+                        "user_timestamp_size": 0,
+                    },
+                )
+                command, finalized = db_crashtest.gen_cmd(params, [])
+                expected_reopen = 0 if tail_wal_updates else 10
+                self.assertEqual(expected_reopen, finalized["reopen"])
+                self.assertIn(f"--reopen={expected_reopen}", command)
+                self.assertEqual(100, finalized["ingest_external_file_one_in"])
+
     def test_stress_diagnostics_directory_creation_failure_is_non_fatal(self):
         db_crashtest = self.load_db_crashtest()
         diagnostics_path = os.path.join(

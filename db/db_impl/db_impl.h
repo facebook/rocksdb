@@ -3238,6 +3238,13 @@ class DBImpl : public DB
   // WALs with log number up to up_to are not synced successfully.
   void MarkLogsNotSynced(uint64_t up_to);
 
+  // A NextWalForTailFn that looks for the successor among the live WALs only.
+  // Bound into the WAL iterator by GetUpdatesSince() when
+  // DBOptions::wal_iterator_tail_rotations is enabled.
+  Status FindNextLiveWalForTail(uint64_t last_wal_number,
+                                std::unique_ptr<WalFile>* next_wal,
+                                SequenceNumber* first_seq);
+
   enum class SnapshotLockMode {
     kTryWithoutDBMutex,
     kDBMutexHeld,
