@@ -2867,6 +2867,9 @@ jtest_run:
 jtest: rocksdbjava
 	cd java;$(MAKE) sample test
 
+jffm_sample: rocksdbjava
+	cd java;$(MAKE) ffm_sample
+
 jpmd: rocksdbjavageneratepom
 	cd java;$(MAKE) java java_test pmd
 
