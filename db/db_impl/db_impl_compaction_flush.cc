@@ -1916,6 +1916,7 @@ Status DBImpl::CompactFilesImpl(
   ConfigureCompactionExecutors(&compaction_job, c->column_family_data(),
                                kManualCompactionCanceledFalse_, false,
                                separate_remote_pool);
+  c->SetUseSeparateRemoteCompactionPool(separate_remote_pool);
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -5536,6 +5537,9 @@ Status DBImpl::BackgroundCompaction(
 
   IOStatus io_s;
   bool compaction_released = false;
+  if (c) {
+    c->SetUseSeparateRemoteCompactionPool(separate_remote_pool);
+  }
   if (!c) {
     // Nothing to do
     ROCKS_LOG_BUFFER(log_buffer, "Compaction nothing to do");
@@ -6180,6 +6184,8 @@ void DBImpl::BuildCompactionJobInfo(
   compaction_job_info->aborted = st.IsCompactionAborted();
   compaction_job_info->thread_id = env_->GetThreadID();
   compaction_job_info->job_id = job_id;
+  compaction_job_info->use_separate_remote_compaction_pool =
+      c->use_separate_remote_compaction_pool();
   compaction_job_info->base_input_level = c->start_level();
   compaction_job_info->output_level = c->output_level();
   compaction_job_info->stats = compaction_job_stats;
