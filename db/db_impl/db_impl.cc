@@ -1103,11 +1103,12 @@ Status DBImpl::CloseHelper() {
   // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
   CancelAllBackgroundWork(false);
 
-  // Cancel manual compaction if there's any
-  if (HasPendingManualCompaction()) {
-    DisableManualCompaction();
-  }
   mutex_.Lock();
+  if (HasPendingManualCompaction()) {
+    mutex_.Unlock();
+    DisableManualCompaction();
+    mutex_.Lock();
+  }
   // Unschedule all tasks for this DB
   for (uint8_t i = 0; i < static_cast<uint8_t>(TaskType::kCount); i++) {
     env_->UnSchedule(GetTaskTag(i), Env::Priority::BOTTOM);

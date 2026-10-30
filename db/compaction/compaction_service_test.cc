@@ -4411,6 +4411,10 @@ class DedicatedCompactionPoolTest : public CompactionServiceTest {
     return dbfull()->LocalCompactionsScheduled();
   }
 
+  int ManualCompactionPauseCount() {
+    return dbfull()->manual_compaction_paused_.load();
+  }
+
   void WaitForRemotePoolIdle() {
     InstrumentedMutexLock lock(&dbfull()->mutex_);
     while (dbfull()->remote_compaction_pool_jobs_ != 0) {
@@ -5252,6 +5256,37 @@ TEST_P(RemoteCompactionRetryTest, RetryableErrorRetainsCreditDuringBackoff) {
 }
 
 INSTANTIATE_TEST_CASE_P(PoolGate, RemoteCompactionRetryTest, testing::Bool());
+
+TEST_F(DedicatedCompactionPoolTest, DisableManualCompactionPausesFutureWork) {
+  SetUpCompactions(LocalRouting::kRemote);
+  service_->Release();
+  EXPECT_EQ(ManualCompactionPauseCount(), 0);
+  db_->DisableManualCompaction();
+  EXPECT_EQ(ManualCompactionPauseCount(), 1);
+  EXPECT_TRUE(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr)
+                  .IsManualCompactionPaused());
+  db_->EnableManualCompaction();
+  EXPECT_EQ(ManualCompactionPauseCount(), 0);
+  EXPECT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+}
+
+TEST_F(DedicatedCompactionPoolTest, CloseWithoutManualWorkPreservesPauseCount) {
+  for (bool paused : {false, true}) {
+    SetUpCompactions(LocalRouting::kRemote);
+    if (paused) {
+      db_->DisableManualCompaction();
+    }
+    const int pause_count = ManualCompactionPauseCount();
+    for (auto handle : handles_) {
+      EXPECT_OK(db_->DestroyColumnFamilyHandle(handle));
+    }
+    handles_.clear();
+    ASSERT_OK(db_->Close());
+    EXPECT_EQ(ManualCompactionPauseCount(), pause_count);
+    ASSERT_OK(db_->Close());
+    EXPECT_EQ(ManualCompactionPauseCount(), pause_count);
+  }
+}
 
 TEST_F(DedicatedCompactionPoolTest, RemoteProgressWithBothLocalPoolsOccupied) {
   SetUpCompactions(LocalRouting::kRemote);

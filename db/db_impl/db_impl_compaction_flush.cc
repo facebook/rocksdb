@@ -6052,10 +6052,12 @@ Compaction* DBImpl::CreateIntendedCompactionForwardedToBottomPriorityPool(
 }
 
 bool DBImpl::HasPendingManualCompaction() {
+  mutex_.AssertHeld();
   return (!manual_compaction_dequeue_.empty());
 }
 
 bool DBImpl::HasPendingManualCompaction(ColumnFamilyData* cfd) {
+  mutex_.AssertHeld();
   return std::any_of(manual_compaction_dequeue_.begin(),
                      manual_compaction_dequeue_.end(),
                      [cfd](const ManualCompactionState* manual) {
