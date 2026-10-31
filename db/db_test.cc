@@ -8479,6 +8479,148 @@ TEST_P(OpenFilesAsyncTest, DropColumnFamily) {
   }
 }
 
+// format_version 8 stores a common user-key prefix once per block. With
+// ReverseBytewiseComparator, a key's user key can be a strict prefix of the
+// previous user key. If the next byte of the previous user key equals this
+// key's value-type byte, the two internal keys share more bytes than this
+// key's user key has. The block prefix must still not grow past this user
+// key, or seeks skip live keys. (Found by a Lean model of the block format.)
+TEST_F(DBTest, CommonPrefixReverseComparatorUserKeyIsPrefixOfPrevious) {
+  for (int fv : {7, 8}) {
+    SCOPED_TRACE("format_version=" + std::to_string(fv));
+    Options options = CurrentOptions();
+    options.comparator = ReverseBytewiseComparator();
+    BlockBasedTableOptions bbto;
+    bbto.format_version = fv;
+    bbto.optimize_key_common_prefix =
+        BlockBasedTableOptions::OptimizeKeyCommonPrefix::kIfFastSeek;
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    DestroyAndReopen(options);
+    // kTypeValue == 0x01, so the internal key of "ab" is "ab\x01<seq...>",
+    // which shares 3 bytes with the previous key "ab\x01".
+    ASSERT_OK(Put(std::string("ab\x01", 3), "v1"));
+    ASSERT_OK(Put("ab", "v2"));
+    ASSERT_OK(Flush());
+    EXPECT_EQ("v1", Get(std::string("ab\x01", 3)));
+    EXPECT_EQ("v2", Get("ab"));
+    std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+    it->Seek("ab");
+    ASSERT_OK(it->status());
+    ASSERT_TRUE(it->Valid());
+    EXPECT_EQ("ab", it->key().ToString());
+    EXPECT_EQ("v2", it->value().ToString());
+    it->SeekForPrev("ab");
+    ASSERT_OK(it->status());
+    ASSERT_TRUE(it->Valid());
+    EXPECT_EQ("ab", it->key().ToString());
+  }
+}
+
+// Same key shape with kTypeDeletion (0x00): a newer Delete of "ab" must not be
+// skipped by Get, or an older Put in a lower level comes back.
+TEST_F(DBTest, CommonPrefixReverseComparatorDeleteNotSkipped) {
+  Options options = CurrentOptions();
+  options.comparator = ReverseBytewiseComparator();
+  options.disable_auto_compactions = true;
+  BlockBasedTableOptions bbto;
+  bbto.format_version = 8;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("ab", "old"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+  ASSERT_OK(Put(std::string("ab\x00", 3), "x"));
+  ASSERT_OK(Delete("ab"));
+  ASSERT_OK(Flush());
+  EXPECT_EQ("NOT_FOUND", Get("ab"));
+  EXPECT_EQ("x", Get(std::string("ab\x00", 3)));
+}
+
+// Index block with sequence numbers (index_key_is_user_key == 0): the same
+// key shape in index entries must not give the index block a prefix longer
+// than an index entry's user key.
+TEST_F(DBTest, CommonPrefixReverseComparatorIndexWithSeq) {
+  Options options = CurrentOptions();
+  options.comparator = ReverseBytewiseComparator();
+  options.disable_auto_compactions = true;
+  options.compression = kNoCompression;
+  BlockBasedTableOptions bbto;
+  bbto.format_version = 8;
+  // One key per data block, so each key becomes an index entry.
+  bbto.block_size = 1;
+  // Keep index entries in one restart interval so they are delta encoded.
+  bbto.index_block_restart_interval = 16;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("ab", "v1"));
+  // Keep the older "ab" so two adjacent data blocks share the user key "ab",
+  // which forces index keys with sequence numbers.
+  const Snapshot* snap = db_->GetSnapshot();
+  ASSERT_OK(Put("ab", "v2"));
+  ASSERT_OK(Put(std::string("ab\x01", 3), "v3"));
+  ASSERT_OK(Flush());
+
+  TablePropertiesCollection props;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
+  ASSERT_EQ(1U, props.size());
+  ASSERT_EQ(0U, props.begin()->second->index_key_is_user_key);
+
+  EXPECT_EQ("v2", Get("ab"));
+  EXPECT_EQ("v1", Get("ab", snap));
+  EXPECT_EQ("v3", Get(std::string("ab\x01", 3)));
+  std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+  it->Seek("ab");
+  ASSERT_OK(it->status());
+  ASSERT_TRUE(it->Valid());
+  EXPECT_EQ("ab", it->key().ToString());
+  EXPECT_EQ("v2", it->value().ToString());
+  it.reset();
+  db_->ReleaseSnapshot(snap);
+}
+
+// The previous key does not have to be exactly one byte longer: it only has
+// to start with this user key followed by a byte equal to this key's value
+// type. Parent/child key layouts hit this: a parent key next to a child key
+// that is the parent plus a 0x00/0x01 separator (tuple or C-string fields),
+// or plus a big-endian integer.
+TEST_F(DBTest, CommonPrefixReverseComparatorParentChildKeys) {
+  struct KeyPair {
+    std::string parent;
+    std::string child;
+    bool delete_parent;
+  };
+  const std::vector<KeyPair> pairs = {
+      {"user42", std::string("user42\x01name", 11), false},
+      {"user42", std::string("user42\x00name", 11), true},
+      {std::string("k\x00\x00\x00", 4),
+       std::string("k\x00\x00\x00\x01\x00\x00\x00\x07", 9), false},
+  };
+  for (const auto& p : pairs) {
+    SCOPED_TRACE("parent size=" + std::to_string(p.parent.size()) +
+                 " delete_parent=" + std::to_string(p.delete_parent));
+    Options options = CurrentOptions();
+    options.comparator = ReverseBytewiseComparator();
+    options.disable_auto_compactions = true;
+    BlockBasedTableOptions bbto;
+    bbto.format_version = 8;
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    DestroyAndReopen(options);
+    if (p.delete_parent) {
+      ASSERT_OK(Put(p.parent, "old"));
+      ASSERT_OK(Flush());
+      MoveFilesToLevel(1);
+      ASSERT_OK(Put(p.child, "child"));
+      ASSERT_OK(Delete(p.parent));
+    } else {
+      ASSERT_OK(Put(p.child, "child"));
+      ASSERT_OK(Put(p.parent, "parent"));
+    }
+    ASSERT_OK(Flush());
+    EXPECT_EQ(p.delete_parent ? "NOT_FOUND" : "parent", Get(p.parent));
+    EXPECT_EQ("child", Get(p.child));
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
