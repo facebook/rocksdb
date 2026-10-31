@@ -1,0 +1,1 @@
+The experimental trie index factory takes `format_version=2` for a much smaller and faster index with no 4 GiB data-block offset limit. Format 1 remains the default, and earlier RocksDB versions cannot open SST files with format 2 trie indexes.

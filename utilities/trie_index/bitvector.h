@@ -472,6 +472,20 @@ class Bitvector {
     return num_bits_;
   }
 
+  // Calls fn(pos) for every set bit in increasing order, stopping at the
+  // first call that returns false. Returns false if a call did.
+  template <typename Fn>
+  bool ForEachSetBit(Fn fn) const {
+    for (uint64_t w = 0; w < num_words_; w++) {
+      for (uint64_t word = words_[w]; word != 0; word &= word - 1) {
+        if (!fn(w * 64 + CtzNonZero(word))) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
   // Find the distance from `pos` to the next set bit (exclusive).
   // Returns the distance in bits. Used by sparse level to compute node size.
   // pos must point to a set bit.
@@ -492,6 +506,16 @@ class Bitvector {
 
   // Build select hint arrays from the rank LUT. Called after BuildRankLUT().
   void BuildSelectHints();
+
+  // Calls fn(ones, k, sample) for every select hint: sample is the rank LUT
+  // index of the interval holding the (k * kOnesPerSelectHint)-th one bit
+  // (ones) or zero bit (!ones). Requires a correct rank LUT.
+  template <typename Fn>
+  void ForEachSelectHint(Fn fn) const;
+
+  // Checks that the rank LUT, num_ones_ and select hints read by
+  // InitFromData() match the bits, and that no bit past num_bits_ is set.
+  Status ValidateDerivedData() const;
 
   // Re-compute pointers into owned_data_ after a move operation.
   // Re-seats pointers into owned_data_ buffer.
