@@ -340,8 +340,9 @@ inline void BlockBuilder::AddWithLastKeyImpl(
   // in the common (stable-prefix) case, we exploit `shared` (bytes shared with
   // the previous key): a non-restart key that shares >= prefix_len bytes with
   // its predecessor still starts with the whole running prefix (keys are
-  // sorted), so the prefix can only shrink when shared < prefix_len, in which
-  // case the new prefix length is exactly `shared`. Restart entries have shared
+  // sorted), so the prefix can only shrink when shared < prefix_len or the
+  // key's user key is shorter than prefix_len, in which case the new prefix
+  // length is min(shared, user-key length). Restart entries have shared
   // forced to 0, so they are rechecked with a real comparison (cheap:
   // 1/restart_interval).
   if (use_common_prefix_) {
@@ -364,8 +365,19 @@ inline void BlockBuilder::AddWithLastKeyImpl(
       if (common < first_key_prefix_.size()) {
         first_key_prefix_.resize(common);
       }
-    } else if (shared < first_key_prefix_.size()) {
-      first_key_prefix_.resize(shared);
+    } else {
+      // `shared` counts bytes of the whole persisted key, so for an internal
+      // key it can reach past the end of this key's user key into its 8-byte
+      // footer. This happens when the user key is a strict prefix of the
+      // previous user key (possible with ReverseBytewiseComparator). The
+      // prefix must stay within every user key, so cap it at the user-key
+      // length.
+      const size_t uk_len =
+          key_to_persist.size() - (is_user_key_ ? 0 : kNumInternalBytes);
+      const size_t common = std::min<size_t>(shared, uk_len);
+      if (common < first_key_prefix_.size()) {
+        first_key_prefix_.resize(common);
+      }
     }
   }
 
