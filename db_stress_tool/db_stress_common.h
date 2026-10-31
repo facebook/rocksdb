@@ -197,6 +197,7 @@ DECLARE_int32(optimize_key_common_prefix);
 DECLARE_int32(index_block_search_type);
 DECLARE_double(uniform_cv_threshold);
 DECLARE_bool(use_trie_index);
+DECLARE_uint32(trie_index_format_version);
 DECLARE_bool(use_full_external_table);
 DECLARE_int32(index_mode);
 DECLARE_int32(read_index);

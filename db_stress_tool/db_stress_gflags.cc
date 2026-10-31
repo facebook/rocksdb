@@ -772,6 +772,11 @@ DEFINE_bool(use_trie_index, false,
             "and all iteration directions (forward and reverse). "
             "Combined with index_mode to control the UDI role.");
 
+DEFINE_uint32(trie_index_format_version, 1,
+              "TrieIndexFactory format_version for new SST files, when "
+              "use_trie_index is set. Existing SSTs of every format remain "
+              "readable.");
+
 DEFINE_int32(index_mode,
              static_cast<int32_t>(
                  ROCKSDB_NAMESPACE::BlockBasedTableOptions().index_mode),

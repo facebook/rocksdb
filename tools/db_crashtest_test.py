@@ -369,6 +369,16 @@ class DBCrashTestTest(unittest.TestCase):
             self.assertEqual(0, choose_tracking())
             self.assertEqual(1, choose_tracking())
 
+    def test_trie_index_format_version_is_randomized_per_invocation(self):
+        # Readers handle every format, so DBs may mix SSTs of both formats.
+        db_crashtest = self.load_db_crashtest()
+        choose_version = db_crashtest.default_params["trie_index_format_version"]
+
+        with mock.patch.object(db_crashtest.random, "choice", side_effect=min):
+            self.assertEqual(1, choose_version())
+        with mock.patch.object(db_crashtest.random, "choice", side_effect=max):
+            self.assertEqual(2, choose_version())
+
     def test_cf_lifecycle_profile_and_schedule(self):
         db_crashtest = self.load_db_crashtest()
         params = db_crashtest.gen_cmd_params(

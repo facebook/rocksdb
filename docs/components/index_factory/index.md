@@ -14,7 +14,7 @@ of, the built-in index selected by `BlockBasedTableOptions::index_type`.
 | Mode / read selection options | [`include/rocksdb/table.h`](../../../include/rocksdb/table.h), [`include/rocksdb/options.h`](../../../include/rocksdb/options.h) |
 | Built-in index adapter | `table/block_based/builtin_index_factory.{h,cc}` |
 | Reader wrapper | `table/block_based/user_defined_index_wrapper.h` |
-| Reference implementation | `utilities/trie_index/` (LOUDS trie, registered as `trie_index`) |
+| Reference implementation | `utilities/trie_index/` (trie index, registered as `trie_index`) |
 
 ## SPI shape
 
@@ -128,12 +128,32 @@ baking a degraded reader into a long-lived `Rep`.
 Custom factories cannot be combined with user-defined timestamps unless
 `kStandardOnly` ignores the factory.
 
-The trie format stores data-block offsets and sizes as 32-bit integers. A block
-with either field above `UINT32_MAX` makes construction return `NotSupported`,
-including in `kStandardDefault`, where trie construction is optional. This can
-fail flushes, compactions, or `SstFileWriter::Finish()`. Total SST size above
-4 GiB alone is not the rejection condition. File-size targets do not split L0
-outputs or `SstFileWriter` outputs; bound those outputs or use `kStandardOnly`.
+The trie index requires the bytewise comparator. `DB::Open` rejects any other
+comparator when the trie factory is configured.
+
+### Trie index formats
+
+`TrieIndexFactory` takes a `format_version` that selects the layout of the
+indexes it writes (`user_defined_index_factory={id=trie_index;format_version=2}`
+in an options string). Readers handle both formats, whichever one the factory
+writes, so a DB may hold SSTs of both.
+
+- **Format 1** (default) is a LOUDS-encoded succinct trie. It stores data-block
+  offsets and sizes as 32-bit integers: a block with either field above
+  `UINT32_MAX` makes construction return `NotSupported`, including in
+  `kStandardDefault`, where trie construction is optional. This can fail
+  flushes, compactions, or `SstFileWriter::Finish()`. Total SST size above
+  4 GiB alone is not the rejection condition. File-size targets do not split L0
+  outputs or `SstFileWriter` outputs; bound those outputs, use format 2, or use
+  `kStandardOnly`. Format 1 is host-byte-order and is supported only on
+  little-endian platforms.
+- **Format 2** is a path-compressed trie over front-coded buckets of
+  separators, with block handles in frame-of-reference columns (layout in
+  `utilities/trie_index/trie_v2.h`). It is smaller and faster to search, has no
+  4 GiB limit, and is portable across byte orders. Released RocksDB versions
+  without format 2 fail to open an SST with a format 2 index whenever the trie
+  factory is configured, in every index mode. Before downgrading, switch back
+  to format 1 and compact.
 
 ## Cache and memory accounting
 
@@ -148,8 +168,8 @@ outputs or `SstFileWriter` outputs; bound those outputs or use `kStandardOnly`.
   `IndexFactoryReader::ApproximateMemoryUsage()` reports only the reader's own
   allocations, excluding the serialized block. A reader whose estimate includes
   the block can override `MemoryUsageIncludesIndexBlock()` to return true; the
-  wrapper then subtracts the block size from that estimate. `TrieIndexReader`
-  reports just its auxiliary lookup tables.
+  wrapper then subtracts the block size from that estimate. The trie readers
+  report just their auxiliary lookup tables.
 
 ## Parallel compression
 
@@ -171,9 +191,11 @@ Recommended path: `kStandardDefault` -> `kStandardRequired` -> `kCustomDefault`
 -> `kCustomOnly`, compacting between steps so existing SSTs pick up the new
 layout.
 
-Rolling back from `kCustomDefault` or below is immediate: those files always
-carry a full standard index, so lowering `index_mode` sends reads back to it
-without waiting for compaction.
+Rolling back from `kCustomDefault` or below needs no rewrite: those files
+always carry a full standard index, so lowering `index_mode` sends reads back to
+it without waiting for compaction. A table reader fixes its routing when it
+opens the SST, so a `SetOptions()` change reaches only SSTs opened afterwards.
+Reopen the DB to reroute every file.
 
 `kCustomOnly` is effectively a one-way door. Those SSTs have no usable standard
 index, so before dropping the factory you must move to `kCustomDefault` and
@@ -216,6 +238,12 @@ it, the table builder) rejects:
 - `kCustomOnly` with `format_version < 6`;
 - `kCustomDefault` / `kCustomOnly` with no factory.
 
+`TrieIndexFactory::ValidateOptions()` also rejects, at `DB::Open`:
+
+- a comparator other than the bytewise comparator;
+- a `format_version` other than 1 or 2;
+- format 1 on a big-endian platform.
+
 ## Observability
 
 - `SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT` counts SSTs that could not use their
@@ -235,5 +263,5 @@ it, the table builder) rejects:
 | `builtin_index_factory_test` | the built-in index wrapped behind the SPI |
 | `trie_index_test`, `trie_index_db_test` | the reference trie implementation, all index modes, serial vs parallel byte-identity |
 | `block_fetcher_test` | custom index blocks counted as index blocks |
-| `db_stress` / `db_crashtest.py` | `--use_trie_index`, `--index_mode`, `--read_index` randomized per run |
-| `db_bench` | `--use_trie_index`, `--index_mode`, `--read_index` |
+| `db_stress` / `db_crashtest.py` | `--use_trie_index`, `--index_mode`, `--read_index`, `--trie_index_format_version` randomized per run |
+| `db_bench` | `--use_trie_index`, `--index_mode`, `--read_index`, `--trie_index_format_version` |

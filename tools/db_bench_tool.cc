@@ -775,6 +775,11 @@ DEFINE_bool(use_trie_index, false,
             "providing space reduction compared to the standard index. "
             "Requires BytewiseComparator.");
 
+DEFINE_uint32(trie_index_format_version, 1,
+              "TrieIndexFactory format_version for new SST files, used with "
+              "--use_trie_index. 1 is the original format; 2 is smaller and "
+              "faster to search, but unreadable by older RocksDB versions.");
+
 DEFINE_int32(index_mode,
              static_cast<int32_t>(
                  ROCKSDB_NAMESPACE::BlockBasedTableOptions().index_mode),
@@ -6267,7 +6272,8 @@ class Benchmark {
       block_based_options.index_mode =
           static_cast<BlockBasedTableOptions::IndexMode>(FLAGS_index_mode);
       if (FLAGS_use_trie_index) {
-        udi_factory_ = std::make_shared<trie_index::TrieIndexFactory>();
+        udi_factory_ = std::make_shared<trie_index::TrieIndexFactory>(
+            FLAGS_trie_index_format_version);
         block_based_options.user_defined_index_factory = udi_factory_;
       }
 

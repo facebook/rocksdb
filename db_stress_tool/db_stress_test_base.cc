@@ -5838,7 +5838,8 @@ void StressTest::Open(SharedState* shared, bool reopen) {
   assert(txn_db_ == nullptr);
   assert(optimistic_txn_db_ == nullptr);
   if (FLAGS_use_trie_index) {
-    udi_factory_ = std::make_shared<trie_index::TrieIndexFactory>();
+    udi_factory_ = std::make_shared<trie_index::TrieIndexFactory>(
+        FLAGS_trie_index_format_version);
   }
   if (!InitializeOptionsFromFile(options_)) {
     InitializeOptionsFromFlags(block_cache, filter_policy_, udi_factory_,

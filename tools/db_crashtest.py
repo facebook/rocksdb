@@ -433,6 +433,9 @@ default_params = {
     # Drawn above, together with index_mode.
     "use_trie_index": _USE_TRIE_INDEX,
     "index_mode": _INDEX_MODE,
+    # Format of trie indexes in new SSTs. Readers handle every format, so this
+    # changes between invocations and DBs mix SSTs of both formats.
+    "trie_index_format_version": lambda: random.choice([1, 2]),
     # ReadOptions::read_index: -1=auto (db_stress selects kPreferCustom when the
     # trie is the secondary index), 0=kDefault, 1=kBuiltin, 2=kPreferCustom.
     # finalize_and_sanitize() drops selectors the index mode cannot serve.
