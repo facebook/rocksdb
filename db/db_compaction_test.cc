@@ -6926,6 +6926,119 @@ TEST_F(DBCompactionTest, CompactRangeShutdownWhileDelayed) {
   }
 }
 
+TEST_F(DBCompactionTest, CompactRangeAtomicFlushOtherColumnFamilyDropped) {
+  Options options = CurrentOptions();
+  options.atomic_flush = true;
+  options.level0_stop_writes_trigger = 2;
+  options.level0_slowdown_writes_trigger = 2;
+  options.level0_file_num_compaction_trigger = -1;
+  for (bool drop_target : {false, true}) {
+    SCOPED_TRACE(drop_target);
+    DestroyAndReopen(options);
+    CreateAndReopenWithCF({"target", "obsolete"}, options);
+    test::SleepingBackgroundTask sleeping_task;
+    env_->SetBackgroundThreads(1, Env::LOW);
+    env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
+                   Env::LOW);
+    sleeping_task.WaitUntilSleeping();
+    ASSERT_OK(Put(2, "old", "value"));
+    ASSERT_OK(Flush(2));
+    ASSERT_OK(Put(2, "pending", "value"));
+    ASSERT_OK(Put(1, "key", "value"));
+
+    SyncPoint::GetInstance()->LoadDependency(
+        {{"DBImpl::WaitUntilFlushWouldNotStallWrites:StallWait",
+          "DBCompactionTest::AtomicFlushOtherColumnFamilyDropped:Drop"}});
+    SyncPoint::GetInstance()->EnableProcessing();
+    Status status;
+    port::Thread compact([&] {
+      status = db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                                 nullptr);
+    });
+    TEST_SYNC_POINT(
+        "DBCompactionTest::AtomicFlushOtherColumnFamilyDropped:Drop");
+    if (drop_target) {
+      ASSERT_OK(db_->DropColumnFamily(handles_[1]));
+    }
+    ASSERT_OK(db_->DropColumnFamily(handles_[2]));
+    sleeping_task.WakeUp();
+    compact.join();
+    if (drop_target) {
+      ASSERT_EQ(Status::kColumnFamilyDropped, status.code());
+    } else {
+      ASSERT_OK(status);
+      ASSERT_EQ("value", Get(1, "key"));
+      ASSERT_GT(TotalTableFiles(1), 0);
+      ASSERT_EQ(0, NumTableFilesAtLevel(0, 1));
+    }
+    SyncPoint::GetInstance()->DisableProcessing();
+  }
+}
+
+TEST_F(DBCompactionTest, CompactRangeAtomicFlushSelectedColumnFamilyDropped) {
+  // The target has nothing to flush, so the atomic flush selects only the
+  // other column family, which is dropped while the flush is pending.
+  Options options = CurrentOptions();
+  options.atomic_flush = true;
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"target", "obsolete"}, options);
+  ASSERT_OK(Put(2, "key", "value"));
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::AtomicFlushMemTables:BeforeWaitForBgFlush",
+        "DBCompactionTest::AtomicFlushSelectedColumnFamilyDropped:Drop"},
+       {"DBCompactionTest::AtomicFlushSelectedColumnFamilyDropped:Dropped",
+        "DBImpl::BackgroundCallFlush:start"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  CompactRangeOptions cro;
+  cro.allow_write_stall = true;
+  Status status;
+  port::Thread compact(
+      [&] { status = db_->CompactRange(cro, handles_[1], nullptr, nullptr); });
+  TEST_SYNC_POINT(
+      "DBCompactionTest::AtomicFlushSelectedColumnFamilyDropped:Drop");
+  ASSERT_OK(db_->DropColumnFamily(handles_[2]));
+  TEST_SYNC_POINT(
+      "DBCompactionTest::AtomicFlushSelectedColumnFamilyDropped:Dropped");
+  compact.join();
+  ASSERT_OK(status);
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBCompactionTest, WaitForCompactAtomicFlushOtherColumnFamilyDropped) {
+  // The flush waits for a write stall on another column family that is
+  // dropped during the wait. The live column family must still be flushed.
+  Options options = CurrentOptions();
+  options.atomic_flush = true;
+  options.level0_stop_writes_trigger = 2;
+  options.level0_slowdown_writes_trigger = 2;
+  options.level0_file_num_compaction_trigger = -1;
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"live", "obsolete"}, options);
+  ASSERT_OK(Put(2, "old", "value"));
+  ASSERT_OK(Flush(2));
+  ASSERT_OK(Put(2, "pending", "value"));
+  ASSERT_OK(Put(1, "key", "value"));
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::WaitUntilFlushWouldNotStallWrites:StallWait",
+        "DBCompactionTest::WaitForCompactOtherColumnFamilyDropped:Drop"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  Status status;
+  port::Thread wait([&] {
+    WaitForCompactOptions wait_for_compact_options;
+    wait_for_compact_options.flush = true;
+    status = db_->WaitForCompact(wait_for_compact_options);
+  });
+  TEST_SYNC_POINT(
+      "DBCompactionTest::WaitForCompactOtherColumnFamilyDropped:Drop");
+  ASSERT_OK(db_->DropColumnFamily(handles_[2]));
+  wait.join();
+  ASSERT_OK(status);
+  ASSERT_EQ(1, NumTableFilesAtLevel(0, 1));
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_F(DBCompactionTest, CompactRangeSkipFlushAfterDelay) {
   // Verify that, when `CompactRangeOptions::allow_write_stall == false`,
   // CompactRange skips its flush if the delay is long enough that the memtables

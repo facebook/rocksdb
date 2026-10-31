@@ -1338,6 +1338,9 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
     fo.allow_write_stall = options.allow_write_stall;
     if (immutable_db_options_.atomic_flush) {
       s = AtomicFlushMemTables(fo, FlushReason::kManualCompaction);
+      if (s.ok() && cfd->IsDropped()) {
+        s = Status::ColumnFamilyDropped();
+      }
     } else {
       s = FlushMemTable(cfd, fo, FlushReason::kManualCompaction);
     }
@@ -2353,9 +2356,6 @@ Status DBImpl::FlushAllColumnFamilies(const FlushOptions& flush_options,
     TEST_SYNC_POINT(
         "DBImpl::FlushAllColumnFamilies:BeforeAtomicFlushMemTables");
     status = AtomicFlushMemTables(flush_options, flush_reason);
-    if (status.IsColumnFamilyDropped()) {
-      status = Status::OK();
-    }
     mutex_.Lock();
   } else {
     for (auto cfd : versions_->GetRefedColumnFamilySet()) {
@@ -3041,7 +3041,10 @@ Status DBImpl::AtomicFlushMemTablesImpl(
     for (auto cfd : candidate_cfds) {
       bool flush_needed = true;
       s = WaitUntilFlushWouldNotStallWrites(cfd, &flush_needed);
-      if (!s.ok()) {
+      if (s.IsColumnFamilyDropped() && provided_candidate_cfds.empty()) {
+        // A generated candidate dropped while waiting has nothing to flush.
+        s = Status::OK();
+      } else if (!s.ok()) {
         unref_generated_candidates();
         return s;
       } else if (flush_needed) {
@@ -3178,6 +3181,11 @@ Status DBImpl::AtomicFlushMemTablesImpl(
         cfds, flush_memtable_ids,
         flush_reason == FlushReason::kErrorRecovery /* resuming_from_bg_err */,
         flush_reason, flush_options.listener_wait);
+    if (s.IsColumnFamilyDropped() && provided_candidate_cfds.empty()) {
+      // Every selected CF was dropped. Generated candidates that were not
+      // selected had nothing to flush.
+      s = Status::OK();
+    }
     InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* cfd : cfds) {
       cfd->UnrefAndTryDelete();
